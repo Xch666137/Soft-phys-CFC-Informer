@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
-from data_loader.data_factory import VPPDataset
+from data_loader.data_factory import PhysFormerDataset
 from models.src.models.PhysFormer.model import PhysFormer
 from models.src.utils.losses import VPPDomainLoss
 from models.src.utils.metrics import metric
@@ -90,7 +90,7 @@ class Exp_PhysFormer:
 
     def _get_data(self, flag):
         # 数据加载逻辑与原版完全一致
-        data_set = VPPDataset(
+        data_set = PhysFormerDataset(
             root_path=self.args.root_path,
             data_path=self.args.data_path,
             flag=flag,
@@ -289,11 +289,12 @@ class Exp_PhysFormer:
                       leave=False,
                       ncols=100) as pbar:
 
-                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
                     model_optim.zero_grad()
 
                     # 1. 数据转移
-                    batch_x = batch_x.float().to(self.device)
+                    batch_stat = batch_stat.float().to(self.device)
+                    batch_phys = batch_phys.float().to(self.device)  # 新增
                     batch_y = batch_y.float().to(self.device)
                     batch_x_mark = batch_x_mark.float().to(self.device)
                     batch_y_mark = batch_y_mark.float().to(self.device)
@@ -307,7 +308,7 @@ class Exp_PhysFormer:
                     # Forward
                     with torch.cuda.amp.autocast(enabled=self.args.use_amp):
                         # Forward
-                        outputs= self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                        outputs= self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
                         batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
 
                         # 1. 计算主 Loss (包含 VPP Domain Constraints)
@@ -398,8 +399,9 @@ class Exp_PhysFormer:
         total_metrics = {'mae': [], 'bound': [], 'ramp': [], 'energy': []}
 
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
-                batch_x = batch_x.float().to(self.device)
+            for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
+                batch_stat = batch_stat.float().to(self.device)
+                batch_phys = batch_phys.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
@@ -410,7 +412,7 @@ class Exp_PhysFormer:
 
                 with torch.cuda.amp.autocast(enabled=self.args.use_amp):
                     # Forward
-                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                    outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
                     batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
 
                     # Loss 计算 (注意这里解包 tuple)
@@ -451,8 +453,9 @@ class Exp_PhysFormer:
         criterion = VPPDomainLoss(device=self.device)
 
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
-                batch_x = batch_x.float().to(self.device)
+            for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+                batch_stat = batch_stat.float().to(self.device)
+                batch_phys = batch_phys.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
@@ -462,7 +465,7 @@ class Exp_PhysFormer:
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 with torch.cuda.amp.autocast(enabled=self.args.use_amp):
-                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                    outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
                     batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
 
                     # 计算物理指标
