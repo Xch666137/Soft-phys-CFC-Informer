@@ -60,6 +60,8 @@ def main():
     parser.add_argument('--use_rope', default=True, action='store_true', help='use rotary position encoding')
     parser.add_argument('--rope_base', default=10000, type=int, help='rope base freq')
     parser.add_argument('--freq', default='t', type=str, help='freq for time features encoding')
+    parser.add_argument('--stride', type=int, default=2, help='stride for CFC')
+
 
     # 训练配置
     parser.add_argument('--batch_size', type=int, default=64, help='batch size of train input data')

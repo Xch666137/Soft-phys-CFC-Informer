@@ -83,7 +83,8 @@ class Exp_PhysFormer:
             mix=self.args.mix,
             device=self.device,
             use_rope=self.args.use_rope,
-            rope_base=self.args.rope_base
+            rope_base=self.args.rope_base,
+            stride=self.args.stride
         )
 
         return model
