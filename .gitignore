@@ -1,0 +1,36 @@
+### --- 数据与模型 (你指定的需求) ---
+*.pth
+*.pt
+*.pkl
+*.npy
+*.npz
+
+### --- 数据集与日志 ---
+# 排除所有数据集文件夹（建议将数据放在名为 data 的目录下）
+data/
+# 排除训练产生的日志（如 Tensorboard）
+runs/
+logs/
+*.log
+
+### --- Python 缓存与环境 ---
+__pycache__/
+*.py[cod]
+*$py.class
+# 虚拟环境目录
+venv/
+.venv/
+env/
+dist/
+build/
+
+### --- PyCharm & 系统文件 ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+### --- 其他可能的大文件 ---
+*.zip
+*.tar.gz
+*.rar
