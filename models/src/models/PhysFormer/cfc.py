@@ -67,39 +67,51 @@ class CfcCell(nn.Module):
 
 class CfcBlock(nn.Module):
     """
-    CFC Block V2:
-    集成 Stride(时间降维) + Bottleneck(特征降维) + Gated Fusion(门控融合)
+    CFC Block V3 (PhysFormer Optimized):
+    集成 Stride(时间降维) + Bottleneck(特征降维) + Transposed Upsample(可学习上采样)
     """
 
-    def __init__(self, d_model, d_ff, d_phys=32, dropout=0.1, stride=4):
-        # 新增 d_phys 参数，默认设为 64 或 32，远小于 d_model(512)
+    def __init__(self, d_model, d_ff, d_phys=32, dropout=0.1, stride=2):
         super(CfcBlock, self).__init__()
         self.d_model = d_model
-        self.d_phys = d_phys  # 物理核心状态维度
+        self.d_phys = d_phys
         self.stride = stride
 
         # --- 1. 降维投影 (Bottleneck Down) ---
-        # 将高维统计特征压缩为低维物理状态 [512 -> 64]
+        # [512 -> 64]
         self.down_project = nn.Linear(d_model, d_phys)
 
         # --- 2. CfC 核心层 (在低维 d_phys 上运行) ---
-        # 这里的 input_size 和 hidden_size 都是 d_phys
         self.x_backbone = nn.Linear(d_phys, d_phys)
         self.h_backbone = nn.Linear(d_phys, d_phys)
-
         self.x_time_a = nn.Linear(d_phys, d_phys)
         self.h_time_a = nn.Linear(d_phys, d_phys)
-
         self.x_time_b = nn.Linear(d_phys, d_phys)
         self.h_time_b = nn.Linear(d_phys, d_phys)
 
-        # --- 3. 升维投影 (Bottleneck Up) ---
-        # 将物理演化结果恢复回高维 [64 -> 512]
+        # --- [关键修改] 3. 可学习上采样 (Learnable Upsampling) ---
+        if self.stride > 1:
+            # Transposed Conv1d: [In_C, Out_C, Kernel, Stride]
+            # Kernel=Stride 且 Stride=Stride 意味着无重叠的“块状”放大，就像铺瓷砖
+            # 这样能最好地还原时序结构
+            self.upsample_layer = nn.ConvTranspose1d(
+                in_channels=d_phys,
+                out_channels=d_phys,
+                kernel_size=stride,
+                stride=stride,
+                padding=0,
+                output_padding=0
+            )
+            # 初始化建议：Xavier Uniform 有助于打破初始对称性
+            nn.init.xavier_uniform_(self.upsample_layer.weight)
+            if self.upsample_layer.bias is not None:
+                nn.init.constant_(self.upsample_layer.bias, 0)
+
+        # --- 4. 升维投影 (Bottleneck Up) ---
+        # [64 -> 512]
         self.up_project = nn.Linear(d_phys, d_model)
 
-        # --- 4. 自适应门控 (Adaptive Gating) ---
-        # 决定多少信息来自物理层，多少来自原始统计特征
-        # 输入是 [Original(512) + Physics(512)] -> 输出 [Mask(512)]
+        # --- 5. 自适应门控 (Adaptive Gating) ---
         self.gate_net = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
             nn.Sigmoid()
@@ -108,40 +120,35 @@ class CfcBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(d_model)
 
-        # 初始化gate的权重，让其初始为0(little tips)
-        nn.init.constant_(self.gate_net[0].bias, -3.0)
+        # 初始化 gate 偏置，使其初始倾向于保留原始特征 (Bias < 0)
+        nn.init.constant_(self.gate_net[0].bias, -2.0)
 
     def forward(self, x):
-        # x: [Batch, Seq_Len, D_model] (例如: B, 672, 512)
+        # x: [Batch, Seq_Len, d_model]
         b, s, d = x.shape
-
-        # 保存原始输入用于残差/门控
         residual = x
 
-        # --- Step 1: 降维 (Feature Compression) ---
-        # [B, S, 512] -> [B, S, 64]
-        # 这一步极大减少了后续 ODE 的参数量
+        # 1. 特征降维 [B, S, 512] -> [B, S, 64]
         x_phys = self.down_project(x)
 
-        # --- Step 2: 时间步长降采样 (Time Downsampling - 你的逻辑) ---
+        # 2. 时间下采样 (Stride)
         if self.stride > 1:
-            # [B, S, 64] -> [B, S/4, 64]
+            # 简单的切片下采样
             x_input = x_phys[:, ::self.stride, :]
             effective_timespan = float(self.stride)
         else:
             x_input = x_phys
             effective_timespan = 1.0
 
-        # --- Step 3: CfC 预计算 ---
-        # 计算量从 (512^2 * S) 降低到了 (64^2 * S/4) -> 理论加速约 256倍
+        # 3. CfC 预计算
         x_ff1_seq = self.x_backbone(x_input)
         x_ta_seq = self.x_time_a(x_input)
         x_tb_seq = self.x_time_b(x_input)
 
-        # 初始化隐藏状态 (注意维度是 d_phys)
         h_init = torch.zeros(b, self.d_phys, device=x.device, dtype=x.dtype)
 
-        # --- Step 4: JIT 循环 ---
+        # 4. JIT 循环求解 ODE
+        # output_short: [Batch, S_short, d_phys]
         output_short = cfc_rnn_scan(
             x_ff1_seq, x_ta_seq, x_tb_seq,
             h_init,
@@ -151,27 +158,40 @@ class CfcBlock(nn.Module):
             effective_timespan
         )
 
-        # --- Step 5: 上采样恢复 (Upsample) ---
+        # --- [关键修改] 5. 转置卷积上采样 ---
         if self.stride > 1:
-            output_short = output_short.permute(0, 2, 1)  # [B, 64, S_short]
-            output_phys_low = F.interpolate(
-                output_short, size=s, mode='linear', align_corners=False
-            )  # [B, 64, S]
-            output_phys_low = output_phys_low.permute(0, 2, 1)  # [B, S, 64]
+            # ConvTranspose1d 需要输入维度为 [Batch, Channels, Length]
+            # Permute: [B, S_short, C] -> [B, C, S_short]
+            feat_in = output_short.permute(0, 2, 1)
+
+            # 执行上采样 -> [B, C, S_upsampled]
+            feat_out = self.upsample_layer(feat_in)
+
+            # Permute back: [B, S_upsampled, C]
+            output_phys_upsampled = feat_out.permute(0, 2, 1)
+
+            # 安全截断/补全：处理整除带来的长度微小差异
+            # 比如 seq_len=97, stride=2, down=48, up=96 -> 少1个
+            # 或者 seq_len=96, stride=2, down=48, up=96 -> 刚好
+            curr_len = output_phys_upsampled.shape[1]
+            if curr_len > s:
+                # 如果长了，截断
+                output_phys_low = output_phys_upsampled[:, :s, :]
+            elif curr_len < s:
+                # 如果短了，补零 (极少情况)
+                pad_len = s - curr_len
+                output_phys_low = F.pad(output_phys_upsampled, (0, 0, 0, pad_len))
+            else:
+                output_phys_low = output_phys_upsampled
         else:
             output_phys_low = output_short
 
-        # --- Step 6: 升维 (Feature Expansion) ---
-        # [B, S, 64] -> [B, S, 512]
+        # 6. 特征升维 [B, S, 64] -> [B, S, 512]
         x_phys_evolved = self.up_project(output_phys_low)
 
-        # --- Step 7: 门控融合 (Gated Fusion) ---
-        # 这一步是关键：不要直接替换，而是融合
+        # 7. 门控融合
         concat_feat = torch.cat([residual, x_phys_evolved], dim=-1)
-        gate = self.gate_net(concat_feat)  # [B, S, 512] 值为 0~1
-
-        # 融合公式: Gate * Physics + (1-Gate) * Original
-        # 这样模型可以自己学会：什么时候该听物理的，什么时候该听统计的
+        gate = self.gate_net(concat_feat)
         final_out = gate * x_phys_evolved + (1.0 - gate) * residual
 
         return self.norm(self.dropout(final_out))

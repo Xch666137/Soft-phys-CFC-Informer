@@ -237,3 +237,61 @@ class VPPDataset(Dataset):
             data_rescaled = data_rescaled.reshape(original_shape[0], original_shape[1], original_shape[2])
 
         return data_rescaled
+
+
+# data_loader/data_factory.py 中的新增代码
+
+class PhysFormerDataset(VPPDataset):
+    """
+    PhysFormer 专用数据集
+    输出解耦后的双流数据：
+    1. x_stat (统计流): [Load, PV, Wind] -> 关注历史惯性
+    2. x_phys (物理流): [Temp, Irr, Speed, ΔLoad, ΔPV, ΔWind] -> 关注驱动力与变化率
+    """
+
+    def __getitem__(self, index):
+        s_begin = index
+        s_end = s_begin + self.seq_len
+        r_begin = s_end - self.label_len
+        r_end = r_begin + self.label_len + self.pred_len
+
+        # 1. 原始切片 [Seq, 6]
+        # (假设列顺序: 0:Load, 1:PV, 2:Wind, 3:Temp, 4:Irr, 5:Speed)
+        seq_raw = self.data_x[s_begin:s_end]
+        seq_y = self.data_y[r_begin:r_end]
+
+        seq_x_mark = self.data_stamp[s_begin:s_end]
+        seq_y_mark = self.data_stamp[r_begin:r_end]
+
+        # 2. 构建统计流输入 (Stat Stream) -> [Seq, 3]
+        # 只取前3列功率数据
+        seq_stat = seq_raw[:, 0:3]
+
+        # 3. 构建物理流输入 (Phys Stream) -> [Seq, 6]
+        # Part A: 气象驱动 (Temp, Irr, Speed)
+        seq_weather = seq_raw[:, 3:6]
+
+        # Part B: 动力学差分 (ΔPower)
+        # 注意：这里需要往回多取一个点来计算第一个时刻的差分，或者简单地补0
+        # 简单处理：内部计算差分，第一位补0
+        seq_power = seq_raw[:, 0:3]
+        seq_diff = np.zeros_like(seq_power)
+        seq_diff[1:, :] = seq_power[1:, :] - seq_power[:-1, :]
+        seq_diff[0, :] = 0  # 保持第一帧稳定
+
+        # 物理流拼接: [Weather(3), Diff(3)]
+        seq_phys = np.concatenate([seq_weather, seq_diff], axis=1)
+
+        # 4. 定向噪声注入 (Physics Augmentation) - 仅在训练时
+        if self.set_type == 0 and self.noise_level > 0:
+            # 方案：只给“天气预测”加噪声，模拟气象预报的不确定性
+            # 不给“历史功率”加噪声，因为那是已知事实
+            noise = np.random.normal(0, self.noise_level, seq_weather.shape)
+            seq_phys[:, 0:3] += noise
+
+            # 返回修改后的 Tuple结构: (stat, phys, y, x_mark, y_mark)
+        return (torch.tensor(seq_stat, dtype=torch.float32),
+                torch.tensor(seq_phys, dtype=torch.float32),
+                torch.tensor(seq_y, dtype=torch.float32),
+                torch.tensor(seq_x_mark, dtype=torch.float32),
+                torch.tensor(seq_y_mark, dtype=torch.float32))

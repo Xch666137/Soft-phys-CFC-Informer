@@ -32,15 +32,32 @@ class PhysFormer(nn.Module):
         self.seq_len = seq_len
         self.output_attention = output_attention
 
-        # --- 1. Embedding 层 ---
-        self.enc_embedding = DataEmbedding(
-            c_in=enc_in,
+        # --- 1. 双流 Embedding 层 ---
+
+        # A. 统计流 Embedding (Stat Stream)
+        # 输入: [Load, PV, Wind] -> c_in=3
+        # 作用: 包含 Token(Value) + Position + Temporal(Time)
+        self.stat_embedding = DataEmbedding(
+            c_in=3,  # <--- 固定为3 (Load, PV, Wind)
             d_model=d_model,
             embed_type=embed,
             freq=freq,
             dropout=dropout
         )
 
+        # B. 物理流 Embedding (Phys Stream)
+        # 输入: [Temp, Irr, Speed, ΔLoad, ΔPV, ΔWind] -> c_in=6
+        # 作用: 包含 Token(Value) + Position + Temporal(Time)
+        # 注：给物理流加上时间嵌入也有助于它学习日照规律
+        self.phys_embedding = DataEmbedding(
+            c_in=6,  # <--- 固定为6 (3 Weather + 3 Diff)
+            d_model=d_model,
+            embed_type=embed,
+            freq=freq,
+            dropout=dropout
+        )
+
+        # C. Decoder Embedding (保持不变)
         self.dec_embedding = DataEmbedding(
             c_in=dec_in,
             d_model=d_model,
@@ -71,7 +88,7 @@ class PhysFormer(nn.Module):
             d_model, d_ff,
             d_phys=64,
             dropout=dropout,
-            stride=2
+            stride=1
         )
 
 
@@ -129,26 +146,33 @@ class PhysFormer(nn.Module):
         # 初始化权重
         self.apply(self._init_weights)
 
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec,
+    def forward(self, x_stat, x_phys, x_mark_enc, x_dec, x_mark_dec,
                 enc_mask=None, dec_mask=None):
+        """
+        x_stat: [Batch, Seq, 3]  (Load, PV, Wind)
+        x_phys: [Batch, Seq, 6]  (Weather + Diff)
+        x_mark_enc: [Batch, Seq, 4/8] (Time Features)
+        """
 
-        # --- Step 1: Embedding (共享) [B, S, D] ---
-        enc_base = self.enc_embedding(x_enc, x_mark_enc)
+        # --- Step 1: Embedding (解耦) ---
+
+        # 统计流: 加上了位置编码和时间特征 [B, S, 3] -> [B, S, D]
+        enc_out_stat = self.stat_embedding(x_stat, x_mark_enc)
+
+        # 物理流: 同样加上位置和时间 [B, S, 6] -> [B, S, D]
+        # (时间特征 x_mark_enc 是共享的，这很合理)
+        enc_out_phys_base = self.phys_embedding(x_phys, x_mark_enc)
 
         # --- Step 2: 双流并行处理 (Dual-Stream) ---
         # Path A: 统计流 (Informer Encoder)
         # 负责提取长程依赖、周期性模式
-        enc_out_stat = self.encoder(enc_base, mask=enc_mask)
+        enc_out_stat = self.encoder(enc_out_stat, mask=enc_mask)
 
         # Path B: 物理流 (Optimized CFC)
-        # 负责提取连续时间动力学、平滑突变
-        # 因为 CfC 内部有 Gate，它会自动决定保留多少原始信息，所以直接传 enc_base 没问题
-        enc_out_phys = self.physics_adapter(enc_base)
-
+        # 负责提取连续时间动力学
+        enc_out_phys = self.physics_adapter(enc_out_phys_base)
 
         # --- Step 3: 特征融合 (Fusion) ---
-        # 将 "统计特征" 和 "物理特征" 结合
-        # [B, S, D] + [B, S, D] -> [B, S, 2D] -> [B, S, D]
         if enc_out_stat.shape[1] != enc_out_phys.shape[1]:
             enc_out_phys_aligned = enc_out_phys.permute(0, 2, 1)
             enc_out_phys_aligned = F.interpolate(
