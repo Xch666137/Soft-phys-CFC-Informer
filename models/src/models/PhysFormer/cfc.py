@@ -120,8 +120,12 @@ class CfcBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(d_model)
 
-        # 初始化 gate 偏置，使其初始倾向于保留原始特征 (Bias < 0)
-        nn.init.constant_(self.gate_net[0].bias, -2.0)
+        # 选项 1: 中立策略 (0.5 vs 0.5)
+        # nn.init.constant_(self.gate_net[0].bias, 0.0)
+
+        # 选项 2 (推荐): 激进策略 (倾向于物理流)
+        # 强迫模型在初期必须关注物理流，防止"赢家通吃"效应
+        nn.init.constant_(self.gate_net[0].bias, 1.0)       # Sigmoid(1.0) ≈ 0.73
 
     def forward(self, x):
         # x: [Batch, Seq_Len, d_model]

@@ -213,14 +213,15 @@ class Exp_PhysFormer:
         criterion = self._select_criterion()
 
         # 定义目标权重 (超参数)
-        TARGET_BOUND = 1.0          # 边界惩罚
-        TARGET_RAMP = 0.5           # 爬坡惩罚
-        TARGET_ENERGY = 1.5         # 能量惩罚
-        LAMBDA_INERTIA = 1e-4       # 惯量正则化系数
+        TARGET_DERIV = self.args.w_deriv
+        TARGET_ENERGY = self.args.w_energy
+        TARGET_BOUND = self.args.w_bound
+        TARGET_RAMP = self.args.w_ramp
+        TARGET_INERTIA = self.args.w_inertia
 
         # --- 阶段锚点 ---
-        EPOCH_START_RAMP = 10  # 爬坡约束从第10轮（LR第一次重启）开始
-        EPOCH_FULL_LOCK = 50  # 拉长战线到第50轮（覆盖了两次重启）
+        EPOCH_WARMUP = self.args.p_epoch_warmup     # Phase 1 End (Default: 10)
+        EPOCH_LOCK = self.args.p_epoch_lock      # Phase 2 End (Default: 30)
 
         # 4. 早停机制 (监控 物理MAE)
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True, logger=self.logger)
@@ -230,55 +231,80 @@ class Exp_PhysFormer:
         for epoch in range(self.args.train_epochs):
 
             # ============================================================
-            #   组合策略核心：动态权重计算
+            # 参数化分阶段策略 (Three-Phase Strategy)
             # ============================================================
 
-            # 1. 能量约束 (Energy): 全程开启，早期较弱，后期强力
-            # 逻辑：Epoch 0 就介入，防止模型学偏
-            if epoch < EPOCH_FULL_LOCK:
-                # 从 0.1 线性增长到 1.5
-                # 基础值 0.1 保证一开始就有 Bias 惩罚
-                progress_energy = epoch / EPOCH_FULL_LOCK
-                cur_energy = 0.1 + (TARGET_ENERGY - 0.1) * progress_energy
+            # 初始化当前权重
+            cur_deriv = 0.0
+            cur_energy = 0.0
+            cur_bound = 0.0
+            cur_ramp = 0.0
+            cur_inertia = 0.0
+            phase = ""
+
+            # --- Phase 1: 自由重塑期 (0 ~ WARMUP) ---
+            # 策略：高导数权重，低物理约束。让模型先学会"画波形"。
+            if epoch < EPOCH_WARMUP:
+                phase = "Phase 1: Shape Learning (Derivative Focus)"
+                progress = epoch / EPOCH_WARMUP
+
+                # 导数权重：快速上升，强迫模型拟合趋势
+                # (从 0.5 开始，快速升到 Target)
+                cur_deriv = 0.5 + (TARGET_DERIV - 0.5) * progress
+
+                # 能量：给一点点，防止飘太远
+                cur_energy = 0.1 * progress
+
+                # 初期不加惯性约束，允许 CfC 大幅调整时间常数
+                cur_inertia = 0.0
+
+                # 边界/爬坡：先不管，避免阻碍波形学习
+                cur_bound = 0.0
+                cur_ramp = 0.0
+
+            # --- Phase 2: 物理注入期 (WARMUP ~ LOCK) ---
+            # 策略：保持波形约束，线性注入硬约束。
+            elif epoch < EPOCH_LOCK:
+                phase = "Phase 2: Physics Injection (Annealing)"
+                # 计算当前阶段的进度 (0.0 -> 1.0)
+                progress = (epoch - EPOCH_WARMUP) / (EPOCH_LOCK - EPOCH_WARMUP)
+
+                # 导数：保持高位，锁定波形
+                cur_deriv = TARGET_DERIV
+
+                # 能量：线性增长到目标 (0.1 -> Target)
+                cur_energy = 0.1 + (TARGET_ENERGY - 0.1) * progress
+
+                # 边界：线性增长 (0.0 -> Target)
+                cur_bound = TARGET_BOUND * progress
+
+                # 爬坡：线性增长 (0.0 -> Target)，注意 Target 设小一点(0.1)作为熔断
+                cur_ramp = TARGET_RAMP * progress
+
+                # 线性增加惯性约束，平滑动力学
+                cur_inertia = TARGET_INERTIA * progress
+
+            # --- Phase 3: 物理锁定期 (LOCK ~ END) ---
+            # 策略：全约束生效，模型微调。
             else:
+                phase = "Phase 3: Physical Locking & Fine-tuning"
+                cur_deriv = TARGET_DERIV
                 cur_energy = TARGET_ENERGY
-
-            # 2. 爬坡与边界 (Ramp/Bound): 延迟介入，跟随 LR 重启节奏
-            if epoch < EPOCH_START_RAMP:
-                # Phase 1: 自由学习 (Epoch 0-10)
-                # 让模型先抓主要矛盾，不要被细节吓到
-                cur_bound = 0
-                cur_ramp = 0
-                cur_inertia = 0
-                phase = "Phase 1: Free Learning (Energy Bias Fix)"
-
-            elif epoch < EPOCH_FULL_LOCK:
-                # Phase 2: 柔性注入 (Epoch 10-50)
-                # 跨越了 LR 的两个高位区 (Epoch 10 和 30)
-                progress_ramp = (epoch - EPOCH_START_RAMP) / (EPOCH_FULL_LOCK - EPOCH_START_RAMP)
-
-                cur_bound = TARGET_BOUND * progress_ramp
-                cur_ramp = TARGET_RAMP * progress_ramp
-                cur_inertia = LAMBDA_INERTIA * progress_ramp
-                phase = "Phase 2: Physics Injection (Sync with Restart)"
-
-            else:
-                # Phase 3: 物理锁定 (Epoch 50+)
                 cur_bound = TARGET_BOUND
                 cur_ramp = TARGET_RAMP
-                cur_inertia = LAMBDA_INERTIA
-                phase = "Phase 3: Physical Locking & Fine-tuning"
+                cur_inertia = TARGET_INERTIA
 
             # 更新 Loss 参数
             criterion.alpha_bound = cur_bound
             criterion.alpha_ramp = cur_ramp
             criterion.alpha_energy = cur_energy
+            criterion.alpha_deriv = cur_deriv           # [重要] 确保 criterion 有这个属性
 
             # 日志打印
             current_lr = model_optim.param_groups[0]['lr']
             self.logger.info(f"\nEpoch {epoch + 1} [{phase}] | LR: {current_lr:.6f}")
-            self.logger.info(f"Weights -> Energy:{cur_energy:.2f} | Ramp:{cur_ramp:.2f} | Bound:{cur_bound:.2f}")
-
+            self.logger.info(f"Weights -> Deriv:{cur_deriv:.2f} | Energy:{cur_energy:.2f} | "
+                             f"Bound:{cur_bound:.2f} | Ramp:{cur_ramp:.2f} | Inertia:{cur_inertia:.5f}")
             self.model.train()
             train_loss_log = []
             phys_loss_log = {'bound': [], 'ramp': [], 'energy': []}
@@ -360,7 +386,7 @@ class Exp_PhysFormer:
             # ============================================================
 
             # 1. 在物理注入期 (Phase 2): 开启“上帝模式”，禁止早停
-            if epoch < EPOCH_FULL_LOCK:
+            if epoch < EPOCH_LOCK:
                 # 仍然调用 early_stopping 以便保存那些“偶然变好”的模型权重
                 early_stopping(vali_mae, self.model, path)
 
@@ -372,7 +398,7 @@ class Exp_PhysFormer:
                     early_stopping.early_stop = False
 
             # 2. 在物理锁定期的第一刻 (Phase 3 Start): 重置最佳成绩
-            elif epoch == EPOCH_FULL_LOCK:
+            elif epoch == EPOCH_LOCK:
                 self.logger.info("  [Reset] Constraints Locked. Resetting EarlyStopping Baseline.")
                 # 我们要忘掉 Phase 1 那个"不守规矩"的低 MAE，以现在的表现作为新基准
                 # 重新初始化 EarlyStopping 对象
