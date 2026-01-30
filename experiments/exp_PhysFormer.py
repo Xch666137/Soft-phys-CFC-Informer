@@ -425,7 +425,7 @@ class Exp_PhysFormer:
         total_loss = []
 
         # 用于记录各项物理违规的平均值
-        total_metrics = {'mae': [], 'bound': [], 'ramp': [], 'energy': []}
+        total_metrics = {'mae': [], 'bound': [], 'ramp': [], 'energy': [], 'deriv': []}
 
         with torch.no_grad():
             for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
@@ -478,7 +478,7 @@ class Exp_PhysFormer:
         self.model.eval()
         preds = []
         trues = []
-        phys_metrics = {'bound': [], 'ramp': [], 'energy': []}
+        phys_metrics = {'bound': [], 'ramp': [], 'energy': [], 'deriv': []}
         # 临时创建一个 criterion 用于计算指标 (权重设为0即可，只为了复用计算逻辑)
         criterion = VPPDomainLoss(device=self.device)
 
@@ -503,7 +503,7 @@ class Exp_PhysFormer:
                     _, loss_dict = criterion(outputs, batch_y_true)
 
                 # 记录指标
-                for k in ['bound', 'ramp', 'energy']:
+                for k in ['bound', 'ramp', 'energy', 'deriv']:
                     phys_metrics[k].append(loss_dict[k])
 
                 # [Batch, Pred_Len, 3]
@@ -544,6 +544,7 @@ class Exp_PhysFormer:
         print(f"  Avg Bound Violation : {np.mean(phys_metrics['bound']):.6f}")
         print(f"  Avg Ramp Violation  : {np.mean(phys_metrics['ramp']):.6f}")
         print(f"  Avg Energy Error    : {np.mean(phys_metrics['energy']):.6f}")
+        print(f"  Avg Deriv Error     : {np.mean(phys_metrics['deriv']):.6f}")
         print("=" * 40 + "\n")
 
         # 结果保存

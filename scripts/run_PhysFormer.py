@@ -18,12 +18,11 @@ def main():
 
     # 存储与命名参数
     parser.add_argument('--model', type=str, default='PhysFormer', help='model name')
-    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v4', help='experiment name')
+    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v5', help='experiment name')
     parser.add_argument('--checkpoints', type=str, default='exp_results/PhysFormer/checkpoints/',
                         help='location of model checkpoints')
     parser.add_argument('--do_visualize', action='store_true', default=True,
                         help='whether to visualize results after testing')
-    # 新增一个开关
     parser.add_argument('--use_baseline_exp', type=int, default=0,
                         help='0: PhysFormer Exp, 1: Baseline Exp')
 
@@ -40,7 +39,7 @@ def main():
 
     # 模型结构参数
     parser.add_argument('--enc_in', type=int, default=6, help='encoder input size')
-    parser.add_argument('--dec_in', type=int, default=6, help='decoder input size')
+    parser.add_argument('--dec_in', type=int, default=3, help='decoder input size')
     parser.add_argument('--c_out', type=int, default=3, help='output size')
     parser.add_argument('--d_model', type=int, default=512, help='dimension of model')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
