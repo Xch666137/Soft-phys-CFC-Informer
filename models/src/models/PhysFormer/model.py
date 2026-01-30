@@ -92,7 +92,7 @@ class PhysFormer(nn.Module):
         )
 
 
-        # --- 4. Encoder (Transformer Stream) ---
+        # --- 4. Decoder (Transformer Stream) ---
         # 严格使用 uploaded: decoder.py 中的 Decoder 类
         self.decoder = Decoder(
             num_layers=d_layers,

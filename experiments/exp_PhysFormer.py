@@ -328,9 +328,11 @@ class Exp_PhysFormer:
 
                     # 2. 构造 Decoder Input (标准 Informer 范式)
                     # dec_inp = [Start Token (真实值), Place Holder (全0)]
-                    # 必须确保 self.args.label_len > 0 (建议 48)
-                    dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                    dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                    # 仅取前 c_out (3) 列作为 Decoder 的输入
+                    batch_y_sliced = batch_y[:, :, :self.args.c_out]
+
+                    dec_inp = torch.zeros_like(batch_y_sliced[:, -self.args.pred_len:, :]).float()
+                    dec_inp = torch.cat([batch_y_sliced[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                     # Forward
                     with torch.cuda.amp.autocast(enabled=self.args.use_amp):
@@ -434,8 +436,9 @@ class Exp_PhysFormer:
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
                 # Decoder Input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                batch_y_sliced = batch_y[:, :, :self.args.c_out]
+                dec_inp = torch.zeros_like(batch_y_sliced[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y_sliced[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 with torch.cuda.amp.autocast(enabled=self.args.use_amp):
                     # Forward
@@ -488,8 +491,9 @@ class Exp_PhysFormer:
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
                 # --- 构造 Decoder Input ---
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                batch_y_sliced = batch_y[:, :, :self.args.c_out]
+                dec_inp = torch.zeros_like(batch_y_sliced[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y_sliced[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 with torch.cuda.amp.autocast(enabled=self.args.use_amp):
                     outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
@@ -506,44 +510,28 @@ class Exp_PhysFormer:
                 pred = outputs.detach().cpu().numpy()
                 true = batch_y_true.detach().cpu().numpy()
 
-                if test_data.scale and test_data.scaler is not None:
-                    B, P, C = pred.shape  # B=64, P=96, C=3 (预测变量数)
-
-                    # 1. 扁平化以适配 scaler
-                    # 注意：如果 true 是12列，这里直接 reshape(-1, 3) 会导致数据错乱！
-                    # 我们先假设 scaler 能处理部分列或者需要补全，这里主要解决输出维度问题
-
-                    # 如果 batch_y 包含所有特征，我们先只取最后 C 列用于对比（假设目标在最后）
-                    if true.shape[-1] != C:
-                        true_for_scaler = true[:, :, -C:]
-                    else:
-                        true_for_scaler = true
-
-                    pred_2d = pred.reshape(-1, C)
-                    true_2d = true_for_scaler.reshape(-1, C)
-
-                    # 2. 执行反归一化 (这一步返回的可能是 [N, 12] 的形状)
-                    pred_rescaled = test_data.inverse_transform(pred_2d)
-                    true_rescaled = test_data.inverse_transform(true_2d)
-
-                    # 3. 关键修复：截取最后 C 列 (Load, PV, Wind)
-                    # 只有当返回的列数大于我们需要的 C 时才截取
-                    pred_rescaled = pred_rescaled[:, -C:]
-                    true_rescaled = true_rescaled[:, -C:]
-
-                    # 4. 还原为 3D 形状 [Batch, Pred_Len, 3]
-                    pred = pred_rescaled.reshape(B, P, C)
-                    true = true_rescaled.reshape(B, P, C)
-
                 preds.append(pred)
                 trues.append(true)
 
-        # 整理 shape: [Total_Samples, Pred_Len, 3]
-        preds = np.concatenate(preds, axis=0)
-        trues = np.concatenate(trues, axis=0)
+        # 拼接所有 Batch
+        preds = np.concatenate(preds, axis=0)  # [N, P, 3]
+        trues = np.concatenate(trues, axis=0)  # [N, P, 3]
 
-        # 强制将负值置0用于计算物理指标 (PhysFormer 理论上不需要这一步，但为了计算 BVR 原始值最好保留)
-        # mae, mse, rmse, mape, mspe, bvr, rvr = metric(preds, trues)
+        # --- [修正点 2] 稳健的反归一化逻辑 ---
+        if test_data.scale and test_data.scaler is not None:
+            # 展平 [N*P, 3]
+            shape_orig = preds.shape
+            preds_2d = preds.reshape(-1, shape_orig[-1])
+            trues_2d = trues.reshape(-1, shape_orig[-1])
+
+            # 使用 Dataset 中自定义的 smart inverse_transform (支持自动补全列)
+            # 它会自动把 3列 补全成 6列，反归一化后再切回 3列
+            preds_rescaled = test_data.inverse_transform(preds_2d)
+            trues_rescaled = test_data.inverse_transform(trues_2d)
+
+            # 恢复形状
+            preds = preds_rescaled.reshape(shape_orig)
+            trues = trues_rescaled.reshape(shape_orig)
 
         # 调用 metrics.py 计算 7 大指标
         metrics_result = metric(preds, trues)
