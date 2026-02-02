@@ -328,6 +328,7 @@ if __name__ == "__main__":
                   pred_len=96)
 
     # 1. 基础时序图
+    viz.plot_time_series_zoom(feature_idx=0, feature_name='Load')
     viz.plot_time_series_zoom(feature_idx=1, feature_name='PV Power')
     viz.plot_time_series_zoom(feature_idx=2, feature_name='Wind Power')
 

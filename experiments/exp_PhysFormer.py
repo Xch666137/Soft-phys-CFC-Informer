@@ -190,6 +190,84 @@ class Exp_PhysFormer:
         )
         return model_optim
 
+    def _process_one_batch(self, batch_data, criterion=None, phase='train'):
+        """
+        统一处理一个 Batch 的数据准备、模型前向传播和 Loss 计算
+        Args:
+            batch_data: DataLoader 吐出的 tuple (batch_stat, batch_phys, batch_y, ...)
+            criterion: 损失函数 (仅 train/val 需要)
+            phase: 'train', 'val', 'test'
+        Returns:
+            outputs: 模型输出
+            batch_y_true: 真实标签 (仅预测部分)
+            loss: 总损失 (如果提供了 criterion)
+            loss_dict: 物理损失字典
+        """
+        # 1. 解包数据并转移到 GPU
+        batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark = batch_data
+
+        batch_stat = batch_stat.float().to(self.device)
+        batch_phys = batch_phys.float().to(self.device)
+        batch_y = batch_y.float().to(self.device)
+        batch_x_mark = batch_x_mark.float().to(self.device)
+        batch_y_mark = batch_y_mark.float().to(self.device)
+
+        # 2. 构造 Decoder Input (核心修改：引入未来天气驱动)
+        # 假设 batch_y 的列顺序: [0:Load, 1:PV, 2:Wind, 3:Temp, 4:Irr, 5:Speed]
+
+        # Part A: Label (历史已知部分) -> 包含 3个功率 + 3个天气
+        # Shape: [Batch, Label_Len, 6]
+        label_part = batch_y[:, :self.args.label_len, :]
+
+        # Part B: Prediction (未来部分)
+        # B.1: 功率 (待预测) -> 填 0
+        future_power_zeros = torch.zeros_like(batch_y[:, -self.args.pred_len:, :self.args.c_out])
+
+        # B.2: 天气 (未来已知) -> 从 batch_y 截取
+        # 注意：这里假设 Dataset 确实返回了 6 列数据 (c_out=3, 总列数=6)
+        # 如果你的 args.c_out 是 3，那么 weather 就是从 index 3 开始
+        future_weather_known = batch_y[:, -self.args.pred_len:, self.args.c_out:]
+
+        # B.3: 拼接 -> [0, 0, 0, T, I, S]
+        pred_part = torch.cat([future_power_zeros, future_weather_known], dim=-1)
+
+        # Part C: 最终拼接
+        dec_inp = torch.cat([label_part, pred_part], dim=1).float().to(self.device)
+
+        # 3. 前向传播 (混合精度)
+        # 验证和测试时如果不需反向传播，理论上也可以不用 autocast，但为了保持一致性建议加上
+        use_amp = self.args.use_amp and (phase != 'test_speed')
+
+        # 针对 train/val/test 的上下文管理
+        context = torch.cuda.amp.autocast(enabled=use_amp) if self.args.use_gpu else torch.no_grad()
+
+        # 如果是 eval 模式，通常不需要梯度
+        if phase in ['val', 'test']:
+            # 这里的上下文稍微复杂点，直接在外部控制 torch.no_grad() 更方便
+            # 但为了函数独立性，我们在内部只处理 autocast
+            pass
+
+        with torch.cuda.amp.autocast(enabled=self.args.use_amp):
+            if self.args.output_attention:
+                outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)[0]
+            else:
+                outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
+
+        # 4. 准备 Ground Truth
+        # 只取前 c_out 列 (功率) 进行 Loss 计算
+        batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
+
+        # 5. 计算 Loss
+        total_loss = None
+        loss_dict = {}
+
+        if criterion is not None:
+            # 计算主 Loss (MSE + 物理约束)
+            loss_main, loss_dict = criterion(outputs, batch_y_true)
+            total_loss = loss_main
+
+        return outputs, batch_y_true, total_loss, loss_dict
+
     def train(self):
         train_data, train_loader = self._get_data(flag='train')
         val_data, val_loader = self._get_data(flag='val')
@@ -316,46 +394,21 @@ class Exp_PhysFormer:
                       leave=False,
                       ncols=100) as pbar:
 
-                for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                for i, batch_data in enumerate(train_loader):
                     model_optim.zero_grad()
 
-                    # 1. 数据转移
-                    batch_stat = batch_stat.float().to(self.device)
-                    batch_phys = batch_phys.float().to(self.device)  # 新增
-                    batch_y = batch_y.float().to(self.device)
-                    batch_x_mark = batch_x_mark.float().to(self.device)
-                    batch_y_mark = batch_y_mark.float().to(self.device)
+                    # Train 阶段我们还需要加上惯性正则化 Loss，所以我们在外层加
+                    outputs, batch_y_true, loss_main, loss_dict = self._process_one_batch(
+                        batch_data, criterion, phase='train'
+                    )
 
-                    # 2. 构造 Decoder Input (标准 Informer 范式)
-                    # dec_inp = [Start Token (真实值), Place Holder (全0)]
-                    # 仅取前 c_out (3) 列作为 Decoder 的输入
-                    batch_y_sliced = batch_y[:, :, :self.args.c_out]
-
-                    dec_inp = torch.zeros_like(batch_y_sliced[:, -self.args.pred_len:, :]).float()
-                    dec_inp = torch.cat([batch_y_sliced[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-
-                    # Forward
-                    with torch.cuda.amp.autocast(enabled=self.args.use_amp):
-                        # Forward
-                        outputs= self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
-                        batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
-
-                        # 1. 计算主 Loss (包含 VPP Domain Constraints)
-                        loss_main, loss_dict = criterion(outputs, batch_y_true)
-
-                        # 2. 计算惯量正则化 Loss (针对 CFC 参数)
-                        loss_inertia = calculate_inertia_loss(self.model, lambda_inertia=cur_inertia)
-
-                        # 3. 总 Loss
-                        total_loss = loss_main + loss_inertia
+                    loss_inertia = calculate_inertia_loss(self.model, lambda_inertia=cur_inertia)
+                    total_loss = loss_main + loss_inertia
 
                     # Backward
                     scaler.scale(total_loss).backward()
-
-                    # 梯度裁剪 (关键！防止物理约束导致的梯度爆炸)
                     scaler.unscale_(model_optim)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
                     scaler.step(model_optim)
                     scaler.update()
 
@@ -428,31 +481,17 @@ class Exp_PhysFormer:
         total_metrics = {'mae': [], 'bound': [], 'ramp': [], 'energy': [], 'deriv': []}
 
         with torch.no_grad():
-            for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
-                batch_stat = batch_stat.float().to(self.device)
-                batch_phys = batch_phys.float().to(self.device)
-                batch_y = batch_y.float().to(self.device)
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
-
-                # Decoder Input
-                batch_y_sliced = batch_y[:, :, :self.args.c_out]
-                dec_inp = torch.zeros_like(batch_y_sliced[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y_sliced[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-
-                with torch.cuda.amp.autocast(enabled=self.args.use_amp):
-                    # Forward
-                    outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
-                    batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
-
-                    # Loss 计算 (注意这里解包 tuple)
-                    loss, loss_dict = criterion(outputs, batch_y_true)
+            for i, batch_data in enumerate(vali_loader):
+                outputs, batch_y_true, loss, loss_dict = self._process_one_batch(
+                    batch_data, criterion, phase='train'
+                )
 
                 total_loss.append(loss.item())
 
                 # 累积各项指标
                 for k, v in loss_dict.items():
-                    total_metrics[k].append(v)
+                    if k in total_metrics:
+                        total_metrics[k].append(v)
 
         avg_loss = np.average(total_loss)
         avg_mae = np.average(total_metrics['mae'])
@@ -483,24 +522,10 @@ class Exp_PhysFormer:
         criterion = VPPDomainLoss(device=self.device)
 
         with torch.no_grad():
-            for i, (batch_stat, batch_phys, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
-                batch_stat = batch_stat.float().to(self.device)
-                batch_phys = batch_phys.float().to(self.device)
-                batch_y = batch_y.float().to(self.device)
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
-
-                # --- 构造 Decoder Input ---
-                batch_y_sliced = batch_y[:, :, :self.args.c_out]
-                dec_inp = torch.zeros_like(batch_y_sliced[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y_sliced[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-
-                with torch.cuda.amp.autocast(enabled=self.args.use_amp):
-                    outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
-                    batch_y_true = batch_y[:, -self.args.pred_len:, :self.args.c_out]
-
-                    # 计算物理指标
-                    _, loss_dict = criterion(outputs, batch_y_true)
+            for i, batch_data in enumerate(test_loader):
+                outputs, batch_y_true, _, loss_dict = self._process_one_batch(
+                    batch_data, criterion, phase='test'
+                )
 
                 # 记录指标
                 for k in ['bound', 'ramp', 'energy', 'deriv']:

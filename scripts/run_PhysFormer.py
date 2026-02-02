@@ -9,8 +9,6 @@ sys.path.append(project_root)
 import argparse
 import torch
 from experiments.exp_PhysFormer import Exp_PhysFormer
-from experiments.exp_baseline import Exp_Baselines
-from Visualizaiton.visualize_results import ResultVisualizer
 
 
 def main():
@@ -18,7 +16,7 @@ def main():
 
     # 存储与命名参数
     parser.add_argument('--model', type=str, default='PhysFormer', help='model name')
-    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v5', help='experiment name')
+    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v6', help='experiment name')
     parser.add_argument('--checkpoints', type=str, default='exp_results/PhysFormer/checkpoints/',
                         help='location of model checkpoints')
     parser.add_argument('--do_visualize', action='store_true', default=True,
@@ -39,12 +37,13 @@ def main():
 
     # 模型结构参数
     parser.add_argument('--enc_in', type=int, default=6, help='encoder input size')
-    parser.add_argument('--dec_in', type=int, default=3, help='decoder input size')
+    parser.add_argument('--dec_in', type=int, default=6, help='decoder input size')
     parser.add_argument('--c_out', type=int, default=3, help='output size')
     parser.add_argument('--d_model', type=int, default=512, help='dimension of model')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
     parser.add_argument('--e_layers', type=int, default=3, help='num of encoder layers')
-    parser.add_argument('--d_layers', type=int, default=2, help='num of decoder layers')
+    parser.add_argument('--d_layers', type=int, default=1, help='num of decoder layers')
+    parser.add_argument('--d_phys', type=int, default=64, help='dimension of physical states in CFC')
     parser.add_argument('--d_ff', type=int, default=2048, help='dimension of fcn')
     parser.add_argument('--factor', type=int, default=5, help='probsparse attn factor')
     parser.add_argument('--dropout', type=float, default=0.05, help='dropout')
@@ -52,6 +51,7 @@ def main():
     parser.add_argument('--embed', type=str, default='custom', help='time features encoding')
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
     parser.add_argument('--output_attention', action='store_true', help='whether to output attention in ecoder')
+
 
     # 优化组件参数
     parser.add_argument('--distil', default=False, action='store_true', help='whether to use distillation')
@@ -70,7 +70,7 @@ def main():
     parser.add_argument('--w_deriv', type=float, default=2.0, help='导数匹配损失的目标权重 (对抗平均化)')
     parser.add_argument('--w_energy', type=float, default=1.5, help='能量一致性损失的目标权重')
     parser.add_argument('--w_bound', type=float, default=1.0, help='物理边界损失的目标权重')
-    parser.add_argument('--w_ramp', type=float, default=0.1, help='爬坡安全约束的目标权重 (建议保持较小)')
+    parser.add_argument('--w_ramp', type=float, default=0.05, help='爬坡安全约束的目标权重 (建议保持较小)')
     parser.add_argument('--w_inertia', type=float, default=1e-3, help='CFC 参数惯性正则化权重')
 
     # 训练配置
@@ -100,32 +100,6 @@ def main():
 
     print('>>>>>>>start PhysFormer test : >>>>>>>>>>>>>>>>>>>>>>>>>>')
     Exp.test(setting=args.checkpoint_name)
-
-    # --- 修改点 3: 自动化可视化流程 ---
-    if args.do_visualize:
-        print('>>>>>>> start PhysFormer visualization >>>>>>>>>>>>>>>>>>>>>>>>>>')
-        try:
-            # 实例化 Visualizer，直接传入参数中的路径和名称
-            viz = ResultVisualizer(
-                exp_name=args.checkpoint_name,
-                root_dir=args.checkpoints
-            )
-
-            print("1. Generating Time Series Plot...")
-            viz.plot_time_series(sample_idx=0)  # 默认画第1个，你可以改
-
-            print("2. Generating Physical Compliance Report...")
-            viz.plot_physical_compliance()
-
-            print("3. Generating Accuracy Scatter Plots...")
-            viz.plot_scatter_accuracy()
-
-            print(f"Visualizations saved to {os.path.join(args.checkpoints, args.checkpoint_name)}")
-
-        except Exception as e:
-            print(f"Visualization failed: {e}")
-            print("Please check if 'visualize_results.py' is in the same directory and result files exist.")
-
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ..informer.attention import ProbAttention, FullAttention
 from ..informer.encoder import Encoder
-from ..informer.decoder import Decoder
+# from ..informer.decoder import Decoder
+from .decoder_ode import PhysDecoder
 from ..informer.Embedding import DataEmbedding
 from .cfc import CfcBlock
 
@@ -24,7 +25,7 @@ class PhysFormer(nn.Module):
     def __init__(self, enc_in, dec_in, c_out, seq_len, label_len, pred_len,
                  factor=5, d_model=512, n_heads=8, e_layers=3, d_layers=2, d_ff=512,
                  dropout=0.0, attn='prob', embed='fixed', freq='h', activation='gelu',
-                 output_attention=False, distil=True, mix=True, stride=1,
+                 output_attention=False, distil=True, mix=True, d_phys=64, stride=1,
                  device=torch.device('cuda:0'), use_rope=False, rope_base=10000):
 
         super(PhysFormer, self).__init__()
@@ -86,22 +87,32 @@ class PhysFormer(nn.Module):
         # stride=1 保证物理层捕捉最精细的动力学特征
         self.physics_adapter = CfcBlock(
             d_model, d_ff,
-            d_phys=64,
+            d_phys=d_phys,
             dropout=dropout,
             stride=stride
         )
 
 
         # --- 4. Decoder (Transformer Stream) ---
-        # 严格使用 uploaded: decoder.py 中的 Decoder 类
-        self.decoder = Decoder(
+        # self.decoder = Decoder(
+        #     num_layers=d_layers,
+        #     d_model=d_model,
+        #     n_heads=n_heads,
+        #     d_ff=d_ff,
+        #     dropout=dropout,
+        #     use_rope=use_rope,
+        #     rope_base=rope_base
+        # )
+
+        # --- 4. Decoder (ODE Stream) ---
+        self.decoder = PhysDecoder(
             num_layers=d_layers,
             d_model=d_model,
             n_heads=n_heads,
             d_ff=d_ff,
+            d_phys=d_phys,  # 确保这是一个合理的物理隐层维度，建议 64 或 32
             dropout=dropout,
-            use_rope=use_rope,
-            rope_base=rope_base
+            stride=1  # Decoder 必须保持逐点分辨率，不要下采样
         )
 
 
@@ -189,11 +200,13 @@ class PhysFormer(nn.Module):
         enc_out_fused = self.fusion_layer(combined_enc)
 
         # --- Step 4: Decoder ---
+        # 注意：ODE Decoder 不需要 dec_mask (sequence masking)，因为它内部是递归的
+        # 但 Cross-Attention 可能需要 memory_mask (通常不需要，除非 Encoder 有 padding)
         dec_in = self.dec_embedding(x_dec, x_mark_dec)
         dec_out = self.decoder(
             dec_in,
             enc_out_fused,
-            tgt_mask=dec_mask,
+            tgt_mask=None,  # 显式传入 None，强调不再需要 Attention Mask
             memory_mask=None
         )
 
