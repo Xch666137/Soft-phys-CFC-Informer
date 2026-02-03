@@ -96,7 +96,7 @@ def main():
     print(">>> Using PhysFormer Experiment (Physics-Guided Loss) <<<")
 
     # print('>>>>>>>start PhysFormer training : >>>>>>>>>>>>>>>>>>>>>>>>>>')
-    Exp.train()
+    # Exp.train()
 
     print('>>>>>>>start PhysFormer test : >>>>>>>>>>>>>>>>>>>>>>>>>>')
     Exp.test(setting=args.checkpoint_name)
