@@ -16,13 +16,9 @@ def main():
 
     # 存储与命名参数
     parser.add_argument('--model', type=str, default='PhysFormer', help='model name')
-    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v6', help='experiment name')
+    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v1.1', help='experiment name')
     parser.add_argument('--checkpoints', type=str, default='exp_results/PhysFormer/checkpoints/',
                         help='location of model checkpoints')
-    parser.add_argument('--do_visualize', action='store_true', default=True,
-                        help='whether to visualize results after testing')
-    parser.add_argument('--use_baseline_exp', type=int, default=0,
-                        help='0: PhysFormer Exp, 1: Baseline Exp')
 
     # 数据相关
     parser.add_argument('--root_path', type=str, default='./', help='root path of the data file')
@@ -61,21 +57,12 @@ def main():
     parser.add_argument('--freq', default='t', type=str, help='freq for time features encoding')
     parser.add_argument('--stride', type=int, default=2, help='stride for CFC')
 
-    # --- 分阶段训练与物理权重参数 ---
-    # 1. 阶段锚点 (Epochs)
-    parser.add_argument('--p_epoch_warmup', type=int, default=10, help='Phase 1 结束轮次 (自由学习期)')
-    parser.add_argument('--p_epoch_lock', type=int, default=50, help='Phase 2 结束轮次 (物理锁定开始)')
-
-    # 2. 物理损失目标权重 (Target Weights)
-    parser.add_argument('--w_deriv', type=float, default=2.0, help='导数匹配损失的目标权重 (对抗平均化)')
-    parser.add_argument('--w_energy', type=float, default=1.5, help='能量一致性损失的目标权重')
-    parser.add_argument('--w_bound', type=float, default=1.0, help='物理边界损失的目标权重')
-    parser.add_argument('--w_ramp', type=float, default=0.05, help='爬坡安全约束的目标权重 (建议保持较小)')
-    parser.add_argument('--w_inertia', type=float, default=1e-3, help='CFC 参数惯性正则化权重')
+    # --- 物理正则化参数 ---
+    parser.add_argument('--w_inertia', type=float, default=1e-4, help='CFC 参数惯性正则化权重')
 
     # 训练配置
     parser.add_argument('--batch_size', type=int, default=64, help='batch size of train input data')
-    parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
+    parser.add_argument('--train_epochs',                        type=int, default=100, help='train epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='optimizer learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-3, help='optimizer weight decay')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='gradient clipping max norm')
@@ -96,7 +83,7 @@ def main():
     print(">>> Using PhysFormer Experiment (Physics-Guided Loss) <<<")
 
     # print('>>>>>>>start PhysFormer training : >>>>>>>>>>>>>>>>>>>>>>>>>>')
-    # Exp.train()
+    Exp.train()
 
     print('>>>>>>>start PhysFormer test : >>>>>>>>>>>>>>>>>>>>>>>>>>')
     Exp.test(setting=args.checkpoint_name)

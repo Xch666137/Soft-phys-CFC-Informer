@@ -323,7 +323,7 @@ if __name__ == "__main__":
 
     viz.load_data(model_list,
                   data_name='vpp_dataset_3years',
-                  phys_exp_name='PhysFormer_experiment_v6',
+                  phys_exp_name='PhysFormer_experiment_v1.1',
                   seq_len=672,
                   pred_len=96)
 
