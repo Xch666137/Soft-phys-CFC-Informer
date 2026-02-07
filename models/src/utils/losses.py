@@ -10,6 +10,10 @@ class PhysAwareVPPLoss(nn.Module):
         self.mse = nn.MSELoss(reduction='none')
         self.mae = nn.L1Loss(reduction='none')
 
+        # beta=0.2 意味着误差 < 0.2 时用平方(细抠细节)，误差 > 0.2 时用线性(抗干扰)
+        # 考虑到输入是归一化后的 Z-Score，0.2~0.5 是比较合理的范围
+        self.huber = nn.SmoothL1Loss(reduction='none', beta=0.2)
+
         # 2. 物理统计量 (反归一化用)
         self.register_buffer('means', torch.tensor(means, device=device).view(1, 1, -1))
         self.register_buffer('stds', torch.tensor(stds, device=device).view(1, 1, -1))
@@ -38,7 +42,7 @@ class PhysAwareVPPLoss(nn.Module):
         # 1. 基础精度 (Base Loss)
         # 使用 MSE 惩罚峰值误差，Load 权重 1.0, PV/Wind 权重 1.2 (稍微侧重源端)
         base_weights = torch.tensor([1.0, 1.2, 1.2], device=pred.device).view(1, 1, 3)
-        loss_base = torch.mean(self.mse(pred, true) * base_weights)
+        loss_base = torch.mean(self.huber(pred, true) * base_weights)
 
         # --- 计算纯物理 MAE (用于早停监控) ---
         # 这一项不参与梯度计算（或者参与也没关系），主要是为了给 Vali 看
@@ -51,15 +55,15 @@ class PhysAwareVPPLoss(nn.Module):
         loss_net = self.mae(pred_net, true_net).mean()
 
         # 3. 增强型导数 Loss (Weighted Derivative)
-        # [吸取您的亮点] 对 PV(1)/Wind(2) 的高频波动给予 1.5 倍关注
-        diff_weights = torch.tensor([1.0, 1.5, 1.5], device=pred.device).view(1, 1, 3)
+        # 对 PV(1)/Wind(2) 的高频波动给予 3 倍关注
+        diff_weights = torch.tensor([1.0, 3.0, 3.0], device=pred.device).view(1, 1, 3)
         loss_deriv = torch.mean(torch.abs(pred_diff - true_diff) * diff_weights)
 
         # 4. 能量/总量一致性 (Energy Integral)
-        # [吸取您的亮点] 解决 ODE 累积漂移，保证充放电总量正确
+        # 解决 ODE 累积漂移，保证充放电总量正确
         # 按 Batch 平均，对 Sequence 求和
         energy_error = torch.sum(pred_mw, dim=1) - torch.sum(true_mw, dim=1)
-        loss_energy = torch.mean(torch.abs(energy_error)) / pred.shape[1]
+        loss_energy = (torch.mean(torch.abs(energy_error)) / pred.shape[1]) * 10.0
 
         # 5. 方向一致性 (Directional Consistency - 针对 PhysFormer 优化)
         # 解决相位滞后问题：如果真实值在涨，预测值在跌，给重罚
@@ -70,7 +74,7 @@ class PhysAwareVPPLoss(nn.Module):
         # a. 负值惩罚
         loss_bound = torch.relu(-pred_mw).mean()
         # b. [修正遗漏] 爬坡越限惩罚 (只惩罚超过 limit 的部分)
-        loss_ramp = torch.relu(torch.abs(pred_diff) - self.ramp_limits).mean()
+        loss_ramp = torch.relu(torch.abs(pred_diff) - self.ramp_limits).mean() * 1.0
         # c. [新增] PV 夜间噪声惩罚 (Load=0, PV=1, Wind=2)
         true_pv = true_mw[:, :, 1]
         night_mask = (true_pv < 0.01).float()  # 真实PV为0时

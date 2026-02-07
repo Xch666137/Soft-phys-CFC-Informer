@@ -142,7 +142,7 @@ class Exp_PhysFormer:
             real_means, real_stds = None, None
 
         # 3. 计算真实的爬坡极限 (Ramp Limits)
-        # 逻辑：取训练集一阶差分的 99.5% 分位数
+        # 逻辑：取训练集一阶差分的 99.9% 分位数
         try:
             # 获取原始归一化数据 [Seq_Len, Features]
             # 注意：这里假设 Dataset 内部有 data_x 属性 (标准 Informer 代码结构都有)
@@ -159,11 +159,12 @@ class Exp_PhysFormer:
             diff = np.abs(target_data[1:] - target_data[:-1])
 
             # 计算 99.5% 分位数作为极限 (留0.5%给极端异常值)
-            real_ramp_limits = np.percentile(diff, 99.5, axis=0)
+            real_ramp_limits = np.percentile(diff, 99.9, axis=0)
 
-            # 稍微给一点点裕度 (1.0~1.1倍)，防止训练太敏感
-            # 比如：如果历史最大爬坡是 1.0，我们允许模型学到 1.05，但不允许太离谱
-            real_ramp_limits = real_ramp_limits * 1.05
+            # 稍微给一点点裕度 (1.0~1.5倍)，防止训练太敏感
+            # 逻辑：我们只拦截“完全不可能”的物理错误（如数据跳变、传感器故障），
+            # 而不是去拦截“罕见但真实”的极端天气。
+            real_ramp_limits = real_ramp_limits * 1.5
 
             self.logger.info(f">>> [Auto-Stat] Calculated Ramp Limits: {real_ramp_limits}")
 
