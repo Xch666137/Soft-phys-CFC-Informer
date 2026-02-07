@@ -16,7 +16,7 @@ def main():
 
     # 存储与命名参数
     parser.add_argument('--model', type=str, default='PhysFormer', help='model name')
-    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v1.1', help='experiment name')
+    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v1.2', help='experiment name')
     parser.add_argument('--checkpoints', type=str, default='exp_results/PhysFormer/checkpoints/',
                         help='location of model checkpoints')
 
