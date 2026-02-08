@@ -36,8 +36,6 @@ class PhysFormer(nn.Module):
         # --- 1. 双流 Embedding 层 ---
 
         # A. 统计流 Embedding (Stat Stream)
-        # 输入: [Load, PV, Wind] -> c_in=3
-        # 作用: 包含 Token(Value) + Position + Temporal(Time)
         self.stat_embedding = DataEmbedding(
             c_in=6,  # ✅ Load(3) + Weather(3)
             d_model=d_model,
@@ -47,9 +45,6 @@ class PhysFormer(nn.Module):
         )
 
         # B. 物理流 Embedding (Phys Stream)
-        # 输入: [Temp, Irr, Speed, ΔLoad, ΔPV, ΔWind] -> c_in=6
-        # 作用: 包含 Token(Value) + Position + Temporal(Time)
-        # 注：给物理流加上时间嵌入也有助于它学习日照规律
         self.phys_embedding = DataEmbedding(
             c_in=9,  # ✅ Weather(3) + Power(3) + Delta(3)
             d_model=d_model,
@@ -108,6 +103,17 @@ class PhysFormer(nn.Module):
             d_model=d_model,
             n_heads=n_heads,
             dropout=dropout
+        )
+
+        # ==========================================
+        # [新增] 共享特征投影层 (Shared Projection)
+        # ==========================================
+        # 作用：在分头预测前，先提取 Load/PV/Wind 的共性特征（如天气影响）
+        self.shared_projection = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model),  # 加一个 Norm 稳定分布
+            nn.GELU(),
+            nn.Dropout(dropout)
         )
 
         # --- 6. Multi-Head Output ---
@@ -203,10 +209,12 @@ class PhysFormer(nn.Module):
         # dec_out shape: [Batch, Pred_Len, d_model]
 
         # --- Step 5: Flatten Projection (Time Domain Mapping) ---
+        # 先通过共享投影层提取共性
+        dec_out_shared = self.shared_projection(dec_out)
         # 分别通过三个独立的 MLP 头
-        out_load = self.head_load(dec_out)  # [B, P, 1]
-        out_pv = self.head_pv(dec_out)  # [B, P, 1]
-        out_wind = self.head_wind(dec_out)  # [B, P, 1]
+        out_load = self.head_load(dec_out_shared)  # [B, P, 1]
+        out_pv = self.head_pv(dec_out_shared)  # [B, P, 1]
+        out_wind = self.head_wind(dec_out_shared)  # [B, P, 1]
 
         # 拼接输出
         output = torch.cat([out_load, out_pv, out_wind], dim=-1)  # [B, P, 3]
