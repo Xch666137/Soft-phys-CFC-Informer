@@ -99,6 +99,29 @@ class PaperVisualizer:
             if not loaded:
                 print(f"  [Warning] Could not find data for {model}")
 
+    def load_gate_data(self, phys_exp_name):
+        """ 加载 PhysFormer 的门控细节数据 (用于解释性分析) """
+        # 尝试从可能的路径加载 gate_details.npy
+        possible_paths = [
+            os.path.join(self.root_dir, 'PhysFormer', 'checkpoints', phys_exp_name),
+            os.path.join(self.root_dir, phys_exp_name)
+        ]
+
+        self.gate_data = None
+        for folder in possible_paths:
+            path = os.path.join(folder, 'gate_details.npy')
+            if os.path.exists(path):
+                try:
+                    # allow_pickle=True 因为保存的是字典
+                    self.gate_data = np.load(path, allow_pickle=True).item()
+                    print(f"  [Mechanism] Loaded Gate Details from {path}")
+                    break
+                except Exception as e:
+                    print(f"  [Error] Failed loading gates: {e}")
+
+        if self.gate_data is None:
+            print("  [Warning] No gate_details.npy found. Skipping mechanism plot.")
+
     def _calculate_smart_limits(self, true_data):
         """ 计算物理爬坡阈值 (用于 RVR 指标) """
         diff = np.abs(true_data[:, 1:, :3] - true_data[:, :-1, :3])
@@ -317,6 +340,104 @@ class PaperVisualizer:
         print(f"  Saved: {save_path}")
         plt.close()
 
+    def plot_gate_mechanism(self):
+        """
+        绘制物理门控 (Gate) 的动态变化，解释模型是如何工作的。
+        """
+        if self.gate_data is None:
+            return
+        print("Plotting Gate Mechanism Analysis...")
+
+        try:
+            # 数据处理逻辑保持不变
+            g_load = np.array(self.gate_data['load']).flatten()
+            g_pv = np.array(self.gate_data['pv']).flatten()
+            g_wind = np.array(self.gate_data['wind']).flatten()
+            pv_true = np.array(self.gate_data['pv_true']).flatten()
+
+            # 截取一段典型的时间窗口
+            start_idx = 96
+            end_idx = 96 * 4
+            if len(g_load) < end_idx:
+                start_idx = 0
+                end_idx = len(g_load)
+
+            g_load = g_load[start_idx:end_idx]
+            g_pv = g_pv[start_idx:end_idx]
+            g_wind = g_wind[start_idx:end_idx]
+            pv_true = pv_true[start_idx:end_idx]
+
+            pv_norm = (pv_true - pv_true.min()) / (pv_true.max() - pv_true.min() + 1e-6)
+
+        except Exception as e:
+            print(f"  [Error] Processing gate data failed: {e}")
+            return
+
+        # --- 绘图 ---
+        fig = plt.figure(figsize=(12, 8))
+        # 增加 hspace 以避免子图标题重叠
+        gs = gridspec.GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.4)
+
+        x_axis = np.arange(len(g_load))
+
+        # 1. Load Gate Dynamics
+        ax1 = plt.subplot(gs[0])
+        # 【修复1】添加 r 前缀
+        ax1.plot(x_axis, g_load, color='#1f77b4', linewidth=2, label=r'Load Gate $\mathcal{G}_{load}$')
+        ax1.set_ylabel('Gate Value (0-1)', fontsize=11)
+        ax1.set_title('(a) Load Gate Dynamics (Coupling Strength)', loc='left', fontsize=12, fontweight='bold')
+        ax1.legend(loc='upper right')
+        ax1.grid(True, linestyle='--', alpha=0.3)
+        ax1.set_ylim(0, 1.1)
+        ax1.set_xlim(0, len(x_axis))
+
+        # 2. PV Gate vs Solar Irradiance
+        ax2 = plt.subplot(gs[1])
+        # 【修复1】添加 r 前缀
+        l1, = ax2.plot(x_axis, g_pv, color='#d62728', linewidth=2.5, label=r'PV Gate $\mathcal{G}_{pv}$')
+        ax2.set_ylabel('Gate Value', fontsize=11, color='#d62728')
+        ax2.tick_params(axis='y', labelcolor='#d62728')
+        ax2.set_ylim(-0.05, 1.1)
+        ax2.set_xlim(0, len(x_axis))
+
+        ax2r = ax2.twinx()
+        l2, = ax2r.plot(x_axis, pv_norm, color='#ff7f0e', linestyle='--', linewidth=1.5, alpha=0.6,
+                        label='Normalized PV Power')
+        ax2r.set_ylabel('PV Power (Norm.)', fontsize=11, color='#ff7f0e')
+        ax2r.tick_params(axis='y', labelcolor='#ff7f0e')
+
+        is_night = pv_norm < 0.05
+        ax2.fill_between(x_axis, 0, 1.1, where=is_night, color='gray', alpha=0.15, transform=ax2.get_xaxis_transform(),
+                         label='Nighttime')
+
+        ax2.set_title('(b) PV Gate vs. Solar Cycle (Adaptive Attention)', loc='left', fontsize=12, fontweight='bold')
+
+        lines = [l1, l2]
+        labels = [l.get_label() for l in lines]
+        ax2.legend(lines, labels, loc='upper center', ncol=2)
+        ax2.grid(True, linestyle='--', alpha=0.3)
+
+        # 3. Wind Gate Dynamics
+        ax3 = plt.subplot(gs[2])
+        # 【修复1】添加 r 前缀
+        ax3.plot(x_axis, g_wind, color='#2ca02c', linewidth=2, label=r'Wind Gate $\mathcal{G}_{wind}$')
+        ax3.set_ylabel('Gate Value', fontsize=11)
+        ax3.set_xlabel('Time Steps (15 min)', fontsize=12)
+        ax3.set_title('(c) Wind Gate Dynamics (Stochastic Adaptation)', loc='left', fontsize=12, fontweight='bold')
+        ax3.legend(loc='upper right')
+        ax3.grid(True, linestyle='--', alpha=0.3)
+        ax3.set_ylim(0, 1.1)
+        ax3.set_xlim(0, len(x_axis))
+
+        # 【修复2】移除 plt.tight_layout()，改用 savefig 的 bbox_inches='tight' 自动裁剪
+        # plt.tight_layout()
+
+        save_path = os.path.join(current_dir, 'Fig_Mechanism_Gates.png')
+        # bbox_inches='tight' 会自动计算边界，解决重叠问题
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"  Saved: {save_path}")
+        plt.close()
+
     def find_interesting_sample(self, feature_idx):
         if not self.models: return 0
         first_model = list(self.models.keys())[0]
@@ -325,24 +446,29 @@ class PaperVisualizer:
         return np.argmax(stds)
 
 
-if __name__ == "__main__":
-    # 使用说明：
-    # 1. 确保 exp_results 文件夹下有对应的实验结果 (metrics.npy, pred.npy, true.npy)
-    # 2. 运行此脚本，将在当前目录生成 3 张核心 SCI 图表
 
+
+if __name__ == "__main__":
     viz = PaperVisualizer()
 
-    # 定义要对比的模型列表 (请确保这些名字与文件夹名匹配)
+    # 定义要对比的模型列表
     model_list = ['LSTM', 'GRU', 'PINN', 'Informer', 'Autoformer', 'PhysFormer']
 
-    # 加载数据 (根据你的实际参数修改 seq_len/pred_len)
+    # 你的实验名称 (确保和 exp_PhysFormer.py 中的一致)
+    EXP_NAME = 'PhysFormer_experiment_v1.0'
+
+    # 1. 加载预测数据
     viz.load_data(model_list,
                   data_name='vpp_dataset_3years',
-                  phys_exp_name='PhysFormer_experiment_v1.2',  # 你的 PhysFormer 实验文件夹名
+                  phys_exp_name=EXP_NAME,
                   seq_len=672,
                   pred_len=96)
 
-    # 生成三张核心图表
-    viz.plot_net_load_analysis()  # 图1: 完整性 (Net Load)
-    viz.plot_physics_violations()  # 图2: 合理性 (Physics Zoom-in)
-    viz.plot_radar_metrics()  # 图3: 优越性 (Radar Chart)
+    # 2. 加载 Gate 数据 (新增)
+    viz.load_gate_data(phys_exp_name=EXP_NAME)
+
+    # 3. 生成图表
+    viz.plot_net_load_analysis()  # 图1
+    viz.plot_physics_violations()  # 图2
+    viz.plot_radar_metrics()  # 图3
+    viz.plot_gate_mechanism()  # 图4 (新增)

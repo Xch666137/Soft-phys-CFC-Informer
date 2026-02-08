@@ -63,7 +63,7 @@ class PhysAwareVPPLoss(nn.Module):
         # 解决 ODE 累积漂移，保证充放电总量正确
         # 按 Batch 平均，对 Sequence 求和
         energy_error = torch.sum(pred_mw, dim=1) - torch.sum(true_mw, dim=1)
-        loss_energy = (torch.mean(torch.abs(energy_error)) / pred.shape[1]) * 10.0
+        loss_energy = (torch.mean(torch.abs(energy_error)) / pred.shape[1])
 
         # 5. 方向一致性 (Directional Consistency - 针对 PhysFormer 优化)
         # 解决相位滞后问题：如果真实值在涨，预测值在跌，给重罚

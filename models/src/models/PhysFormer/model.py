@@ -220,9 +220,11 @@ class PhysFormer(nn.Module):
         output = torch.cat([out_load, out_pv, out_wind], dim=-1)  # [B, P, 3]
         output = output[:, -self.pred_len:, :]  # [Batch, 192, 3] -> [Batch, 96, 3]
 
-        if self.output_attention:
-            return output, enc_out_phys
-        return output
+        # 修复后的返回逻辑：
+        if return_gates:
+            return output, gates
+        else:
+            return output
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
