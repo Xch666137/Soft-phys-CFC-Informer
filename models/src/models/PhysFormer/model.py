@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ..informer.attention import ProbAttention, FullAttention
 from ..informer.encoder import Encoder
-# from ..informer.decoder import Decoder
-from .decoder_ode import PhysDecoder
 from ..informer.Embedding import DataEmbedding
+from .Causal_coupling import CausalCouplingModule
+from .decoder_ode import PhysDecoder
 from .cfc import CfcBlock
 
 
@@ -39,7 +39,7 @@ class PhysFormer(nn.Module):
         # 输入: [Load, PV, Wind] -> c_in=3
         # 作用: 包含 Token(Value) + Position + Temporal(Time)
         self.stat_embedding = DataEmbedding(
-            c_in=3,  # <--- 固定为3 (Load, PV, Wind)
+            c_in=6,  # ✅ Load(3) + Weather(3)
             d_model=d_model,
             embed_type=embed,
             freq=freq,
@@ -51,7 +51,7 @@ class PhysFormer(nn.Module):
         # 作用: 包含 Token(Value) + Position + Temporal(Time)
         # 注：给物理流加上时间嵌入也有助于它学习日照规律
         self.phys_embedding = DataEmbedding(
-            c_in=6,  # <--- 固定为6 (3 Weather + 3 Diff)
+            c_in=9,  # ✅ Weather(3) + Power(3) + Delta(3)
             d_model=d_model,
             embed_type=embed,
             freq=freq,
@@ -92,18 +92,6 @@ class PhysFormer(nn.Module):
             stride=stride
         )
 
-
-        # --- 4. Decoder (Transformer Stream) ---
-        # self.decoder = Decoder(
-        #     num_layers=d_layers,
-        #     d_model=d_model,
-        #     n_heads=n_heads,
-        #     d_ff=d_ff,
-        #     dropout=dropout,
-        #     use_rope=use_rope,
-        #     rope_base=rope_base
-        # )
-
         # --- 4. Decoder (ODE Stream) ---
         self.decoder = PhysDecoder(
             num_layers=d_layers,
@@ -115,14 +103,11 @@ class PhysFormer(nn.Module):
             stride=1  # Decoder 必须保持逐点分辨率，不要下采样
         )
 
-
-        # --- 5. Fusion Layer (融合层) ---
-        # 将 Attention 的特征和 Physics 的特征融合
-        self.fusion_layer = nn.Sequential(
-            nn.Linear(d_model * 2, d_model),
-            nn.LayerNorm(d_model),
-            nn.GELU(),
-            nn.Dropout(dropout)
+        # --- 5. Causal Coupling (因果融合层) ---
+        self.causal_coupling = CausalCouplingModule(
+            d_model=d_model,
+            n_heads=n_heads,
+            dropout=dropout
         )
 
         # --- 6. Multi-Head Output ---
@@ -196,8 +181,7 @@ class PhysFormer(nn.Module):
         else:
             enc_out_phys_aligned = enc_out_phys
 
-        combined_enc = torch.cat([enc_out_stat, enc_out_phys_aligned], dim=-1)
-        enc_out_fused = self.fusion_layer(combined_enc)
+        enc_out_fused = self.causal_coupling(enc_out_stat, enc_out_phys_aligned)
 
         # --- Step 4: Decoder ---
         # 注意：ODE Decoder 不需要 dec_mask (sequence masking)，因为它内部是递归的
