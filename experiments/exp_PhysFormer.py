@@ -24,6 +24,15 @@ class Exp_PhysFormer:
         self._init_logger()
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
+
+        self.gate_history = {
+            'epoch': [],
+            'load': [],
+            'pv': [],
+            'wind': [],
+            'info_gain': []
+        }
+
         print(f"PhysFormer Model Structure:\n{self.model}")
 
     def _init_logger(self):
@@ -203,7 +212,7 @@ class Exp_PhysFormer:
         )
         return model_optim
 
-    def _process_one_batch(self, batch_data, criterion=None, phase='train'):
+    def _process_one_batch(self, batch_data, criterion=None, phase='train', return_gates=False):
         """
         统一处理一个 Batch 的数据准备、模型前向传播和 Loss 计算
         Args:
@@ -270,10 +279,18 @@ class Exp_PhysFormer:
         loss_dict = {}
 
         with torch.cuda.amp.autocast(enabled=self.args.use_amp):
-            if self.args.output_attention:
-                outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)[0]
+            if return_gates:
+                outputs, gates = self.model(
+                    batch_stat, batch_phys, batch_x_mark,
+                    dec_inp, batch_y_mark,
+                    return_gates=True
+                )
             else:
-                outputs = self.model(batch_stat, batch_phys, batch_x_mark, dec_inp, batch_y_mark)
+                outputs = self.model(
+                    batch_stat, batch_phys, batch_x_mark,
+                    dec_inp, batch_y_mark
+                )
+                gates = None
 
             # 将 criterion 放入 autocast 内部，确保类型对齐
             if criterion is not None:
@@ -281,7 +298,11 @@ class Exp_PhysFormer:
                 loss_main, loss_dict = criterion(outputs, batch_y_true)
                 total_loss = loss_main
 
-        return outputs, batch_y_true, total_loss, loss_dict
+        # ✅ 修改返回值
+        if return_gates:
+            return outputs, batch_y_true, total_loss, loss_dict, gates
+        else:
+            return outputs, batch_y_true, total_loss, loss_dict
 
     def train(self):
         train_data, train_loader = self._get_data(flag='train')
@@ -350,7 +371,14 @@ class Exp_PhysFormer:
             epoch_cost_time = time.time() - epoch_time
 
             # 这里的 vali_mae 是反归一化后的真实物理误差 (MW)
-            vali_loss, vali_mae = self.vali(val_data, val_loader, self.criterion)
+            vali_loss, vali_mae, avg_gates = self.vali(val_data, val_loader, self.criterion)
+
+            # 记录gate历史
+            self.gate_history['epoch'].append(epoch + 1)
+            self.gate_history['load'].append(avg_gates['load'])
+            self.gate_history['pv'].append(avg_gates['pv'])
+            self.gate_history['wind'].append(avg_gates['wind'])
+            self.gate_history['info_gain'].append(avg_gates['info_gain'])
 
             # 调度器步进 (WarmRestarts 是按 epoch 更新的)
             scheduler.step()
@@ -370,11 +398,34 @@ class Exp_PhysFormer:
             self.logger.info(f"  >> [Weights 1] Base: {w_base:.2f} | Net: {w_net:.2f} | Deriv: {w_deriv:.2f}")
             self.logger.info(f"  >> [Weights 2] Energy: {w_energy:.2f} | Dir: {w_dir:.2f} | Cons: {w_cons:.2f}")
 
+            # 新增：打印gate值
+            self.logger.info(
+                f"  >> [Gates] Load: {avg_gates['load']:.3f} | "
+                f"PV: {avg_gates['pv']:.3f} | "
+                f"Wind: {avg_gates['wind']:.3f} | "
+                f"InfoGain: {avg_gates['info_gain']:.3f}"
+            )
+
+            # 关键检查
+            if avg_gates['pv'] > 0.7:
+                self.logger.warning(
+                    "  ⚠️ PV gate is HIGH. Expected LOW if validation data contains nighttime."
+                )
+            if avg_gates['info_gain'] < 1.1:
+                self.logger.warning(
+                    "  ⚠️ Info gain is LOW. Physical coupling may not be effective."
+                )
+
             # 早停判断
             early_stopping(vali_mae, self.model, path)
             if early_stopping.early_stop:
                 self.logger.info("Early stopping based on Physical MAE (Constraints Locked)")
                 break
+
+        # ✅ 训练结束后保存gate历史
+        gate_save_path = os.path.join(path, 'gate_history.npy')
+        np.save(gate_save_path, self.gate_history)
+        self.logger.info(f"Gate history saved to {gate_save_path}")
 
         # Load Best Model
         best_model_path = path + '/' + 'checkpoint.pth'
@@ -390,10 +441,13 @@ class Exp_PhysFormer:
         # 用于记录各项物理违规的平均值
         total_metrics = {'mae': [], 'net': [], 'deriv': [], 'energy': [], 'cons': []}
 
+        # 新增：收集gate
+        batch_gates = {'load': [], 'pv': [], 'wind': [], 'info_gain': []}
+
         with torch.no_grad():
             for i, batch_data in enumerate(vali_loader):
-                outputs, batch_y_true, loss, loss_dict = self._process_one_batch(
-                    batch_data, criterion, phase='val'
+                outputs, batch_y_true, loss, loss_dict, gates= self._process_one_batch(
+                    batch_data, criterion, phase='val', return_gates=True
                 )
 
                 total_loss.append(loss.item())
@@ -403,14 +457,21 @@ class Exp_PhysFormer:
                     if k in total_metrics:
                         total_metrics[k].append(v)
 
+                # 累积gate
+                if gates is not None:
+                    for k in batch_gates.keys():
+                        if k in gates:
+                            batch_gates[k].append(gates[k])
+
         avg_loss = np.average(total_loss)
         avg_mae = np.average(total_metrics['mae'])
+        avg_gates = {k: np.mean(v) if v else 0.0 for k, v in batch_gates.items()}
 
         self.model.train()
         self.criterion.train()
 
         # 返回 avg_loss 用于日志，avg_mae 用于早停 (EarlyStopping)
-        return avg_loss, avg_mae
+        return avg_loss, avg_mae, avg_gates
 
     def test(self, setting, load=True):
         test_data, test_loader = self._get_data(flag='test')
@@ -419,6 +480,13 @@ class Exp_PhysFormer:
             path = os.path.join(self.args.checkpoints, setting)
             best_model_path = path + '/' + 'checkpoint.pth'
             self.model.load_state_dict(torch.load(best_model_path))
+
+        # 详细gate收集（用于可视化）
+        if self.args.save_gate_details:  # 需要在args中添加这个flag
+            detailed_gates = {
+                'load': [], 'pv': [], 'wind': [],
+                'pv_true': [], 'timestamps': []
+            }
 
         self.model.eval()
         preds = []
@@ -442,9 +510,16 @@ class Exp_PhysFormer:
 
         with torch.no_grad():
             for i, batch_data in enumerate(test_loader):
-                outputs, batch_y_true, _, loss_dict = self._process_one_batch(
-                    batch_data, criterion, phase='test'
+                outputs, batch_y_true, _, loss_dict, gates = self._process_one_batch(
+                    batch_data, criterion, phase='test', return_gates=True
                 )
+
+                # 记录gate和真实PV
+                detailed_gates['load'].append(gates['load'])
+                detailed_gates['pv'].append(gates['pv'])
+                detailed_gates['wind'].append(gates['wind'])
+                detailed_gates['pv_true'].append(batch_y_true[:, :, 1].mean().item())
+                detailed_gates['timestamps'].append(i)
 
                 # 记录指标
                 for k in phys_metrics.keys():
@@ -500,6 +575,7 @@ class Exp_PhysFormer:
         folder_path = path + '/'
 
         # 保存的就是真实的 MW 值了
+        np.save(os.path.join(folder_path, 'gate_details.npy'), detailed_gates)
         np.save(os.path.join(folder_path, 'metrics.npy'), np.array(metrics_result))
         np.save(os.path.join(folder_path, 'pred.npy'), preds)
         np.save(os.path.join(folder_path, 'true.npy'), trues)

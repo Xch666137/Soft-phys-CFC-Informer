@@ -143,7 +143,7 @@ class PhysFormer(nn.Module):
         self.apply(self._init_weights)
 
     def forward(self, x_stat, x_phys, x_mark_enc, x_dec, x_mark_dec,
-                enc_mask=None, dec_mask=None):
+                enc_mask=None, dec_mask=None, return_gates=False):
         """
         x_stat: [Batch, Seq, 3]  (Load, PV, Wind)
         x_phys: [Batch, Seq, 6]  (Weather + Diff)
@@ -181,7 +181,13 @@ class PhysFormer(nn.Module):
         else:
             enc_out_phys_aligned = enc_out_phys
 
-        enc_out_fused = self.causal_coupling(enc_out_stat, enc_out_phys_aligned)
+        if return_gates:
+            enc_out_fused, gates = self.causal_coupling(
+                enc_out_stat, enc_out_phys_aligned, return_gates=True
+            )
+        else:
+            enc_out_fused = self.causal_coupling(enc_out_stat, enc_out_phys_aligned)
+            gates = None
 
         # --- Step 4: Decoder ---
         # 注意：ODE Decoder 不需要 dec_mask (sequence masking)，因为它内部是递归的

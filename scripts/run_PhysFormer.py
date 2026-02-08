@@ -16,9 +16,11 @@ def main():
 
     # 存储与命名参数
     parser.add_argument('--model', type=str, default='PhysFormer', help='model name')
-    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v1.2', help='experiment name')
+    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v1.0', help='experiment name')
     parser.add_argument('--checkpoints', type=str, default='exp_results/PhysFormer/checkpoints/',
                         help='location of model checkpoints')
+    parser.add_argument('--save_gate_details', action='store_true',
+                        help='save detailed gate values for visualization')
 
     # 数据相关
     parser.add_argument('--root_path', type=str, default='./', help='root path of the data file')
