@@ -1,61 +1,42 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from ..informer.attention import ProbAttention, FullAttention
 from ..informer.encoder import Encoder
 from ..informer.Embedding import DataEmbedding
-from .Causal_coupling import CausalCouplingModule
-from .decoder_ode import PhysDecoder
-from .cfc import CfcBlock
+from .Causal_coupling import PhysicsGuidedCausalCoupling
+from .physical_layer import ExplicitPhysicalMapping
+from .Flatten_head import FlattenHead
 
 
 class PhysFormer(nn.Module):
     """
-    PhysFormer Architecture (V5)
+    PhysFormer-Quantile (Encoder-Only Version)
 
-    结构特点：
-    1. Physics Enhanced: 保留 CFC 物理层处理非线性动力学。
-    2. Clean Output: 只输出 [Load, PV, Wind] 3个核心变量，移除噪声干扰。
-
-    融合特性：
-    1. CFC Physics Adapter: 输入端物理动力学特征提取
-    2. Multi-Head Output: 输出端针对 Load/PV/Wind 的独立解耦预测
+    结构：
+    1. Input Embedding (Stat + Phys)
+    2. Dual-Stream Encoder (Stat Transformer + Explicit Physics)
+    3. Causal Coupling Fusion (History Fusion)
+    4. Flatten Head Projection (History -> Future Features)
+    5. Future Physics Guidance (Gray-box Constraint)
+    6. Quantile Output Heads (Residual Learning)
     """
 
-    def __init__(self, enc_in, dec_in, c_out, seq_len, label_len, pred_len,
-                 factor=5, d_model=512, n_heads=8, e_layers=3, d_layers=2, d_ff=512,
-                 dropout=0.0, attn='prob', embed='fixed', freq='h', activation='gelu',
-                 output_attention=False, distil=True, mix=True, d_phys=64, stride=1,
-                 device=torch.device('cuda:0'), use_rope=False, rope_base=10000):
+    def __init__(self, enc_in, seq_len, pred_len,
+                 factor=5, d_model=512, n_heads=8, e_layers=3, d_ff=512,
+                 dropout=0.1, attn='prob', embed='fixed', freq='h',
+                 activation='gelu', use_rope=False, rope_base=10000,
+                 weather_mean=None, weather_std=None,
+                 target_mean=None, target_std=None, distil=False,
+                 device=torch.device('cuda:0')):
 
         super(PhysFormer, self).__init__()
-        self.pred_len = pred_len
         self.seq_len = seq_len
-        self.output_attention = output_attention
-
+        self.pred_len = pred_len
         # --- 1. 双流 Embedding 层 ---
 
         # A. 统计流 Embedding (Stat Stream)
         self.stat_embedding = DataEmbedding(
-            c_in=6,  # ✅ Load(3) + Weather(3)
-            d_model=d_model,
-            embed_type=embed,
-            freq=freq,
-            dropout=dropout
-        )
-
-        # B. 物理流 Embedding (Phys Stream)
-        self.phys_embedding = DataEmbedding(
-            c_in=9,  # ✅ Weather(3) + Power(3) + Delta(3)
-            d_model=d_model,
-            embed_type=embed,
-            freq=freq,
-            dropout=dropout
-        )
-
-        # C. Decoder Embedding (保持不变)
-        self.dec_embedding = DataEmbedding(
-            c_in=dec_in,
+            c_in=enc_in,
             d_model=d_model,
             embed_type=embed,
             freq=freq,
@@ -79,45 +60,51 @@ class PhysFormer(nn.Module):
         )
 
         # --- 3. 物理动力学注入层 (CFC Stream) ---
-        # stride=1 保证物理层捕捉最精细的动力学特征
-        self.physics_adapter = CfcBlock(
-            d_model, d_ff,
-            d_phys=d_phys,
-            dropout=dropout,
-            stride=stride
-        )
+        # # stride=1 保证物理层捕捉最精细的动力学特征
+        # self.physics_adapter = CfcBlock(
+        #     d_model, d_ff,
+        #     d_phys=d_phys,
+        #     dropout=dropout,
+        #     stride=stride
+        # )
 
-        # --- 4. Decoder (ODE Stream) ---
-        self.decoder = PhysDecoder(
-            num_layers=d_layers,
+        # --- 3. 显式物理映射层 ---
+        # 负责计算 "理论基准"
+        self.phys_layer = ExplicitPhysicalMapping(
             d_model=d_model,
-            n_heads=n_heads,
-            d_ff=d_ff,
-            d_phys=d_phys,  # 确保这是一个合理的物理隐层维度，建议 64 或 32
-            dropout=dropout,
-            stride=1  # Decoder 必须保持逐点分辨率，不要下采样
+            weather_dim=3,
+            weather_mean=weather_mean,
+            weather_std=weather_std,
+            target_mean=target_mean,
+            target_std=target_std
         )
 
-        # --- 5. Causal Coupling (因果融合层) ---
-        self.causal_coupling = CausalCouplingModule(
+        # --- 4. Causal Coupling (因果融合层) ---
+        self.causal_coupling = PhysicsGuidedCausalCoupling(
             d_model=d_model,
             n_heads=n_heads,
             dropout=dropout
         )
 
-        # ==========================================
-        # [新增] 共享特征投影层 (Shared Projection)
-        # ==========================================
-        # 作用：在分头预测前，先提取 Load/PV/Wind 的共性特征（如天气影响）
+        # --- 5. Flatten Head (Encoder -> Future Projection) ---
+        self.flatten_head = FlattenHead(seq_len, d_model, pred_len, dropout)
+
+        # 6. Advanced Multi-Head Output
+
+        # 增加一个天气特征融合层 (可选，但推荐)
+        # 用于将 Flatten 出来的历史特征与未来天气特征更好地混合
+        self.feature_fusion_norm = nn.LayerNorm(d_model)
+
+        # 共享投影：提取天气对所有功率的共性影响
         self.shared_projection = nn.Sequential(
             nn.Linear(d_model, d_model),
-            nn.LayerNorm(d_model),  # 加一个 Norm 稳定分布
+            nn.LayerNorm(d_model),
             nn.GELU(),
             nn.Dropout(dropout)
         )
 
-        # --- 6. Multi-Head Output ---
-        # Head A: Load
+        # Head A: Load (相对简单，浅层网络)
+        # 输入: [B, P, D] -> 输出: [B, P, 1]
         self.head_load = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.GELU(),
@@ -125,19 +112,19 @@ class PhysFormer(nn.Module):
             nn.Linear(d_model // 2, 1)
         )
 
-        # Head B: PV
+        # Head B: PV (波动剧烈，深层网络)
         self.head_pv = nn.Sequential(
-            nn.Linear(d_model, d_model),  # input dim change
+            nn.Linear(d_model, d_model),  # 保持维度，增加容量
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model, d_model // 2),
+            nn.Linear(d_model, d_model // 2),  # 逐步压缩
             nn.GELU(),
             nn.Linear(d_model // 2, 1)
         )
 
-        # Head C: Wind
+        # Head C: Wind (混沌特性，深层网络)
         self.head_wind = nn.Sequential(
-            nn.Linear(d_model, d_model),  # input dim change
+            nn.Linear(d_model, d_model),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_model, d_model // 2),
@@ -145,95 +132,114 @@ class PhysFormer(nn.Module):
             nn.Linear(d_model // 2, 1)
         )
 
-        # 初始化权重
+        # 8. 权重初始化
         self.apply(self._init_weights)
+        self._init_gating_mechanisms()
 
-    def forward(self, x_stat, x_phys, x_mark_enc, x_dec, x_mark_dec,
-                enc_mask=None, dec_mask=None, return_gates=False):
+    def forward(self, x_stat, x_weather_hist, x_weather_future, x_mark_enc, return_gates=False):
         """
-        x_stat: [Batch, Seq, 3]  (Load, PV, Wind)
-        x_phys: [Batch, Seq, 6]  (Weather + Diff)
-        x_mark_enc: [Batch, Seq, 4/8] (Time Features)
+        Args:
+            x_stat: [B, Seq, 3] 历史观测值 (Load, PV, Wind)
+            x_weather_hist: [B, Seq, 3] 历史天气
+            x_weather_future: [B, Pred, 3] 未来天气预报 (必不可少!)
+            x_mark_enc: [B, Seq, 4] 时间特征
+
+        Returns:
+            output: [B, Pred, 3] 点预测结果
+            gates_info: (Optional) 监控信息
         """
 
-        # --- Step 1: Embedding (解耦) ---
+        # === Step 1: History Encoding ===
+        # 早期融合：将历史功率与历史天气拼接
+        # x_enc_input: [B, Seq, 6]
+        x_enc_input = torch.cat([x_stat, x_weather_hist], dim=-1)
 
-        # 统计流: 加上了位置编码和时间特征 [B, S, 3] -> [B, S, D]
-        enc_out_stat = self.stat_embedding(x_stat, x_mark_enc)
+        enc_out_stat = self.stat_embedding(x_enc_input, x_mark_enc)
+        enc_out_stat = self.encoder(enc_out_stat)  # [B, Seq, D]
 
-        # 物理流: 同样加上位置和时间 [B, S, 6] -> [B, S, D]
-        # (时间特征 x_mark_enc 是共享的，这很合理)
-        enc_out_phys_base = self.phys_embedding(x_phys, x_mark_enc)
+        # === Step 2: History Physics ===
+        phys_feat_hist, _ = self.phys_layer(x_weather_hist)  # [B, Seq, D]
 
-        # --- Step 2: 双流并行处理 (Dual-Stream) ---
-        # Path A: 统计流 (Informer Encoder)
-        # 负责提取长程依赖、周期性模式
-        enc_out_stat = self.encoder(enc_out_stat, mask=enc_mask)
-
-        # Path B: 物理流 (Optimized CFC)
-        # 负责提取连续时间动力学
-        enc_out_phys = self.physics_adapter(enc_out_phys_base)
-
-        # --- Step 3: 特征融合 (Fusion) ---
-        if enc_out_stat.shape[1] != enc_out_phys.shape[1]:
-            enc_out_phys_aligned = enc_out_phys.permute(0, 2, 1)
-            enc_out_phys_aligned = F.interpolate(
-                enc_out_phys_aligned,
-                size=enc_out_stat.shape[1],
-                mode='linear',
-                align_corners=False
-            )
-            enc_out_phys_aligned = enc_out_phys_aligned.permute(0, 2, 1)
-        else:
-            enc_out_phys_aligned = enc_out_phys
-
+        # === Step 3: Fusion (Physics-Guided Attention) ===
         if return_gates:
-            enc_out_fused, gates = self.causal_coupling(
-                enc_out_stat, enc_out_phys_aligned, return_gates=True
+            enc_out_fused, gates_info = self.causal_coupling(
+                enc_out_stat, phys_feat_hist, x_weather_hist, return_gates=True
             )
         else:
-            enc_out_fused = self.causal_coupling(enc_out_stat, enc_out_phys_aligned)
-            gates = None
+            enc_out_fused = self.causal_coupling(
+                enc_out_stat, phys_feat_hist, x_weather_hist, return_gates=False
+            )
+            gates_info = None
 
-        # --- Step 4: Decoder ---
-        # 注意：ODE Decoder 不需要 dec_mask (sequence masking)，因为它内部是递归的
-        # 但 Cross-Attention 可能需要 memory_mask (通常不需要，除非 Encoder 有 padding)
-        dec_in = self.dec_embedding(x_dec, x_mark_dec)
-        dec_out = self.decoder(
-            dec_in,
-            enc_out_fused,
-            tgt_mask=None,  # 显式传入 None，强调不再需要 Attention Mask
-            memory_mask=None
-        )
+        # === Step 4: Projection to Future ===
+        # Flatten Head 将时间步映射到未来 [B, Seq, D] -> [B, Pred, D]
+        # 此时 future_feat 仅包含历史信息的投影
+        future_feat_history = self.flatten_head(enc_out_fused)  # [B, Pred, D]
 
-        # dec_out shape: [Batch, Pred_Len, d_model]
+        # === Step 5: Inject Future Weather (Fixing Residual Blind Spot) [MODIFIED] ===
 
-        # --- Step 5: Flatten Projection (Time Domain Mapping) ---
-        # 先通过共享投影层提取共性
-        dec_out_shared = self.shared_projection(dec_out)
-        # 分别通过三个独立的 MLP 头
-        out_load = self.head_load(dec_out_shared)  # [B, P, 1]
-        out_pv = self.head_pv(dec_out_shared)  # [B, P, 1]
-        out_wind = self.head_wind(dec_out_shared)  # [B, P, 1]
+        # A. 计算未来的理论物理值 (theory_future) 和 天气隐层特征 (weather_feat_future)
+        # phys_layer 返回的第一个值是 projected_feat [B, Pred, D]
+        weather_feat_future, theory_future = self.phys_layer(x_weather_future)
 
-        # 拼接输出
-        output = torch.cat([out_load, out_pv, out_wind], dim=-1)  # [B, P, 3]
-        output = output[:, -self.pred_len:, :]  # [Batch, 192, 3] -> [Batch, 96, 3]
+        # B. 关键修复：将未来天气特征注入到残差网络输入中
+        # 这样 Residual Head 就能看到"未来是否阴天/大风"
+        # 使用残差连接方式融合：History_Projection + Future_Weather_Context
+        future_feat_combined = future_feat_history + weather_feat_future
 
-        # 修复后的返回逻辑：
+        # C. 归一化 (稳定训练)
+        future_feat = self.feature_fusion_norm(future_feat_combined)
+
+        # 经过共享投影层
+        future_feat = self.shared_projection(future_feat)
+
+        # === Step 6: Residual Prediction (使用差异化 Head) ===
+        res_load = self.head_load(future_feat)  # [B, Pred, 1]
+        res_pv = self.head_pv(future_feat)
+        res_wind = self.head_wind(future_feat)
+
+        # === Step 7: Physics Guidance & Combination ===
+        theory_load = theory_future[:, :, 0].unsqueeze(-1)
+        theory_pv = theory_future[:, :, 1].unsqueeze(-1)
+        theory_wind = theory_future[:, :, 2].unsqueeze(-1)
+
+        # Final = Theory + Residual
+        final_load = theory_load + res_load
+        final_pv = theory_pv + res_pv
+        final_wind = theory_wind + res_wind
+
+        output = torch.cat([final_load, final_pv, final_wind], dim=-1)
+
         if return_gates:
-            return output, gates
+            return output, gates_info
         else:
             return output
 
     def _init_weights(self, m):
+        """通用的权重初始化策略"""
         if isinstance(m, nn.Linear):
-            # 使用 Kaiming Normal 适配 GELU
-            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+            nn.init.xavier_uniform_(m.weight)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Conv1d):
             nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def _init_gating_mechanisms(self):
+        """针对 Gate 的特殊初始化，防止饱和"""
+        coupling = self.causal_coupling
+        gate_learners = [
+            coupling.gate_learner_pv,
+            coupling.gate_learner_wind,
+            coupling.gate_learner_load
+        ]
+
+        for learner in gate_learners:
+            last_linear = learner[-2]  # 假设结构最后是 Linear -> Sigmoid
+            if isinstance(last_linear, nn.Linear):
+                nn.init.normal_(last_linear.weight, mean=0, std=0.001)
+                nn.init.constant_(last_linear.bias, 0)
