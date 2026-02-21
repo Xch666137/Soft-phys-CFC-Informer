@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.optim as optim
 import numpy as np
@@ -5,6 +7,7 @@ import os
 import warnings
 import logging
 import matplotlib.pyplot as plt
+import json
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
@@ -14,7 +17,7 @@ from tqdm import tqdm
 from data_loader.data_factory import PhysFormerDataset
 from models.src.models import PhysFormer
 from models.src.utils.losses import PhysAwareBaseLoss, PhysLoss
-from models.src.utils.metrics import metric
+from models.src.utils.metrics import metric, NRMSE_Channel_Avg
 
 warnings.filterwarnings('ignore')
 torch.backends.cudnn.benchmark = True
@@ -27,11 +30,8 @@ class Exp_PhysFormer:
         self.model = self._build_model().to(self.device)
 
         self.gate_history = {
-            'epoch': [],
-            'load': [],
-            'pv': [],
-            'wind': [],
-            'info_gain': []
+            'epoch': [], 'load': [], 'pv': [], 'wind': [],
+            'info_gain': [], 'volatility': [], 'weather': []
         }
 
         # 初始化 TensorBoard Writer
@@ -259,28 +259,69 @@ class Exp_PhysFormer:
 
     def _get_curriculum_ratio(self, epoch):
         """
-        计算当前 Epoch 的课程进度 (0.0 -> 1.0)
-        策略: Sigmoid-like Growth
-        - Epoch 0-5: 0.0 (Warmup Pinball only)
-        - Epoch 5-20: 0.0 -> 1.0 (Gradual Injection)
-        - Epoch 20+: 1.0 (Full Constraints)
+        分层课程学习：返回每个物理约束的独立权重字典。
+        三阶段策略：
+        - 阶段1 (epoch 0-5): 纯数据驱动，所有权重为0
+        - 阶段2 (epoch 5-15): 逐步引入网络约束（net 从0→1.0）
+        - 阶段3 (epoch 15-30): 逐步引入能量与导数约束（energy 0→0.5，deriv 0→0.3）
+
+        硬约束（bvr, rvr）从阶段2开始与net同步介入。
+        方向约束（dir）从阶段2开始与net同步介入。
+
+        返回字典格式：{'net': w1, 'energy': w2, 'deriv': w3, 'bvr': w4, 'rvr': w5, 'dir': w6}
+        curriculum 权重归一化到 [0, 1] 范围（代表"注入多少比例"）
+        各物理项的相对重要性完全由 PhysLoss.sub_weights 承载
+        两者职责分离，互不重叠。
         """
-        # 可以设为超参数
-        start_epoch = 5
-        ramp_epochs = 15
+        # 阶段定义
+        stage1_end = 5
+        stage2_end = 15
+        stage3_end = 30
 
-        if epoch < start_epoch:
-            return 0.0
-        if epoch >= start_epoch + ramp_epochs:
-            return 1.0
+        # 最终目标权重（基于指导文档和现有实现）
+        target_weights = {
+            'net': 1.0,
+            'energy': 1.0,
+            'deriv': 1.0,
+            'bvr': 1.0,
+            'rvr': 1.0,
+            'dir': 1.0,
+        }
 
-        # Sigmoid 映射
-        progress = (epoch - start_epoch) / ramp_epochs  # 0 -> 1
-        # 映射到 -6 到 6 区间进行 sigmoid，产生平滑的 S 曲线
-        import math
-        x = (progress - 0.5) * 12
-        ratio = 1 / (1 + math.exp(-x))
-        return ratio
+        # 初始化权重字典
+        weights = {k: 0.0 for k in target_weights.keys()}
+
+        if epoch < stage1_end:
+            # 阶段1：纯数据驱动，所有权重为0
+            return weights
+
+        if epoch >= stage3_end:
+            return target_weights
+
+        elif epoch >= stage2_end:
+            # 阶段3：net/bvr/rvr/dir 已满权重，energy/deriv 渐入
+            stage3_progress = (epoch - stage2_end) / (stage3_end - stage2_end)
+            x = (stage3_progress - 0.5) * 12
+            ratio3 = 1 / (1 + math.exp(-x))
+
+            weights['net'] = target_weights['net']
+            weights['bvr'] = target_weights['bvr']
+            weights['rvr'] = target_weights['rvr']
+            weights['dir'] = target_weights['dir']
+            weights['energy'] = target_weights['energy'] * ratio3  # 0 → 0.5
+            weights['deriv'] = target_weights['deriv'] * ratio3  # 0 → 0.3
+            return weights
+
+        else:
+            # 阶段2逻辑不变（epoch 5-15）
+            stage2_progress = (epoch - stage1_end) / (stage2_end - stage1_end)
+            x = (stage2_progress - 0.5) * 12
+            ratio = 1 / (1 + math.exp(-x))
+            weights['net'] = target_weights['net'] * ratio
+            weights['bvr'] = target_weights['bvr'] * ratio
+            weights['rvr'] = target_weights['rvr'] * ratio
+            weights['dir'] = target_weights['dir'] * ratio
+            return weights
 
     def _select_criterion(self):
         # 1. 获取训练集
@@ -326,17 +367,42 @@ class Exp_PhysFormer:
         return criterion
 
     def _select_optimizer(self):
+        base_lr = self.args.learning_rate
         wd = self.args.weight_decay if self.args.weight_decay > 0 else 1e-5
-        params = list(self.model.parameters())
 
-        model_optim = optim.AdamW(
-            params,
-            lr=self.args.learning_rate,
-            weight_decay=wd
-        )
+        # 参数分类
+        phys_params, gate_params, stat_params = [], [], []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if 'phys_layer.' in name:           # 精确匹配 model.phys_layer.xxx
+                phys_params.append(param)
+            elif 'causal_coupling.' in name:    # 精确匹配耦合模块所有参数
+                gate_params.append(param)
+            else:
+                stat_params.append(param)
+
+        # 打印参数分组信息（调试用）
+        print(f">>> [Layer-wise LR] Phys: {len(phys_params)} params, Gate: {len(gate_params)} params, Stat: {len(stat_params)} params")
+
+        param_groups = [
+            {'params': phys_params, 'lr': base_lr * 0.1, 'name': 'phys_params'},
+            {'params': gate_params, 'lr': base_lr * 0.5, 'name': 'gate_params'},
+            {'params': stat_params, 'lr': base_lr * 1.0, 'name': 'stat_params'},
+        ]
+
+        model_optim = optim.AdamW(param_groups, weight_decay=wd)
+
+        for p_group in param_groups:
+            sample_names = [n for n, p in self.model.named_parameters()
+                            if any(p is pp for pp in p_group['params'])][:3]
+            print(f">>> Group '{p_group['name']}' lr={p_group['lr']:.2e}, "
+                  f"sample params: {sample_names}")
+
         return model_optim
 
-    def _process_one_batch(self, batch_data, criterion=None, phase='train', return_gates=False, curriculum_ratio=0.0):
+    def _process_one_batch(self, batch_data, criterion=None, phase='train',
+                           return_gates=False, curriculum_ratio=0.0, current_prior_weight=0.0):
         # 1. 解包数据并转移到 GPU
         batch_stat, batch_weather_hist, batch_weather_future, batch_y, batch_x_mark, batch_y_mark = batch_data
         # 2. 转移到 GPU
@@ -351,6 +417,10 @@ class Exp_PhysFormer:
         # Dataset 返回的 batch_y 已经是未来真值 [B, Pred, 3]
         batch_y_true = batch_y
 
+        # 提取 network 的 curriculum ratio
+        progress_ratio = curriculum_ratio.get('net', 0.0) if isinstance(curriculum_ratio, dict) else curriculum_ratio
+        alpha = 1.0 - progress_ratio  # 进度越深，alpha 越小，越依赖软门控
+
         # 4. 前向传播
         # 确保使用正确的 Context (Train/Val/Test)
         context = torch.cuda.amp.autocast(enabled=self.args.use_amp) if self.args.use_gpu else torch.no_grad()
@@ -360,19 +430,21 @@ class Exp_PhysFormer:
 
         with context:
             if return_gates:
-                outputs, gates = self.model(
+                outputs, reg_loss, gates = self.model(
                     x_stat=batch_stat,
                     x_weather_hist=batch_weather_hist,
                     x_weather_future=batch_weather_future,
                     x_mark_enc=batch_x_mark,
+                    alpha=alpha,
                     return_gates=True
                 )
             else:
-                outputs = self.model(
+                outputs, reg_loss = self.model(
                     x_stat=batch_stat,
                     x_weather_hist=batch_weather_hist,
                     x_weather_future=batch_weather_future,
                     x_mark_enc=batch_x_mark,
+                    alpha=alpha,
                     return_gates=False
                 )
                 gates = None
@@ -381,15 +453,23 @@ class Exp_PhysFormer:
             loss_dict = {}
 
             if criterion is not None:
-                # 计算 Loss (MSE + Phys)
-                loss_main, loss_dict = criterion(outputs, batch_y_true, curriculum_ratio=curriculum_ratio)
+                # 计算 Loss (NRMSE + Phys)
+                loss_main, loss_dict = criterion(outputs, batch_y_true, curriculum_weights=curriculum_ratio)
 
-                # 加上 Gate Regularization
-                if gates is not None and 'gate_reg_loss' in gates:
-                    reg_loss = gates['gate_reg_loss']
-                    if isinstance(reg_loss, torch.Tensor):
-                        loss_main += reg_loss
-                        loss_dict['gate_reg'] = reg_loss.item()
+                # 将门控的响应度正则化 Loss 叠加进计算图
+                if isinstance(reg_loss, torch.Tensor) and reg_loss.requires_grad:
+                    loss_main += reg_loss
+                    loss_dict['gate_reg'] = reg_loss.item()
+
+                # 加上物理参数先验正则化（仅在训练阶段）
+                if phase == 'train' and hasattr(self.model, 'phys_layer') and current_prior_weight > 0:
+                    prior_loss, prior_dict = self.model.phys_layer.get_physics_prior_loss(prior_weight=current_prior_weight)
+                    if isinstance(prior_loss, torch.Tensor):
+                        loss_main += prior_loss
+                        loss_dict['physics_prior'] = prior_loss.item()
+                        # 记录各项先验损失用于监控
+                        for k, v in prior_dict.items():
+                            loss_dict[f'prior_{k}'] = v
 
                 total_loss = loss_main
 
@@ -432,6 +512,27 @@ class Exp_PhysFormer:
             self.model.train()
             self.criterion.train()
 
+            # 物理参数的冻结与解冻机制 ---
+            # 设定预热期为 5 个 epoch (可根据实际收敛速度微调)
+            warmup_epochs = 5
+
+            if epoch < warmup_epochs:
+                # 阶段一：冻结物理层，强制 Transformer 适应标准物理先验
+                for param in self.model.phys_layer.parameters():
+                    param.requires_grad = False
+                current_prior_weight = 0.0  # 冻结状态不需要计算先验 Loss
+                if epoch == 0:
+                    self.logger.info(f">>> [PhysLayer Control] Epoch 1-{warmup_epochs}: Physics parameters FROZEN.")
+            else:
+                # 阶段二：解冻物理层，允许数据驱动的微调，并施加先验约束防止跑偏
+                for param in self.model.phys_layer.parameters():
+                    param.requires_grad = True
+                current_prior_weight = getattr(self.args, 'physics_prior_weight', 0.1)
+                if epoch == warmup_epochs:
+                    self.logger.info(
+                        f">>> [PhysLayer Control] Epoch {epoch + 1}+: Physics parameters UNFROZEN. Prior weight: {current_prior_weight}")
+            # ----------------------------------------------------
+
             # 获取当前 Epoch 的课程 Ratio
             curr_ratio = self._get_curriculum_ratio(epoch)
 
@@ -449,7 +550,7 @@ class Exp_PhysFormer:
                     # Train 阶段我们还需要加上惯性正则化 Loss，所以我们在外层加
                     outputs, batch_y_true, loss_main, loss_dict = self._process_one_batch(
                         batch_data, self.criterion, phase='train', return_gates=False,
-                        curriculum_ratio=curr_ratio
+                        curriculum_ratio=curr_ratio, current_prior_weight=current_prior_weight
                     )
 
                     # Backward
@@ -461,16 +562,26 @@ class Exp_PhysFormer:
                         self._log_gradient_norms(global_step)
 
                     # 动态梯度裁剪
-                    clip_norm = 0.5 if 0.1 < curr_ratio < 0.9 else 1.0
+                    progress_ratio = curr_ratio.get('net', 0.0) if isinstance(curr_ratio, dict) else curr_ratio
+                    clip_norm = 0.5 if 0.1 < progress_ratio < 0.9 else 1.0
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=clip_norm)
                     scaler.step(model_optim)
                     scaler.update()
 
-                    # [新增] 记录 Loss 和 物理参数
+                    # 记录 Loss 和 物理参数
                     if i % 20 == 0:  # 每 20 个 batch 记录一次 Loss
                         # 记录主 Loss
                         self.writer.add_scalar('Loss/Total_Train', loss_main.item(), global_step)
-                        self.writer.add_scalar('Training/Curriculum_Ratio', curr_ratio, global_step)
+                        # 记录课程权重（curr_ratio现在是字典）
+                        if isinstance(curr_ratio, dict):
+                            for key, value in curr_ratio.items():
+                                self.writer.add_scalar(f'Curriculum/{key}', value, global_step)
+                            # 同时记录平均权重以便监控
+                            avg_ratio = sum(curr_ratio.values()) / len(curr_ratio) if curr_ratio else 0.0
+                            self.writer.add_scalar('Curriculum/Average', avg_ratio, global_step)
+                        else:
+                            # 向后兼容：如果是标量，按原样记录
+                            self.writer.add_scalar('Training/Curriculum_Ratio', curr_ratio, global_step)
 
                         # 记录分项物理 Loss (从 loss_dict 中取)
                         if loss_dict:
@@ -479,6 +590,14 @@ class Exp_PhysFormer:
                             for k, v in loss_dict.items():
                                 if k in ['net', 'energy', 'deriv', 'bvr', 'rvr']:
                                     self.writer.add_scalar(f'Loss_Components/{k}', v, global_step)
+                                elif k == 'physics_prior':
+                                    self.writer.add_scalar('Loss_Components/Physics_Prior', v, global_step)
+                                elif k.startswith('prior_'):
+                                    # 记录先验损失的各个组成部分
+                                    self.writer.add_scalar(f'Physics_Prior/{k[6:]}', v, global_step)
+                                elif k.startswith('curriculum_'):
+                                    # 记录课程权重
+                                    self.writer.add_scalar(f'Curriculum/{k[11:]}', v, global_step)
                             if 'scale' in loss_dict:
                                 self.writer.add_scalar('Training/Balancing_Scale', loss_dict['scale'], global_step)
 
@@ -494,8 +613,8 @@ class Exp_PhysFormer:
                     pbar.update(1)
 
             # --- C. 验证与早停 ---
-            # 这里的 vali_mae 是反归一化后的真实物理误差 (MW)
-            vali_loss, vali_mae, avg_gates = self.vali(val_data, val_loader, self.criterion, epoch=epoch)
+            # 这里的 vali_nrmse 是消除负荷极大值会带来的收敛影响
+            vali_loss, vali_nrmse, avg_gates = self.vali(val_data, val_loader, self.criterion, epoch=epoch)
 
             # 记录gate历史
             self.gate_history['epoch'].append(epoch + 1)
@@ -503,6 +622,8 @@ class Exp_PhysFormer:
             self.gate_history['pv'].append(avg_gates['pv'])
             self.gate_history['wind'].append(avg_gates['wind'])
             self.gate_history['info_gain'].append(avg_gates['info_gain'])
+            self.gate_history['volatility'].append(avg_gates.get('volatility', 0.0))
+            self.gate_history['weather'].append(avg_gates.get('weather_gate', 0.0))
 
             # 调度器步进 (WarmRestarts 是按 epoch 更新的)
             scheduler.step()
@@ -510,13 +631,26 @@ class Exp_PhysFormer:
             # Logging
             avg_scale = np.mean(debug_log['scale']) if debug_log['scale'] else 1.0
 
+            # 格式化课程权重信息
+            if isinstance(curr_ratio, dict):
+                # 计算平均权重
+                avg_ratio = sum(curr_ratio.values()) / len(curr_ratio) if curr_ratio else 0.0
+                # 提取关键权重用于显示
+                key_ratios = []
+                for key in ['net', 'energy', 'deriv']:
+                    if key in curr_ratio:
+                        key_ratios.append(f"{key}:{curr_ratio[key]:.3f}")
+                ratio_str = f"Avg:{avg_ratio:.3f} ({', '.join(key_ratios)})"
+            else:
+                ratio_str = f"{curr_ratio:.3f}"
+
             self.logger.info(
-                f"Epoch {epoch + 1} | Ratio: {curr_ratio:.3f} | "
+                f"Epoch {epoch + 1} | Ratio: {ratio_str} | "
                 f"Balancing Scale: {avg_scale:.2f}"
             )
 
             # 打印各项物理Loss的原始值，而非权重
-            phys_terms = ['net', 'energy', 'deriv', 'bvr']
+            phys_terms = ['net', 'energy', 'deriv', 'bvr', 'physics_prior']
             phys_str = " | ".join([f"{k}:{loss_dict.get(k, 0):.4f}" for k in phys_terms])
             self.logger.info(f"  >> [Phys Losses] {phys_str}")
 
@@ -525,14 +659,15 @@ class Exp_PhysFormer:
                 f"Wind: {avg_gates['wind']:.3f}"
             )
 
-            # 每个 Epoch 结束记录验证集 MAE
-            self.writer.add_scalar('Loss/Val_MAE', vali_mae, epoch)
+            # 每个 Epoch 结束记录验证集 NRMSE
+            self.writer.add_scalar('Loss/Val_NRMSE', vali_nrmse, epoch)
             # 记录平均 Gate 值
             self.writer.add_scalar('Gates/Avg_Load', avg_gates['load'], epoch)
             self.writer.add_scalar('Gates/Avg_PV', avg_gates['pv'], epoch)
             self.writer.add_scalar('Gates/Avg_Wind', avg_gates['wind'], epoch)
+            self.writer.add_scalar('Gates/Avg_Weather_Injection', avg_gates.get('weather_gate', 0.0), epoch)
 
-            early_stopping(vali_mae, self.model, path)
+            early_stopping(vali_nrmse, self.model, path)
             if early_stopping.early_stop:
                 self.logger.info("Early stopping")
                 break
@@ -552,42 +687,62 @@ class Exp_PhysFormer:
         self.model.eval()
         self.criterion.eval()
         total_loss = []
-        total_metrics = {'mae': []}
-        batch_gates = {'load': [], 'pv': [], 'wind': [], 'info_gain': []}
+
+        # 收集预测值用于计算 NRMSE
+        preds = []
+        trues = []
+
+        batch_gates = {
+            'load': [], 'pv': [], 'wind': [],
+            'info_gain': [], 'volatility': [], 'weather_gate': []
+        }
 
         with torch.no_grad():
             for i, batch_data in enumerate(vali_loader):
-                outputs, batch_y_true, loss, loss_dict, gates= self._process_one_batch(
+                outputs, batch_y_true, loss, loss_dict, gates = self._process_one_batch(
                     batch_data, criterion, phase='val', return_gates=True,
-                    curriculum_ratio=1.0    # 使用完整物理约束
+                    curriculum_ratio=1.0, current_prior_weight=0.0
                 )
                 total_loss.append(loss.item())
-                if 'mae' in loss_dict:
-                    total_metrics['mae'].append(loss_dict['mae'])
+
+                # 收集每一批次的预测和真实值
+                preds.append(outputs.detach().cpu().numpy())
+                trues.append(batch_y_true.detach().cpu().numpy())
 
                 if gates is not None:
                     for k in batch_gates.keys():
                         if k in gates:
                             batch_gates[k].append(gates[k])
 
-                # 仅在每个 Epoch 的第一个 Batch 进行绘图
                 if i == 0:
                     fig = self._plot_prediction(outputs, batch_y_true, vali_data)
-                    # 写入 TensorBoard
-                    # tag 格式：Val_Prediction/Epoch
                     self.writer.add_figure('Validation/Prediction_Sample', fig, global_step=epoch)
-                    plt.close(fig)  # 重要！画完记得关闭，否则内存泄漏
+                    plt.close(fig)
 
+        # 拼接全部样本
+        preds = np.concatenate(preds, axis=0)
+        trues = np.concatenate(trues, axis=0)
+
+        # 反归一化到真实物理单位 (极度重要，否则 NRMSE 的分母 range 无物理意义)
+        if vali_data.scale and vali_data.scaler is not None:
+            shape_orig = preds.shape
+            preds_2d = preds.reshape(-1, shape_orig[-1])
+            trues_2d = trues.reshape(-1, shape_orig[-1])
+            preds = vali_data.inverse_transform(preds_2d).reshape(shape_orig)
+            trues = vali_data.inverse_transform(trues_2d).reshape(shape_orig)
+
+        # 计算消除了量纲影响的平均 NRMSE
+        avg_nrmse = NRMSE_Channel_Avg(preds, trues)
         avg_loss = np.average(total_loss)
-        avg_mae = np.mean(total_metrics['mae']) if len(total_metrics['mae']) > 0 else 0.0
         avg_gates = {k: np.mean(v) if len(v) > 0 else 0.0 for k, v in batch_gates.items()}
 
         self.model.train()
         self.criterion.train()
 
-        return avg_loss, avg_mae, avg_gates
+        # 返回 avg_nrmse 作为早停依据
+        return avg_loss, avg_nrmse, avg_gates
 
-    def test(self, setting, load=True):
+    def test(self, setting, load=True, return_preds=False, extreme_scenario_test=False):
         test_data, test_loader = self._get_data(flag='test')
 
         if load:
@@ -600,19 +755,25 @@ class Exp_PhysFormer:
             self.logger.warning("Warning: Criterion not found. Rebuilding from training stats...")
             self.criterion = self._select_criterion()
 
+        actual_ramp_limits = self.train_ramp_limits
+
         self.model.eval()
         self.criterion.eval()
 
         preds, trues = [], []
+        weather_data_list = []  # 收集天气数据用于极端场景测试
         detailed_gates = {'load': [], 'pv': [], 'wind': [], 'pv_true': [], 'timestamps': []}
         phys_metrics = {'mse': [], 'mae': [], 'net': [], 'deriv': [], 'energy': [], 'dir': [], 'bvr': [], 'rvr': []}
         vis_data = {'gate_pv': [], 'gate_wind': [], 'irr': [], 'speed': []}
 
         with torch.no_grad():
             for i, batch_data in enumerate(test_loader):
+                # 解包数据以获取天气数据
+                batch_stat, batch_weather_hist, batch_weather_future, batch_y, batch_x_mark, batch_y_mark = batch_data
+
                 outputs, batch_y_true, _, loss_dict, gates = self._process_one_batch(
                     batch_data, self.criterion, phase='test', return_gates=True,
-                    curriculum_ratio=1.0
+                    curriculum_ratio=1.0, current_prior_weight=0.0
                 )
 
                 if gates:
@@ -637,6 +798,8 @@ class Exp_PhysFormer:
 
                 preds.append(outputs.detach().cpu().numpy())
                 trues.append(batch_y_true.detach().cpu().numpy())
+                # 收集未来天气数据用于极端场景测试
+                weather_data_list.append(batch_weather_future.detach().cpu().numpy())
 
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
@@ -656,7 +819,7 @@ class Exp_PhysFormer:
             preds = preds_rescaled.reshape(shape_orig)
             trues = trues_rescaled.reshape(shape_orig)
 
-        metrics_result = metric(preds, trues)
+        metrics_result = metric(preds, trues, ramp_limits=actual_ramp_limits)
         avg_phys_metrics = {k: np.mean(v) if len(v) > 0 else 0.0 for k, v in phys_metrics.items()}
 
         print("\n" + "=" * 60)
@@ -681,7 +844,94 @@ class Exp_PhysFormer:
         np.save(os.path.join(folder_path, 'pred.npy'), preds)
         np.save(os.path.join(folder_path, 'true.npy'), trues)
 
-        return preds, trues
+        # 极端场景测试
+        if extreme_scenario_test:
+            print("\n" + "="*60)
+            print("  极端场景测试 (Extreme Scenario Testing)")
+            print("="*60)
+
+            # 检查是否有天气数据
+            if len(weather_data_list) == 0:
+                print("警告：未收集到天气数据，无法进行极端场景测试")
+            else:
+                # 合并天气数据
+                weather_data = np.concatenate(weather_data_list, axis=0)
+
+                # 确保天气数据形状与预测数据匹配
+                # weather_data: [B, S, 3], predictions: [B, T, 3]
+                # 注意：天气序列长度(S)可能与预测长度(T)不同
+                # 简化处理：假设S=T，如果不匹配则截断或填充
+                B_weather, S, _ = weather_data.shape
+                B_pred, T, _ = preds.shape
+
+                if B_weather != B_pred:
+                    print(f"警告：天气数据批次大小({B_weather})与预测批次大小({B_pred})不匹配")
+                    # 截断到最小批次
+                    min_batch = min(B_weather, B_pred)
+                    weather_data = weather_data[:min_batch]
+                    preds_scenario = preds[:min_batch]
+                    trues_scenario = trues[:min_batch]
+                else:
+                    preds_scenario = preds
+                    trues_scenario = trues
+
+                # 导入极端场景测试器
+                try:
+                    from evaluation.extreme_scenarios import ExtremeScenarioTester
+
+                    # 创建测试器实例
+                    tester = ExtremeScenarioTester(dataset=test_data, scaler=test_data.scaler if test_data.scale else None)
+
+                    # 评估所有场景
+                    all_metrics = tester.evaluate_all_scenarios(
+                        predictions=preds_scenario,
+                        targets=trues_scenario,
+                        weather_data=weather_data
+                    )
+
+                    # 打印详细报告
+                    tester.print_scenario_report(all_metrics, title="PhysFormer 极端场景性能报告")
+
+                    # 保存极端场景结果
+                    extreme_scenario_path = os.path.join(folder_path, 'extreme_scenarios')
+                    os.makedirs(extreme_scenario_path, exist_ok=True)
+
+                    # 保存所有场景指标
+                    import json
+                    # 转换numpy类型为Python原生类型以便JSON序列化
+                    def convert_for_json(obj):
+                        if isinstance(obj, np.ndarray):
+                            return obj.tolist()
+                        elif isinstance(obj, np.generic):
+                            return obj.item()
+                        elif isinstance(obj, dict):
+                            return {k: convert_for_json(v) for k, v in obj.items()}
+                        elif isinstance(obj, (list, tuple)):
+                            return [convert_for_json(item) for item in obj]
+                        else:
+                            return obj
+
+                    serializable_metrics = convert_for_json(all_metrics)
+                    with open(os.path.join(extreme_scenario_path, 'scenario_metrics.json'), 'w') as f:
+                        json.dump(serializable_metrics, f, indent=2)
+
+                    # 保存原始天气数据以供后续分析
+                    np.save(os.path.join(extreme_scenario_path, 'weather_data.npy'), weather_data)
+
+                    print(f"极端场景测试结果已保存至: {extreme_scenario_path}")
+
+                except ImportError as e:
+                    print(f"导入极端场景测试模块失败: {e}")
+                    print("请确保 evaluation/extreme_scenarios.py 存在")
+                except Exception as e:
+                    print(f"极端场景测试执行失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+        if return_preds:
+            return preds, trues, metrics_result
+        else:
+            return preds, trues
 
 class EarlyStopping:
     def __init__(self, patience=10, verbose=False, delta=0, logger=None):

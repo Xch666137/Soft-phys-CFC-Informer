@@ -13,9 +13,11 @@ warnings.filterwarnings('ignore')
 def time_features(dates, freq='h'):
     """
     手动提取时间特征并进行 Sin/Cos 编码 (8维)
-    [Month, Day, Weekday, Hour] * [Sin, Cos]
+    修复了周期编码中的差一错误(Off-By-One)和闰月断层问题
     """
-    dates = pd.to_datetime(dates)
+    # 确保是 pandas DatetimeIndex 以便调用 dt 属性
+    if not isinstance(dates, pd.DatetimeIndex):
+        dates = pd.to_datetime(dates)
 
     month = dates.month.values
     day = dates.day.values
@@ -23,21 +25,29 @@ def time_features(dates, freq='h'):
     hour = dates.hour.values
     minute = dates.minute.values
 
+    # 获取对应月份的实际天数，解决 28/29/30/31 天的差异
+    days_in_month = dates.days_in_month.values
+
+    # 小时+分钟的连续浮点数
     hour_float = hour + minute / 60.0
 
-    # 归一化并编码
-    month_norm = 2 * np.pi * (month - 1) / 11.0
+    # 归一化并编码 (彻底修复分母错位)
+    # 月份：1-12，分母为 12.0
+    month_norm = 2 * np.pi * (month - 1) / 12.0
     month_sin = np.sin(month_norm)
     month_cos = np.cos(month_norm)
 
-    day_norm = 2 * np.pi * (day - 1) / 30.0
+    # 日期：1-当月最大天数，动态分母
+    day_norm = 2 * np.pi * (day - 1) / days_in_month
     day_sin = np.sin(day_norm)
     day_cos = np.cos(day_norm)
 
-    week_norm = 2 * np.pi * weekday / 6.0
+    # 星期：0-6，分母为 7.0 (保证周日6和周一0的距离正确)
+    week_norm = 2 * np.pi * weekday / 7.0
     week_sin = np.sin(week_norm)
     week_cos = np.cos(week_norm)
 
+    # 小时：0-23.99，分母为 24.0
     hour_norm = 2 * np.pi * hour_float / 24.0
     hour_sin = np.sin(hour_norm)
     hour_cos = np.cos(hour_norm)

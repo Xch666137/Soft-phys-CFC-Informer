@@ -1,7 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import json
 import matplotlib.font_manager as font_manager
+
+from scipy.stats import gaussian_kde
+from matplotlib.colors import LogNorm
 
 
 # ==========================================
@@ -214,6 +218,197 @@ def plot_gate_mechanism(data, sample_idx=0, save_path='./'):
     print(">> Gate Mechanism plot saved.")
     plt.close()
 
+# ==========================================
+# 5. 绘图函数：净负荷相关性散点图 (Hexbin)
+# ==========================================
+def plot_net_load_correlation(data, save_path='./'):
+    """
+    绘制真实净负荷 vs 预测净负荷的 Hexbin 密度散点图
+    证明模型在 VPP 总出口处的预测无偏性
+    """
+    preds = data['pred'].reshape(-1, 3)
+    trues = data['true'].reshape(-1, 3)
+
+    net_pred = preds[:, 0] - preds[:, 1] - preds[:, 2]
+    net_true = trues[:, 0] - trues[:, 1] - trues[:, 2]
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+
+    # 使用 Hexbin 绘制高密度散点图
+    hb = ax.hexbin(net_true, net_pred, gridsize=50, cmap='Blues',
+                   mincnt=1, norm=LogNorm())  # LogNorm 凸显低密度区域的异常点
+    cb = fig.colorbar(hb, ax=ax, label='Density (log scale)')
+
+    # 绘制 y=x 理想基准线
+    min_val = min(net_true.min(), net_pred.min())
+    max_val = max(net_true.max(), net_pred.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Ideal ($y=x$)')
+
+    # 计算 R^2 和 RMSE
+    correlation_matrix = np.corrcoef(net_true, net_pred)
+    r2 = correlation_matrix[0, 1] ** 2
+    rmse = np.sqrt(np.mean((net_true - net_pred) ** 2))
+
+    # 在图中标注指标
+    text_str = f'$R^2$ = {r2:.4f}\nRMSE = {rmse:.2f} MW'
+    props = dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray')
+    ax.text(0.05, 0.95, text_str, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=props)
+
+    ax.set_title('Net Load Prediction Correlation', fontweight='bold')
+    ax.set_xlabel('True Net Load (MW)')
+    ax.set_ylabel('Predicted Net Load (MW)')
+    ax.legend(loc='lower right', frameon=False)
+
+    plt.savefig(os.path.join(save_path, 'IEEE_Correlation_Hexbin.pdf'))
+    plt.savefig(os.path.join(save_path, 'IEEE_Correlation_Hexbin.png'))
+    print(">> Correlation Hexbin plot saved.")
+    plt.close()
+
+
+# ==========================================
+# 6. 绘图函数：物理爬坡率合规性分布 (Ramp Rate PDF)
+# ==========================================
+def plot_ramp_compliance(data, ramp_limits=[5.0, 2.0, 3.0], save_path='./'):
+    """
+    绘制预测值的爬坡率概率密度分布，叠加物理极限红线
+    需要根据你的数据集实际情况传入 ramp_limits (MW/step)
+    """
+    preds = data['pred'].reshape(-1, 3)  # 展平为连续序列
+
+    # 计算一阶差分 (爬坡率)
+    diff_pred = preds[1:] - preds[:-1]
+
+    fig, axs = plt.subplots(1, 3, figsize=(15, 4))
+    titles = ['Load Ramp Rate', 'PV Ramp Rate', 'Wind Ramp Rate']
+    colors = ['#404040', '#E69500', '#2C7BB6']
+
+    for i in range(3):
+        ax = axs[i]
+        var_diff = diff_pred[:, i]
+        limit = ramp_limits[i]
+
+        # 使用 KDE 绘制平滑的概率密度曲线
+        kde = gaussian_kde(var_diff)
+        x_range = np.linspace(var_diff.min() - 1, var_diff.max() + 1, 500)
+        ax.plot(x_range, kde(x_range), color=colors[i], lw=2)
+        ax.fill_between(x_range, 0, kde(x_range), color=colors[i], alpha=0.3)
+
+        # 绘制物理极限红线
+        ax.axvline(x=limit, color='red', linestyle='--', lw=1.5, label='Upper Phys-Limit')
+        ax.axvline(x=-limit, color='red', linestyle='--', lw=1.5, label='Lower Phys-Limit')
+
+        # 统计越限率
+        violation_rate = np.sum(np.abs(var_diff) > limit) / len(var_diff) * 100
+        ax.set_title(f'({chr(97 + i)}) {titles[i]}\nViolations: {violation_rate:.2f}%', fontweight='bold')
+        ax.set_xlabel('$\Delta P$ (MW / 15min)')
+        if i == 0:
+            ax.set_ylabel('Density')
+        ax.legend(loc='upper right', frameon=False)
+
+    plt.savefig(os.path.join(save_path, 'IEEE_Physical_Compliance.pdf'))
+    print(">> Physical Compliance plot saved.")
+    plt.close()
+
+
+# ==========================================
+# 7. 绘图函数：课程学习门控演化 (Curriculum Gate Evolution)
+# ==========================================
+def plot_curriculum_evolution(save_path='./'):
+    """
+    读取 gate_history.npy，绘制训练过程中 Gate 的演化
+    展示物理约束是如何“逐步放权”给数据驱动的
+    """
+    history_file = os.path.join(save_path, 'gate_history.npy')
+    if not os.path.exists(history_file):
+        print("!! Warning: gate_history.npy not found. Skipping curriculum plot.")
+        return
+
+    history = np.load(history_file, allow_pickle=True).item()
+    epochs = history['epoch']
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    ax.plot(epochs, history['pv'], color='#E69500', marker='o', markersize=4, label='PV Gate Avg')
+    ax.plot(epochs, history['wind'], color='#2C7BB6', marker='s', markersize=4, label='Wind Gate Avg')
+    ax.plot(epochs, history['load'], color='#404040', marker='^', markersize=4, label='Load Gate Avg')
+
+    # 标注课程学习的三个阶段 (对应代码中的 stage1, stage2, stage3)
+    ax.axvspan(0, 5, color='gray', alpha=0.1, label='Stage 1: Frozen Phys Prior')
+    ax.axvspan(5, 15, color='yellow', alpha=0.1, label='Stage 2: Thaw & Relax')
+    ax.axvspan(15, max(epochs), color='green', alpha=0.05, label='Stage 3: Full Data-Driven')
+
+    ax.set_title('Gate Evolution During Curriculum Learning', fontweight='bold')
+    ax.set_xlabel('Training Epochs')
+    ax.set_ylabel('Average Gate Activation')
+    ax.set_ylim(0, 1.05)
+
+    # 将图例放在外面防止遮挡数据
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
+
+    plt.savefig(os.path.join(save_path, 'IEEE_Curriculum_Evolution.pdf'), bbox_inches='tight')
+    print(">> Curriculum Evolution plot saved.")
+    plt.close()
+
+
+# ==========================================
+# 8. 绘图函数：极端工况柱状图 (Extreme Scenarios)
+# ==========================================
+def plot_extreme_scenarios_bar(save_path='./'):
+    """
+    读取 extreme_scenarios/scenario_metrics.json 绘制表现
+    """
+    json_path = os.path.join(save_path, 'extreme_scenarios', 'scenario_metrics.json')
+    if not os.path.exists(json_path):
+        print("!! Warning: scenario_metrics.json not found. Skipping extreme scenario plot.")
+        return
+
+    with open(json_path, 'r') as f:
+        metrics = json.load(f)
+
+    # 准备数据
+    scenarios = [k for k in metrics.keys() if metrics[k]['sample_count'] > 0 and k != 'irr_drop']
+    scenarios = ['high_temp', 'high_wind', 'low_irr', 'high_temp_wind', 'low_irr_high_temp']
+    # 过滤掉不存在或样本为0的场景
+    scenarios = [s for s in scenarios if s in metrics and metrics[s]['sample_count'] > 0]
+
+    if not scenarios:
+        return
+
+    maes = [metrics[s]['mae'] for s in scenarios]
+    rmses = [metrics[s]['rmse'] for s in scenarios]
+
+    x = np.arange(len(scenarios))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    rects1 = ax.bar(x - width / 2, maes, width, label='MAE', color='#2C7BB6', edgecolor='black')
+    rects2 = ax.bar(x + width / 2, rmses, width, label='RMSE', color='#D7191C', edgecolor='black')
+
+    # 格式化 X 轴标签，使其更易读
+    display_names = {
+        'high_temp': 'High\nTemp',
+        'high_wind': 'High\nWind',
+        'low_irr': 'Low\nIrradiance',
+        'high_temp_wind': 'Temp +\nWind',
+        'low_irr_high_temp': 'Temp +\nLow Irr'
+    }
+
+    ax.set_ylabel('Error (MW)')
+    ax.set_title('Model Robustness in Extreme Weather Scenarios', fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([display_names.get(s, s) for s in scenarios])
+    ax.legend(frameon=False)
+
+    # 在柱子上打上具体数值
+    ax.bar_label(rects1, padding=3, fmt='%.2f', fontsize=8)
+    ax.bar_label(rects2, padding=3, fmt='%.2f', fontsize=8)
+
+    plt.savefig(os.path.join(save_path, 'IEEE_Extreme_Scenarios.pdf'))
+    print(">> Extreme Scenarios Bar plot saved.")
+    plt.close()
+
 
 # ==========================================
 # 主程序
@@ -222,19 +417,23 @@ if __name__ == '__main__':
     # 设置风格
     set_ieee_style()
 
-    # 路径配置 (请根据实际情况修改 experiment_name)
-    # 假设脚本放在项目根目录下
-    experiment_name = 'PhysFormer_experiment_v1.0'
+    # 路径配置
+    experiment_name = 'PhysFormer_ensemble_seed2024'
     results_path = f'exp_results/PhysFormer/checkpoints/{experiment_name}/'
 
     # 加载数据
     data = load_data(results_path)
 
     if data is not None:
-        # 1. 绘制 VPP 预测总览
+        # --- 原始图表 ---
         plot_vpp_forecast(data, sample_idx=0, save_path=results_path)
-
-        # 2. 绘制 PhysFormer 机制图 (核心图表)
         plot_gate_mechanism(data, sample_idx=0, save_path=results_path)
+
+        plot_net_load_correlation(data, save_path=results_path)
+
+        plot_ramp_compliance(data, ramp_limits=[1.20527597, 0.23828998, 0.36192739], save_path=results_path)
+
+        plot_curriculum_evolution(save_path=results_path)
+        plot_extreme_scenarios_bar(save_path=results_path)
 
         print("\nAll plots generated successfully following IEEE style.")

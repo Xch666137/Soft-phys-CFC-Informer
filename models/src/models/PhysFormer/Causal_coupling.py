@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from models.src.utils.losses import GateResponseRegularization
+
 
 class PhysicsGuidedCausalCoupling(nn.Module):
     """
@@ -38,6 +40,16 @@ class PhysicsGuidedCausalCoupling(nn.Module):
             nn.Linear(d_model, d_model)  # 映射到与特征同维度
         )
 
+        # 天气信息注入门控 (Weather Gate)
+        self.weather_gate_learner = nn.Sequential(
+            nn.Linear(d_model * 2, d_model // 2),
+            nn.GELU(),
+            nn.Linear(d_model // 2, d_model),
+            nn.Sigmoid()
+        )
+        # 专门用于融合前的特征变换
+        self.weather_transform = nn.Linear(d_model, d_model)
+
         # ============================================================
         # Part 3: 因果注意力 (Causal Attention) - 坚决保留！
         # ============================================================
@@ -55,25 +67,25 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         # 输出: Gate (0~1)
         # 为 PV 和 Wind 分别设计独立的 Gate Learner
 
-        # PV Gate Learner
+        # PV Gate Learner (增加波动率特征输入)
         self.gate_learner_pv = nn.Sequential(
-            nn.Linear(d_model * 3, d_model // 2),
+            nn.Linear(d_model * 3 + 1, d_model // 2),  # +1 for volatility feature
             nn.GELU(),
             nn.Linear(d_model // 2, d_model),
             nn.Sigmoid()
         )
 
-        # Wind Gate Learner
+        # Wind Gate Learner (增加波动率特征输入)
         self.gate_learner_wind = nn.Sequential(
-            nn.Linear(d_model * 3, d_model // 2),
+            nn.Linear(d_model * 3 + 1, d_model // 2),  # +1 for volatility feature
             nn.GELU(),
             nn.Linear(d_model // 2, d_model),
             nn.Sigmoid()
         )
 
-        # Load Gate Learner (负荷通常一直存在，Gate 机制略有不同，主要看天气影响)
+        # Load Gate Learner (增加波动率特征输入)
         self.gate_learner_load = nn.Sequential(
-            nn.Linear(d_model * 3, d_model // 2),
+            nn.Linear(d_model * 3 + 1, d_model // 2),  # +1 for volatility feature
             nn.GELU(),
             nn.Linear(d_model // 2, d_model),
             nn.Sigmoid()
@@ -113,8 +125,10 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         self.irr_slope_log = nn.Parameter(torch.tensor(2.3))  # exp(2.3) ≈ 10
         self.wind_slope_log = nn.Parameter(torch.tensor(1.6))  # exp(1.6) ≈ 5
 
-        self.register_buffer('step_counter', torch.tensor(0.0))
-        self.decay_steps = 5500.0   # batch 1100 * epoch 5
+        self.gate_response_reg = GateResponseRegularization(weight=0.05)
+
+        # self.register_buffer('step_counter', torch.tensor(0.0))
+        # self.decay_steps = 2281 * 20  # ≈ 45,620 batches，epoch 20 时才完成内部软化
 
         # 监控用
         self.register_buffer('irr_threshold_ema', torch.tensor(-1.0))
@@ -153,7 +167,7 @@ class PhysicsGuidedCausalCoupling(nn.Module):
 
         return prior_load, prior_pv, prior_wind
 
-    def forward(self, stat_feat, phys_feat, x_weather, return_gates=False):
+    def forward(self, stat_feat, phys_feat, x_weather, alpha=0.5, return_gates=False):
         """
         Args:
             stat_feat: [B, S, D] - 统计流 (来自Informer，包含长程依赖)
@@ -166,51 +180,10 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         """
         B, S, D = stat_feat.shape
 
-        # ===== Step 1: 准备 Q, K, V =====
-        # 关键修改：Q 必须包含 Weather 信息！
-        c_weather = self.weather_proj(x_weather)  # [B, S, D]
-
-        # Q = Stat_Proj + Weather_Proj
-        # 这样 Stat 流在做 Attention 时，就知道"现在是晚上"，不会去强行匹配光伏特征
-        q_load = self.query_proj_load(stat_feat) + c_weather
-        q_pv = self.query_proj_pv(stat_feat) + c_weather
-        q_wind = self.query_proj_wind(stat_feat) + c_weather
-
-        k_phys = self.phys_proj_k(phys_feat)
-        v_phys = self.phys_proj_v(phys_feat)
-
-        # ===== Step 2: 执行因果注意力 (Causal Attention) =====
-        # Stat 主动去检索 Phys 中的有用信息
-        # attn_out: [B, S, D]
-        # 手动生成因果掩码 (Causal Mask)
-        B, S, D = q_load.shape
-        # 生成一个上三角矩阵，对角线以上为 -inf (表示未来不可见)
-        # shape: [S, S]
-        causal_mask = torch.triu(torch.ones(S, S) * float('-inf'), diagonal=1).to(q_load.device)
-
-        # ===== Step 2: 执行因果注意力 (Causal Attention) =====
-        # 传入 attn_mask，并删除 is_causal=True (避免报错)
-        attn_load, _ = self.attn_load(q_load, k_phys, v_phys, attn_mask=causal_mask)
-        attn_pv, _ = self.attn_pv(q_pv, k_phys, v_phys, attn_mask=causal_mask)
-        attn_wind, _ = self.attn_wind(q_wind, k_phys, v_phys, attn_mask=causal_mask)
-
-        # ===== Step 3: 计算 Gate (决定检索结果的可信度) =====
-        # 即使 Attention 检索到了东西，我们也需要 Gate 来决定是否通过
-        # 这一步引入了 Curriculum Learning 和 Hard Prior
-
-        # 计算 Soft Gate
-        gate_load_soft = self.gate_learner_load(torch.cat([stat_feat, attn_load, c_weather], dim=-1))
-        gate_pv_soft = self.gate_learner_pv(torch.cat([stat_feat, attn_pv, c_weather], dim=-1))
-        gate_wind_soft = self.gate_learner_wind(torch.cat([stat_feat, attn_wind, c_weather], dim=-1))
-
-        # 应用 Curriculum Learning (硬规则引导)
+        # ===== 将 Curriculum Learning 的 alpha 计算放在最优先 =====
         if self.training:
-            self.step_counter += 1
-            progress = torch.clamp(self.step_counter / self.decay_steps, 0.0, 1.0)
-            alpha = 1.0 - progress  # 线性衰减
-
-            # [关键] 冻结机制：前50%不更新阈值梯度，强制模型适应初始物理规则
-            if progress < 0.5:
+            # 冻结机制：前50%不更新阈值梯度，强制模型适应初始物理规则
+            if alpha > 0.5:
                 with torch.no_grad():
                     prior_load, prior_pv, prior_wind = self.get_hard_prior(x_weather)
             else:
@@ -219,22 +192,82 @@ class PhysicsGuidedCausalCoupling(nn.Module):
             alpha = 0.1  # 测试时保留10%安全先验
             prior_load, prior_pv, prior_wind = self.get_hard_prior(x_weather)
 
-        prior_pv = prior_pv.repeat(1, 1, D)
-        prior_wind = prior_wind.repeat(1, 1, D)
-        prior_load = prior_load.repeat(1, 1, D)
 
-        gate_pv = alpha * prior_pv + (1 - alpha) * gate_pv_soft
-        gate_wind = alpha * prior_wind + (1 - alpha) * gate_wind_soft
-        gate_load = gate_load_soft  # Load通常不需要硬先验
+        # ===== 计算历史天气波动率特征 =====
+        # x_weather: [B, S, 3] (温度、辐照度、风速)
+        # 计算时间维度方差，然后取均值得到每个样本的波动率
+        volatility = torch.var(x_weather, dim=1).mean(dim=-1)  # [B]
+        # 扩展为 [B, S, 1] 以匹配序列长度
+        volatility_expanded = volatility.unsqueeze(-1).unsqueeze(-1).expand(-1, S, 1)  # [B, S, 1]
 
-        # 时序平滑（修正版）
-        def apply_smoothing(g):
+        # ===== Step 1: 准备 Q, K, V (引入退火门控) =====
+        c_weather = self.weather_proj(x_weather)  # [B, S, D]
+
+        # 计算软门控 (模型自己学的)
+        weather_gate_soft = self.weather_gate_learner(torch.cat([stat_feat, c_weather], dim=-1))
+
+        # [核心机制] 课程学习融合：初期强制开门(1.0)，后期信任模型(soft)
+        weather_gate = alpha * 1.0 + (1 - alpha) * weather_gate_soft
+
+        # 变换并注入
+        gated_weather = weather_gate * self.weather_transform(c_weather)
+
+        # Q = Stat_Proj + Weather_Proj
+        # 这样 Stat 流在做 Attention 时，就知道"现在是晚上"，不会去强行匹配光伏特征
+        q_load = self.query_proj_load(stat_feat) + gated_weather
+        q_pv = self.query_proj_pv(stat_feat) + gated_weather
+        q_wind = self.query_proj_wind(stat_feat) + gated_weather
+
+        k_phys = self.phys_proj_k(phys_feat)
+        v_phys = self.phys_proj_v(phys_feat)
+
+        # ===== Step 2: 执行因果注意力 (Causal Attention) =====
+        # Stat 主动去检索 Phys 中的有用信息
+        # attn_out: [B, S, D]
+
+        # ===== Step 2: 执行因果注意力 (Causal Attention) =====
+        # 传入 attn_mask，并删除 is_causal=True (避免报错)
+        attn_load, _ = self.attn_load(q_load, k_phys, v_phys)
+        attn_pv, _ = self.attn_pv(q_pv, k_phys, v_phys)
+        attn_wind, _ = self.attn_wind(q_wind, k_phys, v_phys)
+
+        # ===== Step 3: 计算 Gate (决定检索结果的可信度) =====
+        # 即使 Attention 检索到了东西，我们也需要 Gate 来决定是否通过
+        # 这一步引入了 Curriculum Learning 和 Hard Prior
+
+        # ===== Step 3: 计算 Gate (决定检索结果的可信度) =====
+        gate_input_load = torch.cat([stat_feat, attn_load, c_weather, volatility_expanded], dim=-1)
+        gate_input_pv = torch.cat([stat_feat, attn_pv, c_weather, volatility_expanded], dim=-1)
+        gate_input_wind = torch.cat([stat_feat, attn_wind, c_weather, volatility_expanded], dim=-1)
+
+        # 神经网络输出的软控制系数，经过 Sigmoid 范围是 [0, 1]
+        gate_load_soft = self.gate_learner_load(gate_input_load)
+        gate_pv_soft = self.gate_learner_pv(gate_input_pv)
+        gate_wind_soft = self.gate_learner_wind(gate_input_wind)
+
+        prior_pv_expanded = prior_pv.repeat(1, 1, D)
+        prior_wind_expanded = prior_wind.repeat(1, 1, D)
+
+        # -------------------------------------------------------------------
+        # 乘法残差 (Multiplicative Residual Gating)
+        # prior 决定绝对物理开关，soft gate 作为 0.5~1.5 的修正因子
+        # Load 通常不需要物理先验强制控制，保持原样
+        # -------------------------------------------------------------------
+        gate_pv_modifier = 0.5 + gate_pv_soft
+        gate_wind_modifier = 0.5 + gate_wind_soft
+
+        gate_pv = prior_pv_expanded * gate_pv_modifier
+        gate_wind = prior_wind_expanded * gate_wind_modifier
+        gate_load = gate_load_soft
+
+        # 时序平滑 (不变)
+        def apply_smoothing(g, max_val=1.5):
             smoothed = self.smoother(g.transpose(1, 2)).transpose(1, 2)
-            return torch.clamp(smoothed, 0.0, 1.0)  # 去掉二次sigmoid
+            return torch.clamp(smoothed, 0.0, max_val)
 
-        gate_pv = apply_smoothing(gate_pv)
-        gate_wind = apply_smoothing(gate_wind)
-        gate_load = apply_smoothing(gate_load)
+        gate_pv = apply_smoothing(gate_pv, max_val=1.5)
+        gate_wind = apply_smoothing(gate_wind, max_val=1.5)
+        gate_load = apply_smoothing(gate_load, max_val=1.0)
 
         # ===== Step 4: 物理特征融合 =====
         # 使用 Gate 对 Attention 的结果进行加权
@@ -264,35 +297,41 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         # ===== [关键修复] 计算阈值正则化 Loss =====
         # 我们将其放入 gates 字典返回，在外部 loop 中加到 total loss
         reg_loss = 0.0
+        pv_corr, wind_corr = 0.0, 0.0
         if self.training:
+            # 原有的阈值正则化
             irr_t, wind_t, _, _ = self.get_current_thresholds()
-            # 鼓励阈值不要偏离 -1.0 (Z-score) 太远
-            reg_loss = 0.01 * ((irr_t - (-1.0)) ** 2 + (wind_t - (-1.0)) ** 2)
+            reg_loss += 0.01 * ((irr_t - (-1.0)) ** 2 + (wind_t - (-1.0)) ** 2)
+
+            loss_corr_pv, pv_corr = self.gate_response_reg(
+                gate_pv_soft, prior_pv_expanded
+            )
+            loss_corr_wind, wind_corr = self.gate_response_reg(
+                gate_wind_soft, prior_wind_expanded
+            )
+            reg_loss += (loss_corr_pv + loss_corr_wind)
 
         if return_gates:
-            # 1. 提取 Gate 序列 (Batch, Seq)
             gate_pv_seq = gate_pv.mean(dim=-1).detach().cpu().numpy()
             gate_wind_seq = gate_wind.mean(dim=-1).detach().cpu().numpy()
-
-            # 2. 提取物理环境驱动力序列 (Batch, Seq)
-            # x_weather shape: [Batch, Seq, 3] -> (Temp, Irr, Speed)
-            irr_seq = x_weather[:, :, 1].detach().cpu().numpy()  # 索引1: 辐照度
-            speed_seq = x_weather[:, :, 2].detach().cpu().numpy()  # 索引2: 风速
+            irr_seq = x_weather[:, :, 1].detach().cpu().numpy()
+            speed_seq = x_weather[:, :, 2].detach().cpu().numpy()
 
             gates = {
                 'load': gate_load.mean().item(),
                 'pv': gate_pv.mean().item(),
                 'wind': gate_wind.mean().item(),
+                'weather_gate': weather_gate.mean().item(),
                 'info_gain': self.info_gain_ema.item(),
-                'irr_thresh': self.irr_threshold_ema.item(),  # 记录到日志
-                'wind_thresh': self.wind_threshold_ema.item(),
-                'gate_reg_loss': reg_loss,          # 返回 Loss 供外部使用
+                'gate_reg_loss': reg_loss,  # 返回给外部
+                'pv_corr': pv_corr,  # 用于日志监控
+                'wind_corr': wind_corr,  # 用于日志监控
                 'pv_seq_batch': gate_pv_seq,
                 'wind_seq_batch': gate_wind_seq,
-
                 'irr_seq_batch': irr_seq,
-                'speed_seq_batch': speed_seq  # <--- 把风速也传出去
+                'speed_seq_batch': speed_seq,
+                'volatility': volatility.mean().item()
             }
-            return output, gates
+            return output, reg_loss, gates
 
-        return output
+        return output, reg_loss

@@ -59,16 +59,8 @@ class PhysFormer(nn.Module):
             rope_base=rope_base
         )
 
-        # --- 3. 物理动力学注入层 (CFC Stream) ---
-        # # stride=1 保证物理层捕捉最精细的动力学特征
-        # self.physics_adapter = CfcBlock(
-        #     d_model, d_ff,
-        #     d_phys=d_phys,
-        #     dropout=dropout,
-        #     stride=stride
-        # )
 
-        # --- 3. 显式物理映射层 ---
+        # --- 2. 显式物理映射层 ---
         # 负责计算 "理论基准"
         self.phys_layer = ExplicitPhysicalMapping(
             d_model=d_model,
@@ -79,21 +71,24 @@ class PhysFormer(nn.Module):
             target_std=target_std
         )
 
-        # --- 4. Causal Coupling (因果融合层) ---
+        # --- 3. Causal Coupling (因果融合层) ---
         self.causal_coupling = PhysicsGuidedCausalCoupling(
             d_model=d_model,
             n_heads=n_heads,
             dropout=dropout
         )
 
-        # --- 5. Flatten Head (Encoder -> Future Projection) ---
+        # --- 4. Flatten Head (Encoder -> Future Projection) ---
         self.flatten_head = FlattenHead(seq_len, d_model, pred_len, dropout)
 
         # 6. Advanced Multi-Head Output
-
-        # 增加一个天气特征融合层 (可选，但推荐)
-        # 用于将 Flatten 出来的历史特征与未来天气特征更好地混合
-        self.feature_fusion_norm = nn.LayerNorm(d_model)
+        # 天气特征融合层
+        # 使用GLU门控模块将 Flatten 出来的历史特征与未来天气特征更好地混合
+        self.weather_fusion_gate = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.Sigmoid()
+        )
+        self.weather_fusion_proj = nn.Linear(d_model * 2, d_model)
 
         # 共享投影：提取天气对所有功率的共性影响
         self.shared_projection = nn.Sequential(
@@ -136,7 +131,7 @@ class PhysFormer(nn.Module):
         self.apply(self._init_weights)
         self._init_gating_mechanisms()
 
-    def forward(self, x_stat, x_weather_hist, x_weather_future, x_mark_enc, return_gates=False):
+    def forward(self, x_stat, x_weather_hist, x_weather_future, x_mark_enc, alpha=0.5, return_gates=False):
         """
         Args:
             x_stat: [B, Seq, 3] 历史观测值 (Load, PV, Wind)
@@ -162,12 +157,12 @@ class PhysFormer(nn.Module):
 
         # === Step 3: Fusion (Physics-Guided Attention) ===
         if return_gates:
-            enc_out_fused, gates_info = self.causal_coupling(
-                enc_out_stat, phys_feat_hist, x_weather_hist, return_gates=True
+            enc_out_fused, reg_loss, gates_info = self.causal_coupling(
+                enc_out_stat, phys_feat_hist, x_weather_hist, alpha=alpha, return_gates=True
             )
         else:
-            enc_out_fused = self.causal_coupling(
-                enc_out_stat, phys_feat_hist, x_weather_hist, return_gates=False
+            enc_out_fused, reg_loss = self.causal_coupling(
+                enc_out_stat, phys_feat_hist, x_weather_hist, alpha=alpha, return_gates=False
             )
             gates_info = None
 
@@ -182,16 +177,15 @@ class PhysFormer(nn.Module):
         # phys_layer 返回的第一个值是 projected_feat [B, Pred, D]
         weather_feat_future, theory_future = self.phys_layer(x_weather_future)
 
-        # B. 关键修复：将未来天气特征注入到残差网络输入中
+        # B. 门控融合(GLU)将未来天气特征注入到残差网络输入中
         # 这样 Residual Head 就能看到"未来是否阴天/大风"
         # 使用残差连接方式融合：History_Projection + Future_Weather_Context
-        future_feat_combined = future_feat_history + weather_feat_future
-
-        # C. 归一化 (稳定训练)
-        future_feat = self.feature_fusion_norm(future_feat_combined)
+        cat_feat = torch.cat([future_feat_history, weather_feat_future], dim=-1)
+        fusion_gate = self.weather_fusion_gate(cat_feat)
+        future_feat_combined = fusion_gate * self.weather_fusion_proj(cat_feat) + future_feat_history
 
         # 经过共享投影层
-        future_feat = self.shared_projection(future_feat)
+        future_feat = self.shared_projection(future_feat_combined)
 
         # === Step 6: Residual Prediction (使用差异化 Head) ===
         res_load = self.head_load(future_feat)  # [B, Pred, 1]
@@ -211,9 +205,9 @@ class PhysFormer(nn.Module):
         output = torch.cat([final_load, final_pv, final_wind], dim=-1)
 
         if return_gates:
-            return output, gates_info
+            return output, reg_loss, gates_info
         else:
-            return output
+            return output, reg_loss
 
     def _init_weights(self, m):
         """通用的权重初始化策略"""

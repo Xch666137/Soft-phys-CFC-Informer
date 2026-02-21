@@ -16,7 +16,7 @@ __version__ = "1.0.0"
 __author__ = "XCH"
 
 # 导入所有模型类
-from .PhysFormer import PhysFormer, CfcBlock, CfcCell, PhysicsGuidedCausalCoupling
+from .PhysFormer import PhysFormer, PhysicsGuidedCausalCoupling
 from .informer import Informer, ProbAttention, Encoder, EncoderLayer, Decoder, DecoderLayer, PositionalEncoding, AttentionLayer
 from .Autoformer import Autoformer
 from .LSTM import LSTM
@@ -61,8 +61,6 @@ __all__ = [
     'PINN',
 
     # PhysFormer 组件
-    'CfcBlock',
-    'CfcCell',
     'PhysicsGuidedCausalCoupling',
 
     # Informer 组件
