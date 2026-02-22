@@ -118,7 +118,7 @@ class PhysicsGuidedCausalCoupling(nn.Module):
 
         # ===== 可学习的物理阈值 =====
         # 使用 logit 空间，通过 sigmoid 映射到合理范围
-        self.irr_threshold_logit = nn.Parameter(torch.tensor(-0.5))
+        self.irr_threshold_logit = nn.Parameter(torch.tensor(0.94))
         self.wind_threshold_logit = nn.Parameter(torch.tensor(-1.0))
 
         # 可学习的斜率
@@ -301,7 +301,7 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         if self.training:
             # 原有的阈值正则化
             irr_t, wind_t, _, _ = self.get_current_thresholds()
-            reg_loss += 0.01 * ((irr_t - (-1.0)) ** 2 + (wind_t - (-1.0)) ** 2)
+            reg_loss += 0.01 * ((irr_t - (-0.2)) ** 2 + (wind_t - (-1.0)) ** 2)
 
             loss_corr_pv, pv_corr = self.gate_response_reg(
                 gate_pv_soft, prior_pv_expanded

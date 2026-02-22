@@ -23,6 +23,7 @@ venv/
 env/
 dist/
 build/
+.claude
 
 ### --- PyCharm & 系统文件 ---
 .idea/
