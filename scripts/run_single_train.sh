@@ -38,10 +38,10 @@ CUDA_VISIBLE_DEVICES=0 python scripts/run_PhysFormer.py \
   --seq_len 672 \
   --pred_len 96 \
   --enc_in 6 \
-  --d_model 256 \
+  --d_model 512 \
   --n_heads 8 \
   --e_layers 3 \
-  --d_ff 1024 \
+  --d_ff 2048 \
   --factor 5 \
   --dropout 0.10 \
   --attn full \
@@ -49,9 +49,9 @@ CUDA_VISIBLE_DEVICES=0 python scripts/run_PhysFormer.py \
   --activation gelu \
   --use_rope \
   --freq h \
-  --batch_size 32 \
+  --batch_size 128 \
   --train_epochs 100 \
-  --learning_rate 1e-4 \
+  --learning_rate 3e-4 \
   --weight_decay 1e-5 \
   --physics_prior_weight 0.05 \
   --grad_clip 1.0 \

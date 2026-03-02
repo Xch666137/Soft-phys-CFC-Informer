@@ -347,10 +347,11 @@ class ExplicitPhysicalMapping(nn.Module):
 
         # 使用陡峭的 Sigmoid 替代布尔掩码，确保梯度回传
         steepness = 20.0
+        # BUGFIX: 限制 steepness 倍率后的输入在 FP16 安全范围内 [-20, 20]，防止 exponential Overflow 产生 NaN
         # 当 wind_speed > cut_in 时逼近 1，否则逼近 0
-        turn_on = torch.sigmoid(steepness * (wind_speed - cut_in))
+        turn_on = torch.sigmoid(torch.clamp(steepness * (wind_speed - cut_in), -20.0, 20.0))
         # 当 wind_speed < cut_out 时逼近 1，否则逼近 0
-        turn_off = torch.sigmoid(steepness * (cut_out - wind_speed))
+        turn_off = torch.sigmoid(torch.clamp(steepness * (cut_out - wind_speed), -20.0, 20.0))
 
         is_running_soft = turn_on * turn_off
 

@@ -31,7 +31,10 @@ class GateResponseRegularization(nn.Module):
         norm_prior = torch.sqrt(torch.sum(prior_centered**2, dim=-1) + eps)
         
         # 即使 eps 保护了 sqrt 不为 0，防止极端异常，我们在分母里额外加一个强保护 eps
-        denominator = norm_gate * norm_prior + eps
+        # BUGFIX: 额外确保 norm 不会因为 float16 下溢而导致 /0
+        norm_gate = torch.clamp(norm_gate, min=eps)
+        norm_prior = torch.clamp(norm_prior, min=eps)
+        denominator = norm_gate * norm_prior
         
         correlation = numerator / denominator  # [B]
 
@@ -79,26 +82,28 @@ class PhysAwareBaseLoss(nn.Module):
         true_energy = torch.mean(true_real, dim=1)
         loss_energy = F.l1_loss(pred_energy, true_energy)
 
-        # BUGFIX: 避免使用 torch.norm 产生 NaN 梯度，改用基于 eps 的安全求模
-        # 注意：由于外部已强制使用 fp32 计算，此处 eps 恢复为标准的 1e-8
-        eps = 1e-8
-        norm_diff_pred = torch.sqrt(torch.sum(diff_pred**2, dim=-1, keepdim=True) + eps)
-        norm_diff_true = torch.sqrt(torch.sum(diff_true**2, dim=-1, keepdim=True) + eps)
+        # BUGFIX: AMP 下如果 eps 设为 1e-8 会 underflow 给 float16 造成 sqrt(0) -> 无穷大梯度
+        eps = 1e-4
+        # 严格锁定计算 sqrt 的内部值不小于 eps，防止 fp16 下溢出带来的 0 奇点
+        norm_diff_pred = torch.sqrt(torch.clamp(torch.sum(diff_pred**2, dim=-1, keepdim=True), min=eps))
+        norm_diff_true = torch.sqrt(torch.clamp(torch.sum(diff_true**2, dim=-1, keepdim=True), min=eps))
         
         diff_pred_norm = diff_pred / norm_diff_pred
         diff_true_norm = diff_true / norm_diff_true
-        cos_sim = (diff_pred_norm * diff_true_norm).sum(dim=-1)
+        # 防止极端计算导致的浮点越界产生 NaN 余弦，强行锁在 [-1.0, 1.0] 内
+        cos_sim = torch.clamp((diff_pred_norm * diff_true_norm).sum(dim=-1), -1.0 + 1e-6, 1.0 - 1e-6)
         loss_dir = torch.mean(1.0 - cos_sim)
 
         # 将线性惩罚改为二次惩罚 (Quadratic Penalty)
         # BUGFIX: 避免 F.relu(0) 在二次求导下产生的 Subgradient NaN
-        eps = 1e-8
+        eps = 1e-4
         # bvr: lower bound violation (pred < 0) -> F.relu(-pred) -> smoothed
         bvr_raw = -pred_real
         loss_bvr = torch.mean((F.relu(bvr_raw) + eps) ** 2)
 
         # rvr: ramp violation (|diff| > limit) -> smoothed abs
-        safe_abs_diff = torch.sqrt(diff_pred**2 + eps)
+        # 改为使用 Huber-like 绝对值平滑逼近 `sqrt(x^2 + eps)`，并加上 clamp 保证绝对不为0
+        safe_abs_diff = torch.sqrt(torch.clamp(diff_pred**2, min=eps))
         ramp_violation = F.relu(safe_abs_diff - self.ramp_limits)
         loss_rvr = torch.mean((ramp_violation + eps) ** 2)
 

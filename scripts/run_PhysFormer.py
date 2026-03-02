@@ -33,10 +33,10 @@ def main():
 
     # 模型结构参数
     parser.add_argument('--enc_in', type=int, default=6, help='encoder input size')
-    parser.add_argument('--d_model', type=int, default=256, help='dimension of model')
+    parser.add_argument('--d_model', type=int, default=512, help='dimension of model')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
     parser.add_argument('--e_layers', type=int, default=3, help='num of encoder layers')
-    parser.add_argument('--d_ff', type=int, default=1024, help='dimension of fcn')
+    parser.add_argument('--d_ff', type=int, default=2048, help='dimension of fcn')
     parser.add_argument('--factor', type=int, default=5, help='probsparse attn factor')
     parser.add_argument('--dropout', type=float, default=0.10, help='dropout')
     parser.add_argument('--attn', type=str, default='full', help='attention used in encoder')
@@ -51,9 +51,9 @@ def main():
     parser.add_argument('--rope_base', default=10000, type=int, help='rope base freq')
     parser.add_argument('--freq', default='h', type=str, help='freq for time features encoding')
     # 训练参数
-    parser.add_argument('--batch_size', type=int, default=32, help='batch size of train input data')
+    parser.add_argument('--batch_size', type=int, default=128, help='batch size of train input data')
     parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
-    parser.add_argument('--learning_rate', type=float, default=1e-4, help='optimizer learning rate')
+    parser.add_argument('--learning_rate', type=float, default=3e-4, help='optimizer learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5, help='optimizer weight decay')
     parser.add_argument('--physics_prior_weight', type=float, default=0.1, help='physics parameter prior regularization weight')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='gradient clipping max norm')
