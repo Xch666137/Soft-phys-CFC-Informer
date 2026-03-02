@@ -22,9 +22,17 @@ class GateResponseRegularization(nn.Module):
         prior_centered = prior_curve - prior_curve.mean(dim=-1, keepdim=True)
 
         # 3. 计算皮尔逊相关系数 (Pearson Correlation)
+        # BUGFIX: torch.norm 在输入全0时切线斜率为无穷大，会导致反向传播产生 NaN
+        # 注意：由于外部已强制转换为 fp32 计算 Loss，此处 eps 恢复为 1e-8
         eps = 1e-8
         numerator = (gate_centered * prior_centered).sum(dim=-1)
-        denominator = torch.norm(gate_centered, dim=-1) * torch.norm(prior_centered, dim=-1) + eps
+        
+        norm_gate = torch.sqrt(torch.sum(gate_centered**2, dim=-1) + eps)
+        norm_prior = torch.sqrt(torch.sum(prior_centered**2, dim=-1) + eps)
+        
+        # 即使 eps 保护了 sqrt 不为 0，防止极端异常，我们在分母里额外加一个强保护 eps
+        denominator = norm_gate * norm_prior + eps
+        
         correlation = numerator / denominator  # [B]
 
         # 4. 动态掩码：只惩罚那些物理先验本身就有剧烈波动的场景
@@ -36,6 +44,7 @@ class GateResponseRegularization(nn.Module):
         loss = self.weight * (active_mask * (1.0 - correlation)).mean()
 
         # 返回 loss 和监控用的平均相关系数
+        # 使用更大的 eps 防止除以0
         avg_corr = (active_mask * correlation).sum() / (active_mask.sum() + eps)
         return loss, avg_corr.item()
 
@@ -70,17 +79,28 @@ class PhysAwareBaseLoss(nn.Module):
         true_energy = torch.mean(true_real, dim=1)
         loss_energy = F.l1_loss(pred_energy, true_energy)
 
+        # BUGFIX: 避免使用 torch.norm 产生 NaN 梯度，改用基于 eps 的安全求模
+        # 注意：由于外部已强制使用 fp32 计算，此处 eps 恢复为标准的 1e-8
         eps = 1e-8
-        diff_pred_norm = diff_pred / (torch.norm(diff_pred, dim=-1, keepdim=True) + eps)
-        diff_true_norm = diff_true / (torch.norm(diff_true, dim=-1, keepdim=True) + eps)
+        norm_diff_pred = torch.sqrt(torch.sum(diff_pred**2, dim=-1, keepdim=True) + eps)
+        norm_diff_true = torch.sqrt(torch.sum(diff_true**2, dim=-1, keepdim=True) + eps)
+        
+        diff_pred_norm = diff_pred / norm_diff_pred
+        diff_true_norm = diff_true / norm_diff_true
         cos_sim = (diff_pred_norm * diff_true_norm).sum(dim=-1)
         loss_dir = torch.mean(1.0 - cos_sim)
 
         # 将线性惩罚改为二次惩罚 (Quadratic Penalty)
-        loss_bvr = torch.mean(F.relu(-pred_real) ** 2)
+        # BUGFIX: 避免 F.relu(0) 在二次求导下产生的 Subgradient NaN
+        eps = 1e-8
+        # bvr: lower bound violation (pred < 0) -> F.relu(-pred) -> smoothed
+        bvr_raw = -pred_real
+        loss_bvr = torch.mean((F.relu(bvr_raw) + eps) ** 2)
 
-        ramp_violation = F.relu(torch.abs(diff_pred) - self.ramp_limits)
-        loss_rvr = torch.mean(ramp_violation ** 2)
+        # rvr: ramp violation (|diff| > limit) -> smoothed abs
+        safe_abs_diff = torch.sqrt(diff_pred**2 + eps)
+        ramp_violation = F.relu(safe_abs_diff - self.ramp_limits)
+        loss_rvr = torch.mean((ramp_violation + eps) ** 2)
 
         loss_mae = F.l1_loss(pred_real, true_real)
 
@@ -171,9 +191,11 @@ class PhysLoss(nn.Module):
                 else:
                     # [核心修复] 基于无curriculum权重的原始参考量计算scale
                     loss_phys_ref = self._compute_phys_ref(c)
-                    if loss_phys_ref > 1e-6:
+                    # BUGFIX: 由于在外部已强制转换至 fp32 (float32)，此处阈值恢复为 1e-8 的安全下限
+                    eps_scale = 1e-8
+                    if loss_phys_ref > eps_scale:
                         # 使用真实物理量纲的 MAE (c['mae']) 来对比物理 Loss，实现量纲对齐！
-                        current_scale = c['mae'].detach() / loss_phys_ref.detach()
+                        current_scale = c['mae'].detach() / (loss_phys_ref.detach() + eps_scale)
                         current_scale = torch.clamp(
                             current_scale,
                             self.scale_clamp_min,

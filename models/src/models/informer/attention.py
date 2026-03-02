@@ -201,15 +201,51 @@ class FullAttention(nn.Module):
             Q = self.rope(Q)
             K = self.rope(K)
 
-        scale = self.scale or (self.d_k ** -0.5)
-        scores = torch.matmul(Q, K.transpose(-2, -1)) * scale
+        # PyTorch 2.0+ Native FlashAttention (SDPA)
+        # Condition: If we don't need output attention matrix, we can use SDPA for huge speedup
+        if hasattr(F, 'scaled_dot_product_attention') and not self.output_attention:
+            # Note: PyTorch SDPA applies scale internally. Normally it uses 1/sqrt(d_k).
+            # If self.scale is provided, PyTorch 2.1+ supports the `scale` argument.
+            # We must convert attn_mask to a boolean mask where True indicates to participate.
+            sdpa_mask = None
+            if self.mask_flag and attn_mask is not None:
+                if attn_mask.dim() == 3: attn_mask = attn_mask.unsqueeze(1)
+                # Ensure mask is broadcastable [B, H, L, S]
+                sdpa_mask = (attn_mask != 0)
+                
+            scale = self.scale if self.scale is not None else (self.d_k ** -0.5)
+            
+            # Using try-except because some Pytorch versions handle `scale` parameter differently
+            try:
+                V_out = F.scaled_dot_product_attention(
+                    Q, K, V, 
+                    attn_mask=sdpa_mask, 
+                    dropout_p=self.dropout.p if self.training else 0.0,
+                    scale=scale,
+                    is_causal=False
+                )
+            except TypeError:
+                # Fallback for PyTorch 2.0.x which didn't have the `scale` argument in SDPA
+                # Manual pre-scaling of Q is required here
+                Q_scaled = Q * (scale / (self.d_k ** -0.5)) if scale != (self.d_k ** -0.5) else Q
+                V_out = F.scaled_dot_product_attention(
+                    Q_scaled, K, V,
+                    attn_mask=sdpa_mask,
+                    dropout_p=self.dropout.p if self.training else 0.0,
+                    is_causal=False
+                )
+            A = None
+        else:
+            # Fallback to manual attention (Slow path)
+            scale = self.scale or (self.d_k ** -0.5)
+            scores = torch.matmul(Q, K.transpose(-2, -1)) * scale
 
-        if self.mask_flag and attn_mask is not None:
-            if attn_mask.dim() == 3: attn_mask = attn_mask.unsqueeze(1)
-            scores = scores.masked_fill(attn_mask == 0, -1e9)
+            if self.mask_flag and attn_mask is not None:
+                if attn_mask.dim() == 3: attn_mask = attn_mask.unsqueeze(1)
+                scores = scores.masked_fill(attn_mask == 0, -1e9)
 
-        A = self.dropout(torch.softmax(scores, dim=-1))
-        V_out = torch.matmul(A, V)
+            A = self.dropout(torch.softmax(scores, dim=-1))
+            V_out = torch.matmul(A, V)
 
         V_out = V_out.permute(0, 2, 1, 3).contiguous().view(B, L, -1)
         output = self.w_o(V_out)

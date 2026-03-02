@@ -384,7 +384,31 @@ class ExplicitPhysicalMapping(nn.Module):
         # 投影到 d_model 特征空间，供后续 Causal Coupling 使用
         projected_feat = self.out_projection(phys_out_norm)           # [B, T, d_model]
 
-        return projected_feat, phys_out_norm
+        # ==================================================
+        # E. 计算物理活跃度掩码 (Activity Masks)
+        # ==================================================
+        
+        # 1. Load 活跃度 (恒为 1，无零点物理限制)
+        activity_load = torch.ones_like(p_load_theory)
+        
+        # 2. PV 活跃度 (基于纯理论功率)
+        # 使用 tanh 制成软门控，当 p_pv_theory=0 时精确等于0
+        # 当 p_pv_theory>0 时，快速饱和到 1
+        # multiplier=10.0 让 p=0.1 时 gate=tanh(1.0)≈0.76，p=0.3 时 gate=tanh(3.0)≈0.99
+        activity_pv = torch.tanh(10.0 * p_pv_theory)
+        
+        # 3. Wind 活跃度
+        # 使用 F.relu 制造精确物理零。当风速不在运行区间时，确保物理门控精确等于 0
+        wind_in_range_raw = F.relu(wind_speed - cut_in) * F.relu(cut_out - wind_speed)
+        # - 当 wind_speed < cut_in 时，由于 第一个 relu = 0，使得乘积精确为 0
+        # - 当 wind_speed > cut_out 时，由于 第二个 relu = 0，使得乘积精确为 0
+        # - 正常运行时，乘积为正数，tanh 会立刻将其饱和到 1
+        activity_wind = torch.tanh(10.0 * wind_in_range_raw)
+        
+        # 合并掩码 [B, T, 3]
+        activity_masks = torch.stack([activity_load, activity_pv, activity_wind], dim=-1)
+
+        return projected_feat, phys_out_norm, activity_masks
 
     def get_physics_prior_loss(self, prior_weight=0.1):
         """

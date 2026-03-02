@@ -22,6 +22,8 @@ from .Autoformer import Autoformer
 from .LSTM import LSTM
 from .GRU import GRU
 from .PINN import PINN
+from .DLinear import DLinear
+from .PatchTST import PatchTST
 
 # 为方便使用，定义模型名称到类的映射
 MODEL_REGISTRY = {
@@ -31,6 +33,8 @@ MODEL_REGISTRY = {
     'LSTM': LSTM,
     'GRU': GRU,
     'PINN': PINN,
+    'DLinear': DLinear,
+    'PatchTST': PatchTST,
 }
 
 def get_model(model_name):
@@ -59,6 +63,8 @@ __all__ = [
     'LSTM',
     'GRU',
     'PINN',
+    'DLinear',
+    'PatchTST',
 
     # PhysFormer 组件
     'PhysicsGuidedCausalCoupling',

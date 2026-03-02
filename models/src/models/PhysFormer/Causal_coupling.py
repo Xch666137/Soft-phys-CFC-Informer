@@ -125,7 +125,7 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         self.irr_slope_log = nn.Parameter(torch.tensor(2.3))  # exp(2.3) ≈ 10
         self.wind_slope_log = nn.Parameter(torch.tensor(1.6))  # exp(1.6) ≈ 5
 
-        self.gate_response_reg = GateResponseRegularization(weight=0.05)
+        self.gate_response_reg = GateResponseRegularization(weight=0.01)
 
         # self.register_buffer('step_counter', torch.tensor(0.0))
         # self.decay_steps = 2281 * 20  # ≈ 45,620 batches，epoch 20 时才完成内部软化
@@ -249,15 +249,12 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         prior_wind_expanded = prior_wind.repeat(1, 1, D)
 
         # -------------------------------------------------------------------
-        # 乘法残差 (Multiplicative Residual Gating)
-        # prior 决定绝对物理开关，soft gate 作为 0.5~1.5 的修正因子
-        # Load 通常不需要物理先验强制控制，保持原样
+        # 严格物理门控 (Strict Physical Gating)
+        # prior 决定绝对物理上限 (夜间严格为0)，soft_gate 决定日间的微调(0~1)
+        # [修改] 废除 0.5+ 的缩放污染，保护物理方程的绝对主导权。
         # -------------------------------------------------------------------
-        gate_pv_modifier = 0.5 + gate_pv_soft
-        gate_wind_modifier = 0.5 + gate_wind_soft
-
-        gate_pv = prior_pv_expanded * gate_pv_modifier
-        gate_wind = prior_wind_expanded * gate_wind_modifier
+        gate_pv = prior_pv_expanded * gate_pv_soft
+        gate_wind = prior_wind_expanded * gate_wind_soft
         gate_load = gate_load_soft
 
         # 时序平滑 (不变)

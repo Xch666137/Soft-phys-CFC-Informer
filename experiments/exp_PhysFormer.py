@@ -253,6 +253,12 @@ class Exp_PhysFormer:
             device=self.device,
             use_rope=self.args.use_rope,
             rope_base=self.args.rope_base,
+            # --- ABLATION FLAGS ---
+            ablation_no_phys_stream=getattr(self.args, 'ablation_no_phys_stream', False),
+            ablation_no_pgcc=getattr(self.args, 'ablation_no_pgcc', False),
+            ablation_no_future_glu=getattr(self.args, 'ablation_no_future_glu', False),
+            ablation_no_curriculum=getattr(self.args, 'ablation_no_curriculum', False),
+            ablation_fixed_phys=getattr(self.args, 'ablation_fixed_phys', False),
         )
 
         return model
@@ -275,7 +281,7 @@ class Exp_PhysFormer:
         """
         # 阶段定义
         stage1_end = 5
-        stage2_end = 15
+        stage2_end = 10
         stage3_end = 30
 
         # 最终目标权重（基于指导文档和现有实现）
@@ -287,6 +293,10 @@ class Exp_PhysFormer:
             'rvr': 1.0,
             'dir': 1.0,
         }
+
+        # --- ABLATION: w/o Curriculum ---
+        if getattr(self.args, 'ablation_no_curriculum', False):
+            return target_weights
 
         # 初始化权重字典
         weights = {k: 0.0 for k in target_weights.keys()}
@@ -391,7 +401,12 @@ class Exp_PhysFormer:
             {'params': stat_params, 'lr': base_lr * 1.0, 'name': 'stat_params'},
         ]
 
-        model_optim = optim.AdamW(param_groups, weight_decay=wd)
+        # Enable fused AdamW for massive multi-tensor update speedup on modern GPUs 
+        if self.device.type == 'cuda' and int(torch.__version__.split('.')[0]) >= 2:
+            model_optim = optim.AdamW(param_groups, weight_decay=wd, fused=True)
+            self.logger.info(">>> [Optimizer] Using Fused AdamW")
+        else:
+            model_optim = optim.AdamW(param_groups, weight_decay=wd)
 
         for p_group in param_groups:
             sample_names = [n for n, p in self.model.named_parameters()
@@ -449,29 +464,44 @@ class Exp_PhysFormer:
                 )
                 gates = None
 
-            total_loss = None
-            loss_dict = {}
+        # =========================================================
+        # [BUGFIX] 退出 AMP autocast 上下文，强制转换为 float32 计算 Loss
+        # 避免在混合精度 (fp16) 计算物理误差时发生溢出/下溢导致 NaN
+        # =========================================================
+        total_loss = None
+        loss_dict = {}
 
-            if criterion is not None:
-                # 计算 Loss (NRMSE + Phys)
-                loss_main, loss_dict = criterion(outputs, batch_y_true, curriculum_weights=curriculum_ratio)
+        if criterion is not None:
+            outputs_fp32 = outputs.float()
+            batch_y_true_fp32 = batch_y_true.float()
 
-                # 将门控的响应度正则化 Loss 叠加进计算图
-                if isinstance(reg_loss, torch.Tensor) and reg_loss.requires_grad:
-                    loss_main += reg_loss
-                    loss_dict['gate_reg'] = reg_loss.item()
+            if isinstance(reg_loss, torch.Tensor):
+                reg_loss_fp32 = reg_loss.float()
+            else:
+                reg_loss_fp32 = reg_loss
+                
+            # 计算 Loss (NRMSE + Phys)
+            loss_main, loss_dict = criterion(outputs_fp32, batch_y_true_fp32, curriculum_weights=curriculum_ratio)
 
-                # 加上物理参数先验正则化（仅在训练阶段）
-                if phase == 'train' and hasattr(self.model, 'phys_layer') and current_prior_weight > 0:
-                    prior_loss, prior_dict = self.model.phys_layer.get_physics_prior_loss(prior_weight=current_prior_weight)
-                    if isinstance(prior_loss, torch.Tensor):
-                        loss_main += prior_loss
-                        loss_dict['physics_prior'] = prior_loss.item()
-                        # 记录各项先验损失用于监控
-                        for k, v in prior_dict.items():
-                            loss_dict[f'prior_{k}'] = v
+            # 将门控的响应度正则化 Loss 叠加进计算图
+            if isinstance(reg_loss_fp32, torch.Tensor) and reg_loss_fp32.requires_grad:
+                loss_main += reg_loss_fp32
+                loss_dict['gate_reg'] = reg_loss_fp32.item()
 
-                total_loss = loss_main
+            # 加上物理参数先验正则化（仅在训练阶段）
+            # --- ABLATION: w/o Physics Stream ---
+            ablation_no_phys = getattr(self.args, 'ablation_no_phys_stream', False) or getattr(self.model, 'ablation_no_phys_stream', False)
+            if phase == 'train' and hasattr(self.model, 'phys_layer') and current_prior_weight > 0 and not ablation_no_phys:
+                prior_loss, prior_dict = self.model.phys_layer.get_physics_prior_loss(prior_weight=current_prior_weight)
+                if isinstance(prior_loss, torch.Tensor):
+                    prior_loss_fp32 = prior_loss.float()
+                    loss_main += prior_loss_fp32
+                    loss_dict['physics_prior'] = prior_loss_fp32.item()
+                    # 记录各项先验损失用于监控
+                    for k, v in prior_dict.items():
+                        loss_dict[f'prior_{k}'] = v
+
+            total_loss = loss_main
 
         if return_gates:
             return outputs, batch_y_true, total_loss, loss_dict, gates
@@ -516,21 +546,41 @@ class Exp_PhysFormer:
             # 设定预热期为 5 个 epoch (可根据实际收敛速度微调)
             warmup_epochs = 5
 
-            if epoch < warmup_epochs:
-                # 阶段一：冻结物理层，强制 Transformer 适应标准物理先验
-                for param in self.model.phys_layer.parameters():
-                    param.requires_grad = False
-                current_prior_weight = 0.0  # 冻结状态不需要计算先验 Loss
+            # --- ABLATION: Fixed Thresholds OR w/o Curriculum ---
+            if getattr(self.args, 'ablation_fixed_phys', False):
+                # Always freeze physical layer if ablation_fixed_phys is True
+                if hasattr(self.model, 'phys_layer'):
+                    for param in self.model.phys_layer.parameters():
+                        param.requires_grad = False
+                current_prior_weight = 0.0
                 if epoch == 0:
-                    self.logger.info(f">>> [PhysLayer Control] Epoch 1-{warmup_epochs}: Physics parameters FROZEN.")
-            else:
-                # 阶段二：解冻物理层，允许数据驱动的微调，并施加先验约束防止跑偏
-                for param in self.model.phys_layer.parameters():
-                    param.requires_grad = True
+                    self.logger.info(">>> [PhysLayer Control] ABLATION_FIXED_PHYS: Physics parameters FROZEN for all epochs.")
+            elif getattr(self.args, 'ablation_no_curriculum', False):
+                # Never freeze physics layer if ablation_no_curriculum is True
+                if hasattr(self.model, 'phys_layer'):
+                    for param in self.model.phys_layer.parameters():
+                        param.requires_grad = True
                 current_prior_weight = getattr(self.args, 'physics_prior_weight', 0.1)
-                if epoch == warmup_epochs:
-                    self.logger.info(
-                        f">>> [PhysLayer Control] Epoch {epoch + 1}+: Physics parameters UNFROZEN. Prior weight: {current_prior_weight}")
+                if epoch == 0:
+                    self.logger.info(f">>> [PhysLayer Control] ABLATION_NO_CURRICULUM: Physics parameters UNFROZEN from Epoch 1. Prior weight: {current_prior_weight}")
+            else:
+                if epoch < warmup_epochs:
+                    # 阶段一：冻结物理层，强制 Transformer 适应标准物理先验
+                    if hasattr(self.model, 'phys_layer'):
+                        for param in self.model.phys_layer.parameters():
+                            param.requires_grad = False
+                    current_prior_weight = 0.0  # 冻结状态不需要计算先验 Loss
+                    if epoch == 0:
+                        self.logger.info(f">>> [PhysLayer Control] Epoch 1-{warmup_epochs}: Physics parameters FROZEN.")
+                else:
+                    # 阶段二：解冻物理层，允许数据驱动的微调，并施加先验约束防止跑偏
+                    if hasattr(self.model, 'phys_layer'):
+                        for param in self.model.phys_layer.parameters():
+                            param.requires_grad = True
+                    current_prior_weight = getattr(self.args, 'physics_prior_weight', 0.1)
+                    if epoch == warmup_epochs:
+                        self.logger.info(
+                            f">>> [PhysLayer Control] Epoch {epoch + 1}+: Physics parameters UNFROZEN. Prior weight: {current_prior_weight}")
             # ----------------------------------------------------
 
             # 获取当前 Epoch 的课程 Ratio
@@ -545,7 +595,7 @@ class Exp_PhysFormer:
                       leave=False,
                       ncols=100) as pbar:
                 for i, batch_data in enumerate(train_loader):
-                    model_optim.zero_grad()
+                    model_optim.zero_grad(set_to_none=True)
 
                     # Train 阶段我们还需要加上惯性正则化 Loss，所以我们在外层加
                     outputs, batch_y_true, loss_main, loss_dict = self._process_one_batch(
@@ -785,7 +835,7 @@ class Exp_PhysFormer:
 
                 # 只取第一个样本 (Sample 0) 避免平均化模糊
                 if i < 5:
-                    if 'pv_seq_batch' in gates:
+                    if gates is not None and 'pv_seq_batch' in gates:
                         vis_data['gate_pv'].append(gates['pv_seq_batch'][0])
                         vis_data['gate_wind'].append(gates['wind_seq_batch'][0])
 
@@ -818,6 +868,10 @@ class Exp_PhysFormer:
             # 恢复形状
             preds = preds_rescaled.reshape(shape_orig)
             trues = trues_rescaled.reshape(shape_orig)
+            print(f"[DEBUG] After inverse_transform: preds.min={preds.min():.3f}, preds.max={preds.max():.3f}")
+            print(f"[DEBUG] actual_ramp_limits={actual_ramp_limits}")
+        else:
+            print("[DEBUG] 反归一化被跳过！metric 将在归一化空间计算！")
 
         metrics_result = metric(preds, trues, ramp_limits=actual_ramp_limits)
         avg_phys_metrics = {k: np.mean(v) if len(v) > 0 else 0.0 for k, v in phys_metrics.items()}
@@ -829,14 +883,16 @@ class Exp_PhysFormer:
             print(f"  {k.upper():<20} : {v:.6f}")
         print("=" * 60 + "\n")
 
-        path = os.path.join(self.args.checkpoints, self.args.checkpoint_name)
+        path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path): os.makedirs(path)
         folder_path = path + '/'
 
-        np.save(os.path.join(folder_path, 'vis_gate_pv.npy'), np.array(vis_data['gate_pv']))
-        np.save(os.path.join(folder_path, 'vis_gate_wind.npy'), np.array(vis_data['gate_wind']))
-        np.save(os.path.join(folder_path, 'vis_irr.npy'), np.array(vis_data['irr']))
-        np.save(os.path.join(folder_path, 'vis_speed.npy'), np.array(vis_data['speed']))
+        # 仅当收集到门控可视化数据时才保存（消融变体 w/o PGCC 和 w/o Physics 不生成）
+        if len(vis_data['gate_pv']) > 0:
+            np.save(os.path.join(folder_path, 'vis_gate_pv.npy'), np.array(vis_data['gate_pv']))
+            np.save(os.path.join(folder_path, 'vis_gate_wind.npy'), np.array(vis_data['gate_wind']))
+            np.save(os.path.join(folder_path, 'vis_irr.npy'), np.array(vis_data['irr']))
+            np.save(os.path.join(folder_path, 'vis_speed.npy'), np.array(vis_data['speed']))
 
         np.save(os.path.join(folder_path, 'gate_details.npy'), detailed_gates)
         np.save(os.path.join(folder_path, 'phys_metrics.npy'), avg_phys_metrics)

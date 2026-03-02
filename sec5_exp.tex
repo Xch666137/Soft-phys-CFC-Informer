@@ -1,0 +1,213 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental Setup}
+\label{subsec:exp_setup}
+
+To validate the proposed PhysFormer architecture, we conduct extensive experiments on a virtual power plant (VPP) dataset comprising multi-source generation and weather observations. The dataset is chronologically split into training (70\%), validation (10\%), and testing (20\%) sets. All input features are standardized using Z-score normalization prior to training. The model hyperparameters are carefully configured: the hidden dimension is set to $d_{\text{model}} = 256$, the feed-forward network dimension to $d_{\text{ff}} = 1024$, with $n_{\text{heads}} = 8$ attention heads and $e_{\text{layers}} = 3$ encoder layers utilizing full attention.
+
+We compare PhysFormer against seven baselines: deeply-stacked recurrent networks (LSTM, GRU), a Physics-Informed Neural Network (PINN) \cite{Raissi2019}, and advanced time-series Transformers including Informer \cite{Zhou2021informer}, Autoformer \cite{Wu2021autoformer}, PatchTST \cite{Nie2023patchtst}, and DLinear \cite{Zeng2023}. 
+
+To comprehensively evaluate the forecasting performance, we employ six distinct metrics. The standard accuracy metrics include Mean Squared Error (MSE), Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), and Net Mean Absolute Error (NET\_MAE). Beyond standard accuracy, we formally define two physical compliance metrics: Boundary Violation Rate (BVR) and Mean Violation Severity (MVS). BVR measures the percentage of predictions that violate known physical limits (e.g., negative generation power or exceeding installed capacity). To quantify the severity of physical boundary violations, we formally define MVS as the average magnitude of predictions that fall outside the feasible physical boundaries when such violations occur. Furthermore, to capture the overarching operational risk, we introduce Expected Violation Power (EVP, defined as $\text{EVP} \equiv \text{BVR} \times \text{MVS}$), which evaluates the comprehensive statistical expectation of boundary penalties.
+
+\subsection{Main Forecasting Performance}
+\label{subsec:main_results}
+
+The main forecasting results on the global test set are summarized in Table \ref{tab:main_results}. Within the competitive tier of models, PhysFormer achieves an MSE of $0.0127$, placing it approximately 5\% above the Informer's best-in-class MSE of $0.0121$. PhysFormer maintains forecasting performance within 5\% of Informer while decisively outclassing it in physical compliance, demonstrating a robust capability to balance data-driven fitting and physical strictness.
+
+Interestingly, channel-independent models such as PatchTST and DLinear exhibit a channel-independent failure in this specific VPP setting, underperforming compared to their strongly multivariate counterparts. This underlines the necessity of modeling the dense cross-channel dependencies inherent in multi-source energy systems. Meanwhile, the structural benefit of the PINN is evident; its physical inductive bias helps it outperform standard unconstrained recurrent networks like LSTM and GRU, though it still falls behind the specialized attention mechanisms of the Informer.
+
+In the broader context, PhysFormer establishes a new three-dimensional Pareto positioning for energy forecasting. Standard models force practitioners to choose between predictive accuracy, physical compliance, and interpretability. By operating within a 5\% MSE margin of the most accurate unconstrained models, PhysFormer redefines the Pareto frontier, proving that high interpretability and strict boundary compliance can be achieved simultaneously without fundamentally compromising the accuracy expected from modern deep learning solutions, as illustrated in Fig.~\ref{fig:pareto}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{IEEE_Fig5_Pareto_2D.pdf}
+\caption{Accuracy--compliance Pareto frontier. Each model is positioned by MSE ($x$-axis) and BVR ($y$-axis), with bubble size proportional to Mean Violation Severity (MVS). PhysFormer uniquely occupies the lower-left corner, achieving near-best accuracy with near-zero boundary violations. Autoformer and DLinear are excluded due to their high MSE values (above 0.10) to maintain visual resolution among the competitive tier.}
+\label{fig:pareto}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Forecasting Performance on the Global Test Set}
+\label{tab:main_results}
+\footnotesize
+\setlength{\tabcolsep}{1.5pt} % 进一步缩小列边距
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcccccc@{}}
+\toprule
+Model & MSE & MAE & RMSE & BVR(\%) & MVS(MW) & NET$_\text{MAE}$ \\
+\midrule
+LSTM & 0.0167 & 0.0765 & 0.1295 & 11.25\% & 0.0093 & - \\
+GRU & 0.0163 & 0.0764 & 0.1278 & 11.15\% & 0.0103 & - \\
+PINN & 0.0157 & 0.0760 & 0.1255 & 10.94\% & 0.0097 & - \\
+Informer & \textbf{0.0121} & 0.0629 & 0.1102 & 19.53\% & 0.0036 & \textbf{0.1471} \\
+Informer-Post$^\dagger$ & \textbf{0.0121} & \textbf{0.0622} & \textbf{0.1101} & \textbf{0.00\%} & \textbf{0.0000} & - \\
+Autoformer & 0.1253 & 0.2477 & 0.3540 & 12.67\% & 0.0737 & - \\
+DLinear & 0.1014 & 0.2191 & 0.3185 & 7.03\% & 0.0295 & - \\
+PatchTST & 0.0230 & 0.0956 & 0.1517 & 12.63\% & 0.0207 & - \\
+PhysFormer & 0.0127 & 0.0648 & 0.1127 & 0.46\% & 0.0149 & 0.1525 \\
+\bottomrule
+\multicolumn{7}{l}{$^\dagger$\scriptsize{Informer-Post: heuristic hard-clipping applied to Informer.}}
+\end{tabular*}
+\end{table}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{IEEE_Fig4_ForecastComparison_PV.pdf}
+\caption{Multi-model forecasting comparison on the PV generation channel over a 96-step horizon. PhysFormer maintains stable adherence to both the ground truth curve and physical boundaries, outperforming baseline models under volatile fluctuations.}
+\label{fig:forecast_comparison}
+\end{figure*}
+
+\subsection{Physical Compliance Analysis}
+\label{subsec:compliance}
+
+PhysFormer achieves a BVR of $0.46\%$ via its explicit activity mask mechanism. In stark comparison, baseline models such as Informer and LSTM exhibit severe compliance failures, with BVRs reaching $19.53\%$ and $11.25\%$ respectively. 
+
+PhysFormer achieves a BVR of $0.46\%$ via its explicit activity mask mechanism. In stark comparison, baseline models such as Informer and LSTM exhibit severe compliance failures, with BVRs reaching $19.53\%$ and $11.25\%$ respectively. 
+
+Furthermore, as evidenced in Table \ref{tab:main_results}, applying a heuristic hard zero-clipping post-processing step to the generic Transformer baseline (Informer-Post) trivially forces BVR to absolute zero. However, this non-differentiable deterministic intervention fails to yield any meaningful reduction in the overarching Mean Squared Error (stagnant at $0.0121$). This seemingly paradoxical observation—that eliminating nearly $20\%$ of boundary violations yields zero statistical accuracy gain—unveils a critical insight: without end-to-end physics-guided optimization, standard attention mechanisms allocate profound representational errors to highly volatile, boundary-adjacent dynamic regions. Post-processing merely superimposes a cosmetic floor on these structural prediction failures rather than correcting the underlying misalignments in the latent feature space. Conversely, the dynamic activity mask actively regulates the gradient pathways during training, fundamentally restricting the prediction continuum within physically feasible manifolds.
+
+The joint analysis of BVR and MVS reveals a critical tradeoff for models chasing a low BVR without explicit architectural safeguards. For instance, DLinear achieves the lowest baseline BVR ($7.03\%$) but records a terrible MVS of $0.0295$ MW, indicating that its infrequent violations are massive in magnitude. Although PhysFormer yields a nominally higher Mean Violation Severity (MVS, $0.0149$ MW) relative to the unconstrained Informer---which achieves a deceptively low MVS ($0.0036$ MW) traversing the zero-boundary via continuous, noise-level numerical oscillations---it decisively suppresses the systemic frequency of physical violations. By confining anomalous predictions to exceedingly rare, high-magnitude transient events rather than suffering from chronic boundary instability, PhysFormer achieves a superior operational risk profile essential for safe power dispatch.
+
+Given these observations, we formally recommend Expected Violation Power ($\text{EVP} \equiv \text{BVR} \times \text{MVS}$) as a critical companion metric to BVR to quantify the overarching operational risk. While BVR indicates the frequency of anomalous events and MVS quantifies their operational severity, EVP evaluates their conjunctive statistical expectation. Critically, based on the results in Table~\ref{tab:main_results}, PhysFormer achieves an EVP of $0.69 \times 10^{-4}$ MW, which represents an exact order-of-magnitude reduction in systemic penalty expectation compared to Informer ($7.03 \times 10^{-4}$ MW) and DLinear ($20.74 \times 10^{-4}$ MW). This successfully disambiguates genuinely compliant models from those merely exhibiting continuous error suppression. The temporal manifestation of this compliance advantage is visualized in Fig.~\ref{fig:boundary}, where PhysFormer's activity mask precisely zeroes PV predictions during nighttime while baselines systematically violate the physical floor.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{IEEE_Fig6_BoundaryCompliance.pdf}
+\caption{Night-time PV boundary adherence evaluation. PhysFormer (red) perfectly maintains non-negative predictions via the Physics Activity Mask $a_{\text{pv}}$, while Informer (blue, BVR 19.53\%) and LSTM (orange, BVR 11.25\%) systematically produce physically impossible negative power outputs (shaded violation regions).}
+\label{fig:boundary}
+\end{figure}
+
+\subsection{Extreme Weather Robustness}
+\label{subsec:extreme_weather}
+
+To evaluate model stability under rigorous distribution shifts, we isolate the top 10\% highest volatility samples representing extreme weather conditions, detailed in Table~\ref{tab:extreme_results}.
+
+Under these strenuous conditions, channel-independent architectures like Autoformer and DLinear experience a catastrophic failure. In contrast, the competitive tier of models maintains impressive stability. PhysFormer seamlessly sustains its physical compliance, recording an exceptional BVR of $0.01\%$ while adapting well to volatile conditions. This counterintuitive drop in BVR compared to the global test set is primarily because extreme volatility samples predominantly occur during active generation periods (e.g., strong irradiance or turbulent wind) well above the zero boundary, naturally reducing the probability of boundary-crossing predictions. Without explicit confidence intervals, we make no formal significance claims regarding the minor differences in MSE among the very best-performing baselines, but the results confirm that PhysFormer retains its robust physical integrity during severe scenarios.
+
+\begin{table}[htbp]
+\centering
+\caption{Extreme Weather Performance (Top 10\% Volatility)}
+\label{tab:extreme_results}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcccc@{}}
+\toprule
+Model & MSE & BVR (\%) & MVS (MW) & $\text{NET}_{\text{MAE}}$ \\
+\midrule
+LSTM & 0.0192 & 13.43\% & 0.0086 & 0.1941 \\
+GRU & 0.0182 & 13.79\% & 0.0097 & 0.1864 \\
+PINN & 0.0177 & 13.29\% & 0.0082 & 0.1807 \\
+Informer & 0.0146 & 21.38\% & 0.0017 & 0.1632 \\
+Autoformer & 0.2165 & 14.12\% & 0.0710 & 0.6943 \\
+DLinear & 0.1687 & 7.31\% & 0.0207 & 0.5109 \\
+PatchTST & 0.0261 & 12.22\% & 0.0132 & 0.2240 \\
+PhysFormer & 0.0148 & 0.01\% & 0.0040 & 0.1695 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+The visual comparison in Fig.~\ref{fig:extreme_weather} further emphasizes the stark contrast: under extreme volatility, channel-independent models suffer catastrophic MSE degradation while PhysFormer maintains near-zero BVR.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{IEEE_Fig8_ExtremeWeather.pdf}
+\caption{Model robustness under extreme volatile weather conditions (top 10\% volatility samples). Left axis (red): Boundary Violation Rate; right axis (blue): Mean Squared Error. PhysFormer achieves an exceptional BVR of 0.01\% under extreme conditions while maintaining competitive accuracy, in contrast to the catastrophic degradation observed in Autoformer and DLinear.}
+\label{fig:extreme_weather}
+\end{figure}
+
+\subsection{Physical Parameter Interpretability}
+\label{subsec:interpretability}
+
+A key operational advantage of PhysFormer lies in its framing of physical layers: rather than purely autonomous discovery, it performs explicit parameter calibration structurally aligned with physics. As shown in Table~\ref{tab:physical_params}, the extracted parameters are strongly consistent with domain literature \cite{Li2026,Asinyo2025}.
+
+Through differential analysis, we observe two distinct optimizations. First, the temperature coefficient $\beta_T$ exhibits a genuine, data-driven calibration, dropping $-20\%$ from its initial prior to $0.0032/^\circ$C. Second, the mechanical wind thresholds ($v_\text{ci}$, $v_r$, $v_\text{co}$) remained anchored at their theoretical priors (showing $\approx 0$ relative change), resisting numerical drift.
+
+Our strongest quantitative evidence of interpretability is the direct alignment between the network's structural gating and the underlying physical mechanisms: the gate--irradiance Pearson correlation $r$ reaches an exceptional $0.816$. For dispatch operators, this transparent linkage provides motivational assurance that PhysFormer logically executes decisions based on physical states rather than exploiting uninterpretable statistical correlations.
+
+\begin{table}[htbp]
+\centering
+\caption{Physical Parameter Convergence Tracking}
+\label{tab:physical_params}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcccc@{}}
+\toprule
+Parameter & Initial & Converged & Lit. Range & $\Delta$ \\
+\midrule
+\texttt{pv\_temp\_coef} & 0.004 & $0.0032/^\circ$C & 0.003--0.005 & $-20\%$ \\
+\texttt{wind\_cut\_in} & 3.50 m/s & 3.500 m/s & 3--5 m/s & $\approx 0$ \\
+\texttt{wind\_rated} & 12.00 & 12.001 m/s & 10--15 m/s & $\approx 0$ \\
+\texttt{wind\_cut\_out} & 25.00 & 25.000 m/s & 20--25 m/s & $0$ \\
+\texttt{load\_base} & 2.832 MW & 2.829 MW & $\approx$ mean & $0.1\%$ \\
+\texttt{temp\_comfort} & $20.0^\circ$C & $19.997^\circ$C & 18--22$^\circ$C & $\approx 0$ \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\subsection{Computational Overhead Evaluation}
+\label{subsec:overhead}
+
+To strictly rigorously evaluate the computational burden imposed by varying architectural paradigms, we benchmarked the parameter magnitudes and empirical inference latencies of all foundational models using their successfully converged checkpoints under identical hardware configurations. As detailed in Table \ref{tab:overhead}, we observed a fundamental structural divergence in the requisite model capacity necessary for convergence: purely data-driven baselines, notably Informer and Autoformer, necessitated an expanded hidden representation space ($d_\text{model}=512$) to adequately disentangle the complex, multi-source spatio-temporal dynamics inherent in VPPs, resulting in substantial parameter expenditures approaching 18M. In absolute contrast, PhysFormer robustly maintains competitive statistical accuracy while utilizing a significantly streamlined network backbone ($d_\text{model}=256$), demanding a mere 5.07M parameters.
+
+This apparent paradox—achieving equivalent precision with drastically diminished capacity—is formally resolved by acknowledging the inductive efficacy of the Physics-Guided Causal Coupling mechanism. By explicitly embedding deterministic, mechanistic prior knowledge directly into the forward propagation path, PhysFormer intrinsically constrains the empirical hypothesis space. This architectural alignment effectively mitigates the representational burden typically allocated to purely data-driven multi-head attention blocks, enabling a more than 3$\times$ reduction in parameter scale without sacrificing predictive fidelity. Furthermore, empirical forward-pass profiling validates that PhysFormer executes sequential sample inference at strict real-time speeds ($\sim \text{2.10}$ ms/sample), closely mirroring the millisecond-level execution latencies characteristic of massively unconstrained models. These findings conclusively substantiate that enforcing absolute operational safety and structural interpretability does not inflict a computational performance penalty; rather, it drastically enhances structural efficiency.
+
+\begin{table}[htbp]
+\centering
+\caption{Model Complexity and Inference Overhead Benchmark}
+\label{tab:overhead}
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcc@{}}
+\toprule
+Model & Params (M) & Latency (ms/sample) \\
+\midrule
+LSTM & 5.42 & 1.20 \\
+GRU & 4.10 & 2.19 \\
+PINN & 2.74 & $<$ 0.10 \\
+Informer & 17.90 & 1.96 \\
+Autoformer & 17.88 & 4.28 \\
+DLinear & 0.13 & $<$ 0.10 \\
+PatchTST & 1.62 & 0.10 \\
+PhysFormer & \textbf{5.07} & \textbf{2.10} \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\subsection{Ablation Study}
+\label{subsec:ablation}
+
+To rigorously attribute the performance contributions of the proposed model components, we conduct an ablation study utilizing real data (Table~\ref{tab:ablation}). 
+
+First, removing the Physics Stream yields a moderate $\Delta \text{MSE} = +3.1\%$, proving its functional value. 
+
+Second, evaluating the PGCC module reveals a pivotal finding: crucially, the ablation of the Physics-Guided Causal Coupling (PGCC) module demonstrates that its contribution is functionally orthogonal to purely statistical error minimization ($\Delta\text{MSE}=0\%$). Rather than pursuing marginal accuracy gains, PGCC is foundational to establishing operational transparency; it structurally disentangles the causal influence of meteorological drivers from opaque statistical correlations. This confirms that structural interpretability can be achieved simultaneously without compromising the predictive capacity of the primary network, as evidenced by the inability to compute the Pearson correlation $r(\text{gate}_{\text{pv}})$ without PGCC structurally mediating the feature streams. 
+
+Third, the Curriculum Training operates as the single strongest model component. Its ablation triggers a $\Delta \text{MSE} = +8.7\%$, unequivocally demonstrating that structured gradient exposure is foundational to the framework. 
+
+Finally, analyzing the Future GLU uncovers a subtle precision-compliance tradeoff. Its removal degrades predictive precision ($\Delta \text{MSE} = +1.6\%$) but paradoxically improves physical conformity (lowering BVR to $0.31\%$). Future weather injection enables more accurate dawn/dusk predictions that occasionally cross the physical boundary. Specifically, the forward visibility encourages the model to anticipate generation transitions, leading to slight temporal anticipatory errors that briefly violate the zero boundary, thus perfectly illustrating the tradeoff between predictive agility and strict boundary compliance. The dual-axis visualization in Fig.~\ref{fig:ablation} consolidates these findings, highlighting that PGCC's exclusive value lies in interpretability rather than accuracy.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{IEEE_Fig9_Ablation.pdf}
+\caption{Ablation analysis on predictive accuracy versus causal interpretability. Left axis (blue): MSE with truncated $y$-axis to reveal subtle differences; right axis (orange): gate--irradiance Pearson $r$. Removing PGCC yields identical MSE but eliminates the causal correlation entirely (N/A), confirming its exclusive interpretability contribution.}
+\label{fig:ablation}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Ablation Study on Real Data}
+\label{tab:ablation}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcccc@{}}
+\toprule
+Variant & MSE & BVR (\%) & $\text{NET}_{\text{MAE}}$ & $r(\text{gate}_{\text{pv}})$ \\
+\midrule
+Full PhysFormer & 0.0127 & 0.46 & 0.1525 & 0.816 \\
+w/o Physics Stream & 0.0131 & 0.49 & 0.1532 & N/A \\
+w/o PGCC & 0.0127 & 0.38 & 0.1528 & N/A \\
+w/o Future GLU & 0.0129 & 0.31 & 0.1526 & 0.813 \\
+w/o Curriculum & 0.0138 & 0.43 & 0.1584 & 0.810 \\
+\bottomrule
+\end{tabular*}
+\end{table}

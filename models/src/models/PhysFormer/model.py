@@ -27,9 +27,22 @@ class PhysFormer(nn.Module):
                  activation='gelu', use_rope=False, rope_base=10000,
                  weather_mean=None, weather_std=None,
                  target_mean=None, target_std=None, distil=False,
-                 device=torch.device('cuda:0')):
+                 device=torch.device('cuda:0'),
+                 # --- ABLATION FLAGS ---
+                 ablation_no_phys_stream=False,
+                 ablation_no_pgcc=False,
+                 ablation_no_future_glu=False,
+                 ablation_no_curriculum=False,
+                 ablation_fixed_phys=False):
 
         super(PhysFormer, self).__init__()
+        
+        # --- ABLATION SETUP ---
+        self.ablation_no_phys_stream = ablation_no_phys_stream
+        self.ablation_no_pgcc = ablation_no_pgcc
+        self.ablation_no_future_glu = ablation_no_future_glu
+        self.ablation_no_curriculum = ablation_no_curriculum
+        self.ablation_fixed_phys = ablation_fixed_phys
         self.seq_len = seq_len
         self.pred_len = pred_len
         # --- 1. 双流 Embedding 层 ---
@@ -65,6 +78,7 @@ class PhysFormer(nn.Module):
         self.phys_layer = ExplicitPhysicalMapping(
             d_model=d_model,
             weather_dim=3,
+            learnable_params=not self.ablation_fixed_phys,  # --- ABLATION: Fixed Thresholds ---
             weather_mean=weather_mean,
             weather_std=weather_std,
             target_mean=target_mean,
@@ -77,6 +91,10 @@ class PhysFormer(nn.Module):
             n_heads=n_heads,
             dropout=dropout
         )
+
+        # --- ABLATION: w/o PGCC ---
+        if self.ablation_no_pgcc:
+            self.naive_fusion_proj = nn.Linear(d_model * 2, d_model)
 
         # --- 4. Flatten Head (Encoder -> Future Projection) ---
         self.flatten_head = FlattenHead(seq_len, d_model, pred_len, dropout)
@@ -153,18 +171,33 @@ class PhysFormer(nn.Module):
         enc_out_stat = self.encoder(enc_out_stat)  # [B, Seq, D]
 
         # === Step 2: History Physics ===
-        phys_feat_hist, _ = self.phys_layer(x_weather_hist)  # [B, Seq, D]
-
-        # === Step 3: Fusion (Physics-Guided Attention) ===
-        if return_gates:
-            enc_out_fused, reg_loss, gates_info = self.causal_coupling(
-                enc_out_stat, phys_feat_hist, x_weather_hist, alpha=alpha, return_gates=True
-            )
-        else:
-            enc_out_fused, reg_loss = self.causal_coupling(
-                enc_out_stat, phys_feat_hist, x_weather_hist, alpha=alpha, return_gates=False
-            )
+        # --- ABLATION: w/o Physics Stream ---
+        if self.ablation_no_phys_stream:
+            enc_out_fused = enc_out_stat
+            reg_loss = 0.0
             gates_info = None
+        else:
+            phys_feat_hist, _, _ = self.phys_layer(x_weather_hist)  # [B, Seq, D]
+
+            # === Step 3: Fusion (Physics-Guided Attention) ===
+            # --- ABLATION: w/o PGCC ---
+            if self.ablation_no_pgcc:
+                cat_enc = torch.cat([enc_out_stat, phys_feat_hist], dim=-1)
+                enc_out_fused = self.naive_fusion_proj(cat_enc)
+                reg_loss = 0.0
+                gates_info = None
+            else:
+                # --- ABLATION: w/o Curriculum ---
+                current_alpha = 0.0 if self.ablation_no_curriculum else alpha
+                if return_gates:
+                    enc_out_fused, reg_loss, gates_info = self.causal_coupling(
+                        enc_out_stat, phys_feat_hist, x_weather_hist, alpha=current_alpha, return_gates=True
+                    )
+                else:
+                    enc_out_fused, reg_loss = self.causal_coupling(
+                        enc_out_stat, phys_feat_hist, x_weather_hist, alpha=current_alpha, return_gates=False
+                    )
+                    gates_info = None
 
         # === Step 4: Projection to Future ===
         # Flatten Head 将时间步映射到未来 [B, Seq, D] -> [B, Pred, D]
@@ -173,16 +206,26 @@ class PhysFormer(nn.Module):
 
         # === Step 5: Inject Future Weather (Fixing Residual Blind Spot) [MODIFIED] ===
 
-        # A. 计算未来的理论物理值 (theory_future) 和 天气隐层特征 (weather_feat_future)
-        # phys_layer 返回的第一个值是 projected_feat [B, Pred, D]
-        weather_feat_future, theory_future = self.phys_layer(x_weather_future)
+        # --- ABLATION: w/o Future GLU ---
+        if self.ablation_no_future_glu:
+            future_feat_combined = future_feat_history
+            if not self.ablation_no_phys_stream:
+                _, theory_future, activity_future = self.phys_layer(x_weather_future)
+        else:
+            if not self.ablation_no_phys_stream:
+                # A. 计算未来的理论物理值 (theory_future) 和 天气隐层特征 (weather_feat_future)
+                # phys_layer 返回的第一个值是 projected_feat [B, Pred, D]
+                weather_feat_future, theory_future, activity_future = self.phys_layer(x_weather_future)
 
-        # B. 门控融合(GLU)将未来天气特征注入到残差网络输入中
-        # 这样 Residual Head 就能看到"未来是否阴天/大风"
-        # 使用残差连接方式融合：History_Projection + Future_Weather_Context
-        cat_feat = torch.cat([future_feat_history, weather_feat_future], dim=-1)
-        fusion_gate = self.weather_fusion_gate(cat_feat)
-        future_feat_combined = fusion_gate * self.weather_fusion_proj(cat_feat) + future_feat_history
+                # B. 门控融合(GLU)将未来天气特征注入到残差网络输入中
+                # 这样 Residual Head 就能看到"未来是否阴天/大风"
+                # 使用残差连接方式融合：History_Projection + Future_Weather_Context
+                cat_feat = torch.cat([future_feat_history, weather_feat_future], dim=-1)
+                fusion_gate = self.weather_fusion_gate(cat_feat)
+                future_feat_combined = fusion_gate * self.weather_fusion_proj(cat_feat) + future_feat_history
+            else:
+                # if w/o physics stream, there is no phys_layer to use.
+                future_feat_combined = future_feat_history
 
         # 经过共享投影层
         future_feat = self.shared_projection(future_feat_combined)
@@ -192,15 +235,54 @@ class PhysFormer(nn.Module):
         res_pv = self.head_pv(future_feat)
         res_wind = self.head_wind(future_feat)
 
-        # === Step 7: Physics Guidance & Combination ===
-        theory_load = theory_future[:, :, 0].unsqueeze(-1)
-        theory_pv = theory_future[:, :, 1].unsqueeze(-1)
-        theory_wind = theory_future[:, :, 2].unsqueeze(-1)
+        # === [NEW] Kinematic Smoothing (物理惯性平滑) ===
+        # 强行过滤由于 Transformer Point-wise Mapping 带来的高频自注意力随机抖动 (降低 CSA)
+        # kernel_size=3 的低通滤波，原生赋予模型物理随动惯性
+        def kinematic_smooth(res_tensor):
+            # [B, Pred, 1] -> [B, 1, Pred]
+            res_t = res_tensor.transpose(1, 2)
+            # 使用 replicate padding 保持序列长度不变且边缘平滑
+            res_pad = torch.nn.functional.pad(res_t, (1, 1), mode='replicate')
+            res_smooth = torch.nn.functional.avg_pool1d(res_pad, kernel_size=3, stride=1)
+            return res_smooth.transpose(1, 2)
+            
+        res_load = kinematic_smooth(res_load)
+        res_pv   = kinematic_smooth(res_pv)
+        res_wind = kinematic_smooth(res_wind)
 
-        # Final = Theory + Residual
-        final_load = theory_load + res_load
-        final_pv = theory_pv + res_pv
-        final_wind = theory_wind + res_wind
+        # === Step 7: Physics Guidance & Combination ===
+        # --- ABLATION: w/o Physics Stream ---
+        if self.ablation_no_phys_stream:
+            final_load = res_load
+            final_pv = res_pv
+            final_wind = res_wind
+        else:
+            theory_load = theory_future[:, :, 0].unsqueeze(-1)
+            theory_pv = theory_future[:, :, 1].unsqueeze(-1)
+            theory_wind = theory_future[:, :, 2].unsqueeze(-1)
+
+            activity_load = activity_future[:, :, 0].unsqueeze(-1)
+            activity_pv = activity_future[:, :, 1].unsqueeze(-1)
+            activity_wind = activity_future[:, :, 2].unsqueeze(-1)
+
+            # === [NEW] Bounded Physical Act-Residual (物理边界感知型激活) ===
+            # 将神经网络结构拉回到真实的物理底线 (Zero Bound) 之上
+            # 真实物理 0 MW 对应归一化空间的 -mean/std
+            mean_val = self.phys_layer.target_mean if hasattr(self.phys_layer, 'target_mean') else torch.zeros(3, device=res_load.device)
+            std_val  = self.phys_layer.target_std  if hasattr(self.phys_layer, 'target_std')  else torch.ones(3, device=res_load.device)
+            
+            zero_load = - (mean_val[0] / (std_val[0] + 1e-5))
+            zero_pv   = - (mean_val[1] / (std_val[1] + 1e-5))
+            zero_wind = - (mean_val[2] / (std_val[2] + 1e-5))
+            
+            # 使用 Softplus 对下界进行软兜底，确保网络在数学上绝对无法输出小于 0 MW 的值 (消灭 RVM)
+            raw_load = theory_load + activity_load * res_load
+            raw_pv   = theory_pv   + activity_pv   * res_pv
+            raw_wind = theory_wind + activity_wind * res_wind
+
+            final_load = zero_load + torch.nn.functional.softplus(raw_load - zero_load)
+            final_pv   = zero_pv   + torch.nn.functional.softplus(raw_pv   - zero_pv)
+            final_wind = zero_wind + torch.nn.functional.softplus(raw_wind - zero_wind)
 
         output = torch.cat([final_load, final_pv, final_wind], dim=-1)
 

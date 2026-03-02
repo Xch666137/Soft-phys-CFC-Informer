@@ -28,7 +28,7 @@ def get_args():
 
     # --- 核心控制参数 ---
     parser.add_argument('--models_to_run', type=str, nargs='+',
-                        default=['LSTM', 'GRU', 'PINN', 'Informer', 'Autoformer'],
+                        default=['LSTM', 'GRU', 'PINN', 'Informer', 'Autoformer', 'DLinear', 'PatchTST'],
                         help='List of models to benchmark')
     parser.add_argument('--gpu', type=int, default=0, help='gpu id')
     parser.add_argument('--use_multi_gpu', action='store_true', help='use multiple gpus')
@@ -124,12 +124,12 @@ def main():
             exp = Exp_Baselines(args)  # 实例化我们修改过的 Baseline 控制器
 
             # 训练
-            print(f"-> Training {model_name}...")
-            exp.train(setting)
+            # print(f"-> Training {model_name}...")
+            # exp.train(setting)
 
             # 测试
             print(f"-> Testing {model_name}...")
-            exp.test(setting)
+            exp.test(setting, test=1)
 
             # 3. 读取并记录结果
             # 结果保存在 ./exp_results/{setting}/metrics.npy

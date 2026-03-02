@@ -10,14 +10,67 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.cuda.amp import autocast, GradScaler
 
 from experiments.exp_PhysFormer import Exp_PhysFormer, EarlyStopping
+from data_loader.data_factory import data_provider
 from models.src.models.informer import Informer
 from models.src.models.Autoformer import Autoformer
 from models.src.models.LSTM import LSTM
 from models.src.models.GRU import GRU
 from models.src.models.PINN import PINN
+from models.src.models.DLinear import DLinear
+from models.src.models.PatchTST import PatchTST
 from models.src.utils.metrics import metric
 
+
 warnings.filterwarnings('ignore')
+
+
+class PINN_SoftConstraintLoss(nn.Module):
+    """
+    复现论文中的软物理惩罚机制 (Soft-penalty constraints)
+    包含: MSE + L_BVR + L_RVR
+    """
+
+    def __init__(self, means, stds, ramp_limits, lambda_bvr=1.0, lambda_rvr=1.0):
+        super(PINN_SoftConstraintLoss, self).__init__()
+        self.mse = nn.MSELoss()
+
+        # 权重超参数，论文中指出软约束存在严重的梯度竞争(gradient competition)
+        self.lambda_bvr = lambda_bvr
+        self.lambda_rvr = lambda_rvr
+
+        # 转换为 Tensor，保持 [1, 1, 3] 形状以支持与预测结果 [Batch, Pred_Len, 3] 进行广播计算
+        self.means = torch.tensor(means, dtype=torch.float32).view(1, 1, -1)
+        self.stds = torch.tensor(stds, dtype=torch.float32).view(1, 1, -1)
+        self.ramp_limits = torch.tensor(ramp_limits, dtype=torch.float32).view(1, 1, -1)
+
+    def forward(self, pred, true):
+        # 1. 基础的统计误差 (在归一化空间计算)
+        loss_mse = self.mse(pred, true)
+
+        # 确保统计量张量与 pred 在同一个 Device (GPU/CPU)
+        device = pred.device
+        means = self.means.to(device)
+        stds = self.stds.to(device)
+        ramp_limits = self.ramp_limits.to(device)
+
+        # 2. 将预测值动态反归一化回物理空间 (MW)
+        # 注意: 这一步是可导的，梯度能够无缝回传给网络
+        pred_phys = pred * stds + means
+
+        # 3. 边界违规惩罚 (Boundary Violation Penalty - L_BVR)
+        # 公式 (27): sum([ReLU(-P_real)]^2)
+        bvr_penalty = torch.mean(torch.relu(-pred_phys) ** 2)
+
+        # 4. 爬坡违规惩罚 (Ramp Violation Rate - L_RVR)
+        # 公式 (28): sum([ReLU(|ΔP_real| - ρ_limit)]^2)
+        # 计算预测序列一阶差分
+        delta_P = torch.abs(pred_phys[:, 1:, :] - pred_phys[:, :-1, :])
+        rvr_penalty = torch.mean(torch.relu(delta_P - ramp_limits) ** 2)
+
+        # 5. 组合总损失
+        loss_total = loss_mse + self.lambda_bvr * bvr_penalty + self.lambda_rvr * rvr_penalty
+
+        return loss_total
 
 
 class Exp_Baselines(Exp_PhysFormer):
@@ -41,7 +94,9 @@ class Exp_Baselines(Exp_PhysFormer):
             'Autoformer': Autoformer,
             'LSTM': LSTM,
             'GRU': GRU,
-            'PINN': PINN
+            'PINN': PINN,
+            'DLinear': DLinear,
+            'PatchTST': PatchTST,
         }
 
         if self.args.model not in model_dict:
@@ -62,6 +117,25 @@ class Exp_Baselines(Exp_PhysFormer):
 
         return model.to(self.device)
 
+    def _get_data(self, flag):
+        """
+        重写数据获取逻辑，严格屏蔽父类 Exp_PhysFormer 的干扰，
+        确保所有 Baseline 模型稳定加载返回 4 个元素的 VPPDataset。
+        """
+        # 1. 缓存真正的模型名称（如 'PINN', 'DLinear'）
+        cache_model = self.args.model
+
+        # 2. 强行伪装，诱导 data_provider 走向 VPPDataset 分支
+        self.args.model = 'Baseline_Forced'
+
+        # 3. 获取数据集
+        data_set, data_loader = data_provider(self.args, flag)
+
+        # 4. 阅后即焚，恢复真正的模型名称
+        self.args.model = cache_model
+
+        return data_set, data_loader
+
     def _select_optimizer(self):
         wd = self.args.weight_decay if self.args.weight_decay > 0 else 1e-4
         model_optim = optim.AdamW(
@@ -72,6 +146,36 @@ class Exp_Baselines(Exp_PhysFormer):
         return model_optim
 
     def _select_criterion(self):
+        # 如果是 PINN 模型，则激活物理软约束 Loss
+        if self.args.model == 'PINN':
+            # 获取训练集以提取统计量
+            train_data, _ = self._get_data(flag='train')
+
+            # 提取前3列目标变量(Load, PV, Wind)的均值和标准差
+            means = train_data.scaler.mean_[:3]
+            stds = train_data.scaler.scale_[:3]
+
+            # 计算训练集的物理爬坡极限
+            try:
+                # 获取全量训练数据的原始特征，并仅保留目标变量列进行计算
+                raw_target = train_data.inverse_transform(train_data.data_x)[:, :3]
+                diff = np.abs(raw_target[1:] - raw_target[:-1])
+                # 计算 99.9% 分位数并赋予 1.5 倍的安全裕度
+                ramp_limits = np.percentile(diff, 99.9, axis=0) * 1.5
+            except Exception as e:
+                self.logger.warning(f"Failed to calculate dynamic ramp limits, using fallback. Error: {e}")
+                ramp_limits = np.array([1.5, 0.5, 0.8])  # Fallback 保底值 (MW)
+
+            self.logger.info(f"PINN Soft Constraints Activated:")
+            self.logger.info(f" -> Means: {means}")
+            self.logger.info(f" -> Stds: {stds}")
+            self.logger.info(f" -> Ramp Limits: {ramp_limits}")
+
+            # 返回自定义物理软约束损失函数
+            # 这里的权重(1.0, 1.0)可以调节，但正好体现软约束调参困难、难以彻底杜绝违规的缺陷
+            return PINN_SoftConstraintLoss(means, stds, ramp_limits, lambda_bvr=1.0, lambda_rvr=1.0)
+
+        # 其他 Baseline 继续使用标准 MSE
         return nn.MSELoss()
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_mark, batch_y_mark):
@@ -208,7 +312,8 @@ class Exp_Baselines(Exp_PhysFormer):
         test_data, test_loader = self._get_data(flag='test')
         if test:
             self.logger.info('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
+            load_path = os.path.join(self.args.checkpoints, setting, 'checkpoint.pth')
+            self.model.load_state_dict(torch.load(load_path))
 
         self.model.eval()
         preds = []
@@ -261,9 +366,26 @@ class Exp_Baselines(Exp_PhysFormer):
         preds_phys = preds_phys.reshape(N, L, C)
         trues_phys = trues_phys.reshape(N, L, C)
 
-        mae, mse, rmse, mape, mspe, bvr, rvr = metric(preds_phys, trues_phys)
+        # ==========================================
+        # 修复: 获取训练集的物理爬坡极限，传递给 metric 函数
+        # ==========================================
+        try:
+            # 严格防泄露：从 train_data 获取物理极限
+            train_data, _ = self._get_data(flag='train')
+            if train_data.scale:
+                raw_train_target = train_data.inverse_transform(train_data.data_x)[:, :3]
+            else:
+                raw_train_target = train_data.data_x[:, :3]
 
-        # [修改] 使用 self.logger 输出最终指标
+            diff = np.abs(raw_train_target[1:] - raw_train_target[:-1])
+            ramp_limits = np.percentile(diff, 99.9, axis=0) * 1.5
+        except Exception as e:
+            self.logger.warning(f"Failed to calculate ramp limits in test: {e}. Using default.")
+            ramp_limits = np.array([1.5, 0.5, 0.8])  # Fallback
+
+        mae, mse, rmse, mape, mspe, bvr, rvr = metric(preds_phys, trues_phys, ramp_limits=ramp_limits)
+
+        # 使用 self.logger 输出最终指标
         self.logger.info(f'MSE:{mse:.6f}, MAE:{mae:.6f}')
         self.logger.info(f"Load MSE: {np.mean((preds_phys[:, :, 0] - trues_phys[:, :, 0]) ** 2):.6f}")
         self.logger.info(f"PV   MSE: {np.mean((preds_phys[:, :, 1] - trues_phys[:, :, 1]) ** 2):.6f}")

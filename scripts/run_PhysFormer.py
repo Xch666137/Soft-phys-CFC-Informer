@@ -16,7 +16,7 @@ def main():
 
     # 命名与保存
     parser.add_argument('--model', type=str, default='PhysFormer', help='model name')
-    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_experiment_v1.0', help='experiment name')
+    parser.add_argument('--checkpoint_name', type=str, default='PhysFormer_ensemble_seed2024', help='experiment name')
     parser.add_argument('--checkpoints', type=str, default='exp_results/PhysFormer/checkpoints/',
                         help='location of model checkpoints')
     parser.add_argument('--save_gate_details', action='store_true', help='save detailed gate values for visualization')
@@ -59,11 +59,25 @@ def main():
     parser.add_argument('--grad_clip', type=float, default=1.0, help='gradient clipping max norm')
     parser.add_argument('--patience', type=int, default=10, help='early stopping patience')
 
+    # --- ABLATION: Global Flags ---
+    parser.add_argument('--ablation_no_phys_stream', action='store_true', default=False,
+                        help='Ablation: Remove physics stream entirely (V1)')
+    parser.add_argument('--ablation_no_pgcc', action='store_true', default=False,
+                        help='Ablation: Replace PGCC with naive concatenation fusion (V2)')
+    parser.add_argument('--ablation_no_future_glu', action='store_true', default=False,
+                        help='Ablation: Remove future weather GLU injection (V3)')
+    parser.add_argument('--ablation_no_curriculum', action='store_true', default=False,
+                        help='Ablation: Disable curriculum learning, soft gates from scratch (V4)')
+    parser.add_argument('--ablation_fixed_phys', action='store_true', default=False,
+                        help='Ablation: Freeze physical parameters, no data-driven fine-tuning (V5)')
+
     # 硬件参数
     parser.add_argument('--use_amp', type=int, default=1, help='use AMP (0/1)')
     parser.add_argument('--use_gpu', type=int, default=1, help='use gpu (0/1)')
     parser.add_argument('--gpu', type=int, default=0, help='gpu id')
     parser.add_argument('--num_workers', type=int, default=8, help='data loader num workers')
+
+    parser.add_argument('--is_training', type=int, default=1, help='status')
 
     args = parser.parse_args()
 
@@ -76,7 +90,10 @@ def main():
     Exp = Exp_PhysFormer(args)
     print(">>> Using PhysFormer Experiment (Physics-Guided Loss) <<<")
 
-    Exp.train()
+    if args.is_training:
+        print('>>>>>>>start PhysFormer training : >>>>>>>>>>>>>>>>>>>>>>>>>>')
+        Exp.train()
+
     print('>>>>>>>start PhysFormer test : >>>>>>>>>>>>>>>>>>>>>>>>>>')
     Exp.test(setting=args.checkpoint_name)
 
