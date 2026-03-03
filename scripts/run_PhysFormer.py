@@ -58,6 +58,10 @@ def main():
     parser.add_argument('--physics_prior_weight', type=float, default=0.1, help='physics parameter prior regularization weight')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='gradient clipping max norm')
     parser.add_argument('--patience', type=int, default=10, help='early stopping patience')
+    
+    # 调试与恢复组件
+    parser.add_argument('--resume', action='store_true', help='resume training from latest checkpoint')
+    parser.add_argument('--debug_nan', action='store_true', help='enable anomaly detection to debug NaN')
 
     # --- ABLATION: Global Flags ---
     parser.add_argument('--ablation_no_phys_stream', action='store_true', default=False,

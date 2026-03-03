@@ -61,6 +61,8 @@ CUDA_VISIBLE_DEVICES=0 python scripts/run_PhysFormer.py \
   --gpu 0 \
   --num_workers 8 \
   --checkpoint_name "PhysFormer_full_seed2024" \
+  --resume \
+  --debug_nan \
   --is_training 1
 
 echo "================================================================"

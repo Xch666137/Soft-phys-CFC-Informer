@@ -536,10 +536,33 @@ class Exp_PhysFormer:
 
         scaler = torch.cuda.amp.GradScaler(enabled=self.args.use_amp)
 
-        # 全局步数计数器
+        # 全局步数计数器与断点恢复逻辑
         global_step = 0
+        start_epoch = 0
 
-        for epoch in range(self.args.train_epochs):
+        if getattr(self.args, 'debug_nan', False):
+            torch.autograd.set_detect_anomaly(True)
+            self.logger.info(">>> [DEBUG] PyTorch Anomaly Detection Enabled! <<<")
+
+        if getattr(self.args, 'resume', False) and os.path.exists(path + '/checkpoint.pth'):
+            self.logger.info(f">>> [RESUME] Loading checkpoint from {path} <<<")
+            self.model.load_state_dict(torch.load(path + '/checkpoint.pth'))
+            state_path = path + '/training_state.pth'
+            if os.path.exists(state_path):
+                state = torch.load(state_path)
+                model_optim.load_state_dict(state['optimizer'])
+                scheduler.load_state_dict(state['scheduler'])
+                scaler.load_state_dict(state['scaler'])
+                start_epoch = state['epoch'] + 1
+                global_step = state['global_step']
+                early_stopping.best_score = state['best_score']
+                early_stopping.val_loss_min = state['val_loss_min']
+                early_stopping.counter = state['counter']
+                self.logger.info(f">>> [RESUME] Successfully resumed from Epoch {state['epoch']} (Next: {start_epoch}) <<<")
+            else:
+                self.logger.warning(">>> [RESUME WARNING] training_state.pth not found! Resuming model weights ONLY. <<<")
+
+        for epoch in range(start_epoch, self.args.train_epochs):
             self.model.train()
             self.criterion.train()
 
@@ -603,6 +626,11 @@ class Exp_PhysFormer:
                         batch_data, self.criterion, phase='train', return_gates=False,
                         curriculum_ratio=curr_ratio, current_prior_weight=current_prior_weight
                     )
+
+                    if getattr(self.args, 'debug_nan', False) and not torch.isfinite(loss_main):
+                        self.logger.error(f"[DEBUG] NaN Loss detected at Epoch {epoch}, Batch {i}")
+                        self.logger.error(f"Loss dict: {loss_dict}")
+                        raise ValueError("NaN Loss detected! AutoGrad will now show the traceback.")
 
                     # Backward
                     scaler.scale(loss_main).backward()
@@ -718,7 +746,7 @@ class Exp_PhysFormer:
             self.writer.add_scalar('Gates/Avg_Wind', avg_gates['wind'], epoch)
             self.writer.add_scalar('Gates/Avg_Weather_Injection', avg_gates.get('weather_gate', 0.0), epoch)
 
-            early_stopping(vali_nrmse, self.model, path)
+            early_stopping(vali_nrmse, self.model, path, model_optim, scheduler, scaler, epoch, global_step)
             if early_stopping.early_stop:
                 self.logger.info("Early stopping")
                 break
@@ -1001,7 +1029,7 @@ class EarlyStopping:
         self.delta = delta
         self.logger = logger  # 传入 logger
 
-    def __call__(self, val_loss, model, path):
+    def __call__(self, val_loss, model, path, optimizer=None, scheduler=None, scaler=None, epoch=None, global_step=None):
         import numpy as np
         # BUGFIX: 防止 val_loss 为 NaN 时短路比较逻辑强制保存损坏的模型
         if not np.isfinite(val_loss):
@@ -1018,7 +1046,7 @@ class EarlyStopping:
         score = -val_loss
         if self.best_score is None:
             self.best_score = score
-            self.save_checkpoint(val_loss, model, path)
+            self.save_checkpoint(val_loss, model, path, optimizer, scheduler, scaler, epoch, global_step)
         elif score < self.best_score + self.delta:
             self.counter += 1
             if self.logger:
@@ -1031,10 +1059,10 @@ class EarlyStopping:
                 self.early_stop = True
         else:
             self.best_score = score
-            self.save_checkpoint(val_loss, model, path)
+            self.save_checkpoint(val_loss, model, path, optimizer, scheduler, scaler, epoch, global_step)
             self.counter = 0
 
-    def save_checkpoint(self, val_loss, model, path):
+    def save_checkpoint(self, val_loss, model, path, optimizer=None, scheduler=None, scaler=None, epoch=None, global_step=None):
         if self.logger:
             self.logger.info(
                 f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
@@ -1042,4 +1070,17 @@ class EarlyStopping:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
 
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
+        if optimizer is not None:
+            state = {
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict() if scheduler else None,
+                'scaler': scaler.state_dict() if scaler else None,
+                'epoch': epoch,
+                'global_step': global_step,
+                'best_score': self.best_score,
+                'val_loss_min': val_loss,
+                'counter': self.counter
+            }
+            torch.save(state, path + '/' + 'training_state.pth')
+            
         self.val_loss_min = val_loss
