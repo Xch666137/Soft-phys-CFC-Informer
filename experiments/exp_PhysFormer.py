@@ -630,7 +630,21 @@ class Exp_PhysFormer:
                     if getattr(self.args, 'debug_nan', False) and not torch.isfinite(loss_main):
                         self.logger.error(f"[DEBUG] NaN Loss detected at Epoch {epoch}, Batch {i}")
                         self.logger.error(f"Loss dict: {loss_dict}")
-                        raise ValueError("NaN Loss detected! AutoGrad will now show the traceback.")
+                        self.logger.error(f"[DEBUG] Output has NaN? {torch.isnan(outputs).any().item()}")
+                        self.logger.error(f"[DEBUG] Ground Truth has NaN? {torch.isnan(batch_y_true).any().item()}")
+                        if torch.isnan(outputs).any():
+                            # 分量检测
+                            self.logger.error(f"[DEBUG] Load NaN? {torch.isnan(outputs[..., 0]).any().item()}")
+                            self.logger.error(f"[DEBUG] PV NaN? {torch.isnan(outputs[..., 1]).any().item()}")
+                            self.logger.error(f"[DEBUG] Wind NaN? {torch.isnan(outputs[..., 2]).any().item()}")
+                        
+                        # 让其强制执行一次带有 retain_graph 的 backward 捕捉异常路径
+                        try:
+                            with torch.autograd.detect_anomaly():
+                                scaler.scale(loss_main).backward()
+                        except Exception as e:
+                            self.logger.error("AutoGrad Traceback Extracted!")
+                        raise ValueError("NaN Loss detected! AutoGrad has shown the traceback.")
 
                     # Backward
                     scaler.scale(loss_main).backward()
