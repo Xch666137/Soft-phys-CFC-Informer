@@ -21,7 +21,7 @@ echo " 目标模型: PhysFormer_full_seed2024"
 echo " 时间: $(date)"
 echo "================================================================"
 
-# 删除旧的 checkpoint / 可视化残余防止冲突
+# 删除可视化残余防止冲突 (不再删除 checkpoint 以便断点续训)
 CKPT_DIR="exp_results/PhysFormer/checkpoints/PhysFormer_full_seed2024"
 if [ -d "$CKPT_DIR" ]; then
     echo "  [清理] 检测到旧的 Checkpoint 目录 $CKPT_DIR, 正在清理残留的验证文件..."
