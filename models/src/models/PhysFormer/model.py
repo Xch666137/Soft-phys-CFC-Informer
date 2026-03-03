@@ -281,25 +281,39 @@ class PhysFormer(nn.Module):
             zero_pv   = - (mean_val[1] / (std_val[1] + 1e-4))
             zero_wind = - (mean_val[2] / (std_val[2] + 1e-4))
             
-            # 使用 Softplus 对下界进行软兜底，确保网络在数学上绝对无法输出小于 0 MW 的值 (消灭 RVM)
-            raw_load = theory_load + activity_load * res_load
-            raw_pv   = theory_pv   + activity_pv   * res_pv
-            raw_wind = theory_wind + activity_wind * res_wind
+            # [FIX] 方案二：activity_mask 移至最终输出层掩码，消除 Softplus(0)=ln(2) 的夜间正偏置
+            # 原做法：raw = theory + activity * res  → activity=0 时 raw=theory，Softplus(theory-zero)=Softplus(0)=ln(2)≠0
+            # 新做法：raw 无 activity 遮罩，Softplus 之后再用 activity 对 final 做硬掩码
+            #        夜间 activity=0 → final = zero_val（精确归一化 0 MW），ln(2) 偏置彻底消除
+            raw_load = theory_load + activity_load * res_load  # Load 无零限制，保持原逻辑
+            raw_pv   = theory_pv   + res_pv                    # 不再用 activity_pv 遮罩 res_pv
+            raw_wind = theory_wind + res_wind                  # 不再用 activity_wind 遮罩 res_wind
 
             # BUGFIX: 退出 fp16 环境，使用 fp32 计算 softplus 防止 overflow 产生 inf
             with torch.amp.autocast('cuda', enabled=False):
                 # 将输入精确转为 float32
                 raw_load_f32, zero_load_f32 = raw_load.float(), zero_load.float()
-                raw_pv_f32, zero_pv_f32 = raw_pv.float(), zero_pv.float()
+                raw_pv_f32,   zero_pv_f32   = raw_pv.float(),   zero_pv.float()
                 raw_wind_f32, zero_wind_f32 = raw_wind.float(), zero_wind.float()
-                
-                final_load = zero_load_f32 + torch.nn.functional.softplus(raw_load_f32 - zero_load_f32)
-                final_pv   = zero_pv_f32   + torch.nn.functional.softplus(raw_pv_f32   - zero_pv_f32)
-                final_wind = zero_wind_f32 + torch.nn.functional.softplus(raw_wind_f32 - zero_wind_f32)
-                
+
+                # Softplus 下界约束（保持物理有界性）
+                bounded_load = zero_load_f32 + torch.nn.functional.softplus(raw_load_f32 - zero_load_f32)
+                bounded_pv   = zero_pv_f32   + torch.nn.functional.softplus(raw_pv_f32   - zero_pv_f32)
+                bounded_wind = zero_wind_f32 + torch.nn.functional.softplus(raw_wind_f32 - zero_wind_f32)
+
+                # [关键] 在最终输出层用 activity_mask 做硬掩码：
+                #   - 夜间/停机 (activity=0): final = zero_val，精确归一化 0 MW
+                #   - 日间/运行 (activity≈1): final = bounded_val（Softplus 有界输出）
+                activity_pv_f32   = activity_pv.float()
+                activity_wind_f32 = activity_wind.float()
+
+                final_load = bounded_load  # Load 无需 activity 掩码
+                final_pv   = activity_pv_f32   * bounded_pv   + (1.0 - activity_pv_f32)   * zero_pv_f32
+                final_wind = activity_wind_f32 * bounded_wind + (1.0 - activity_wind_f32) * zero_wind_f32
+
                 # 转回原有类型
                 final_load = final_load.to(raw_load.dtype)
-                final_pv = final_pv.to(raw_pv.dtype)
+                final_pv   = final_pv.to(raw_pv.dtype)
                 final_wind = final_wind.to(raw_wind.dtype)
 
         output = torch.cat([final_load, final_pv, final_wind], dim=-1)

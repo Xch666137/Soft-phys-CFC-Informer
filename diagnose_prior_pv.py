@@ -24,7 +24,7 @@ from models.src.models import PhysFormer # 按你实际的 import 路径修改
 # ============================================================
 # ★ 用户配置区（按实际路径修改）
 # ============================================================
-CHECKPOINT_DIR = 'exp_results/PhysFormer/checkpoints/PhysFormer_ensemble_seed2024'
+CHECKPOINT_DIR = 'exp_results/PhysFormer/checkpoints/PhysFormer_full_seed2024'
 CHECKPOINT_FILE = os.path.join(CHECKPOINT_DIR, 'checkpoint.pth')
 
 # 与训练时保持一致的模型超参数
@@ -32,10 +32,10 @@ MODEL_ARGS = dict(
     enc_in     = 6,
     seq_len    = 672,
     pred_len   = 96,
-    d_model    = 256,
+    d_model    = 512,
     n_heads    = 8,
     e_layers   = 3,
-    d_ff       = 1024,
+    d_ff       = 2048,
     dropout    = 0.10,
     attn       = 'full',
     embed      = 'custom',

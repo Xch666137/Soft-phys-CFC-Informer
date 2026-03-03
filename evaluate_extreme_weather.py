@@ -13,13 +13,13 @@ import pandas as pd
 base_dir = './exp_results'
 
 model_paths = {
-    'LSTM': f'{base_dir}/LSTM_vpp_dataset_3years_sl672_pl96_vpp',
-    'GRU': f'{base_dir}/GRU_vpp_dataset_3years_sl672_pl96_vpp',
-    'PINN': f'{base_dir}/PINN_vpp_dataset_3years_sl672_pl96_vpp',
-    'Informer': f'{base_dir}/Informer_vpp_dataset_3years_sl672_pl96_vpp',
+    'LSTM':       f'{base_dir}/LSTM_vpp_dataset_3years_sl672_pl96_vpp',
+    'GRU':        f'{base_dir}/GRU_vpp_dataset_3years_sl672_pl96_vpp',
+    'PINN':       f'{base_dir}/PINN_vpp_dataset_3years_sl672_pl96_vpp',
+    'Informer':   f'{base_dir}/Informer_vpp_dataset_3years_sl672_pl96_vpp',
     'Autoformer': f'{base_dir}/Autoformer_vpp_dataset_3years_sl672_pl96_vpp',
-    'DLinear': f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
-    'PatchTST': f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
+    'DLinear':    f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
+    'PatchTST':   f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
     'PhysFormer': f'{base_dir}/PhysFormer/checkpoints/PhysFormer_full_seed2024',
 }
 
@@ -70,24 +70,35 @@ for model, folder_path in model_paths.items():
         # 1. 传统 MSE (全通道)
         mse = np.mean((pred - true) ** 2)
 
-        # 2. 标称 BVR (%) - PV(1) 和 Wind(2)
+        # 2. BVR (%) - PV(1) 和 Wind(2) 通道
         pred_pv_wind = pred[:, :, 1:3]
         violations = pred_pv_wind[pred_pv_wind < 0]
         bvr = (len(violations) / pred_pv_wind.size) * 100
 
-        # 3. 违规均值幅度 MVS (MW)
-        mvs = np.mean(np.abs(violations)) if len(violations) > 0 else 0.0
+        # 3. MVS (MW): 仅在违规点上的平均绝对违规幅度
+        mvs = float(np.mean(np.abs(violations))) if len(violations) > 0 else 0.0
 
         # 4. KCL 物理联合残差 (NET MAE)
         pred_net = pred[:, :, 0] - pred[:, :, 1] - pred[:, :, 2]
         true_net = true[:, :, 0] - true[:, :, 1] - true[:, :, 2]
         net_mae = np.mean(np.abs(pred_net - true_net))
 
+        # 5. RVM (边界违规幅度): 全部预测点上 relu(-pred) 均值，衡量整体违规严重程度
+        rvm = float(np.mean(np.maximum(-pred_pv_wind, 0)))
+
+        # 6. DSA（差分误差对齐）: mean(|Δpred - Δtrue|)，衡量预测趋势变化与真实趋势的小心度
+        if pred.shape[1] > 1:
+            dsa = float(np.mean(np.abs(np.diff(pred, axis=1) - np.diff(true, axis=1))))
+        else:
+            dsa = 0.0
+
         results[model] = {
-            'MSE ↓': mse,
-            'BVR (%) ↓': bvr,
-            'MVS (MW) ↓': mvs,
-            'NET MAE (MW) ↓': net_mae
+            'MSE ↓':        mse,
+            'BVR (%) ↓':   bvr,
+            'MVS (MW) ↓':  mvs,
+            'NET MAE ↓':   net_mae,
+            'RVM ↓':       rvm,
+            'DSA ↓':       dsa,
         }
         print(f"[{model}] 处理完成.")
     else:
@@ -100,11 +111,15 @@ if results:
     df = pd.DataFrame(results).T
     df = df.reindex(model_paths.keys())
 
-    print("\n" + "=" * 75)
+    # 按指定列顺序输出
+    col_order = ['MSE ↓', 'BVR (%) ↓', 'MVS (MW) ↓', 'NET MAE ↓', 'RVM ↓', 'DSA ↓']
+    df = df[[c for c in col_order if c in df.columns]]
+
+    print("\n" + "=" * 88)
     print("   IEEE TABLE II - EXTREME WEATHER ROBUSTNESS (TOP 10% VOLATILITY)")
-    print("=" * 75)
+    print("=" * 88)
     print(df.to_string(float_format=lambda x: f"{x:.4f}"))
-    print("=" * 75 + "\n")
+    print("=" * 88 + "\n")
 
     df.to_csv("IEEE_Extreme_Weather_Table.csv", float_format="%.4f")
     print("已生成极端天气评估表格: IEEE_Extreme_Weather_Table.csv")

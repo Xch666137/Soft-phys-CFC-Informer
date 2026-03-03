@@ -89,15 +89,30 @@ for model, path in model_paths.items():
             'BVR (%)': float(metrics[5]),
         }
 
-        # 计算 MVS: PV/Wind 通道负值预测的平均违规幅度
         if os.path.exists(pred_path):
             pred = np.load(pred_path, allow_pickle=True)
             pred_pv_wind = pred[:, :, 1:3]  # PV 和 Wind 通道
+
+            # MVS: 仅在违规点上计算平均违规幅度
             violations = pred_pv_wind[pred_pv_wind < 0]
             mvs = float(np.mean(np.abs(violations))) if len(violations) > 0 else 0.0
             results[model]['MVS'] = mvs
+
+            # RVM（边界违规幅度）: 全部预测点上的平均 relu(-pred) 值，衡量整体违规严重程度
+            rvm = float(np.mean(np.maximum(-pred_pv_wind, 0)))
+            results[model]['RVM'] = rvm
+
+            # DSA（差分误差对齐）: mean(|Δpred - Δtrue|)，衡量预测趋势变化与真实趋势的吃合度
+            if pred.shape[1] > 1 and os.path.exists(true_path):
+                true_arr = np.load(true_path, allow_pickle=True)
+                dsa = float(np.mean(np.abs(np.diff(pred, axis=1) - np.diff(true_arr, axis=1))))
+            else:
+                dsa = float('nan')
+            results[model]['DSA'] = dsa
         else:
             results[model]['MVS'] = float('nan')
+            results[model]['RVM'] = float('nan')
+            results[model]['DSA'] = float('nan')
     else:
         print(f"[警告] metrics.npy 未找到: {metrics_path}")
 
@@ -109,12 +124,13 @@ for model, path in model_paths.items():
 # 3. Table I
 # ==========================================
 if results:
-    df = pd.DataFrame(results).T[['MAE', 'RMSE', 'BVR (%)', 'MVS']]
-    print("\n" + "=" * 60)
+    df = pd.DataFrame(results).T[['MAE', 'RMSE', 'BVR (%)', 'MVS', 'RVM', 'DSA']]
+    df.columns = ['MAE ↓', 'RMSE ↓', 'BVR (%) ↓', 'MVS ↓', 'RVM ↓', 'DSA ↓']
+    print("\n" + "=" * 68)
     print("      IEEE TRANSACTIONS ON SMART GRID - TABLE I")
-    print("=" * 60)
+    print("=" * 68)
     print(df.to_string(float_format=lambda x: f"{x:.4f}"))
-    print("=" * 60 + "\n")
+    print("=" * 68 + "\n")
     df.to_csv("IEEE_Table_I_Results.csv", float_format="%.4f")
     print("已生成表格文件: IEEE_Table_I_Results.csv\n")
 
