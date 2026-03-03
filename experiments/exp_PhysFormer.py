@@ -445,25 +445,28 @@ class Exp_PhysFormer:
             pass
 
         with context:
-            if return_gates:
-                outputs, reg_loss, gates = self.model(
-                    x_stat=batch_stat,
-                    x_weather_hist=batch_weather_hist,
-                    x_weather_future=batch_weather_future,
-                    x_mark_enc=batch_x_mark,
-                    alpha=alpha,
-                    return_gates=True
-                )
-            else:
-                outputs, reg_loss = self.model(
-                    x_stat=batch_stat,
-                    x_weather_hist=batch_weather_hist,
-                    x_weather_future=batch_weather_future,
-                    x_mark_enc=batch_x_mark,
-                    alpha=alpha,
-                    return_gates=False
-                )
-                gates = None
+            # BUGFIX: 为了能让 Autograd 定位 NaN，将整个 forward 和 backward 包裹在 detect_anomaly 中
+            debug_ctx = torch.autograd.detect_anomaly() if getattr(self.args, 'debug_nan', False) else torch.autograd.profiler.profile(enabled=False)
+            with debug_ctx:
+                if return_gates:
+                    outputs, reg_loss, gates = self.model(
+                        x_stat=batch_stat,
+                        x_weather_hist=batch_weather_hist,
+                        x_weather_future=batch_weather_future,
+                        x_mark_enc=batch_x_mark,
+                        alpha=alpha,
+                        return_gates=True
+                    )
+                else:
+                    outputs, reg_loss = self.model(
+                        x_stat=batch_stat,
+                        x_weather_hist=batch_weather_hist,
+                        x_weather_future=batch_weather_future,
+                        x_mark_enc=batch_x_mark,
+                        alpha=alpha,
+                        return_gates=False
+                    )
+                    gates = None
 
         # =========================================================
         # [BUGFIX] 退出 AMP autocast 上下文，强制转换为 float32 计算 Loss
@@ -637,13 +640,6 @@ class Exp_PhysFormer:
                             self.logger.error(f"[DEBUG] Load NaN? {torch.isnan(outputs[..., 0]).any().item()}")
                             self.logger.error(f"[DEBUG] PV NaN? {torch.isnan(outputs[..., 1]).any().item()}")
                             self.logger.error(f"[DEBUG] Wind NaN? {torch.isnan(outputs[..., 2]).any().item()}")
-                        
-                        # 让其强制执行一次带有 retain_graph 的 backward 捕捉异常路径
-                        try:
-                            with torch.autograd.detect_anomaly():
-                                scaler.scale(loss_main).backward()
-                        except Exception as e:
-                            self.logger.error("AutoGrad Traceback Extracted!")
                         raise ValueError("NaN Loss detected! AutoGrad has shown the traceback.")
 
                     # Backward
