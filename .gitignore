@@ -8,10 +8,14 @@
 ### --- 数据集与日志 ---
 # 排除所有数据集文件夹（建议将数据放在名为 data 的目录下）
 data/
-experiments
-# 排除训练产生的日志（如 Tensorboard）
+experiments/
+# 排除训练产生的日志（TensorBoard 及通用日志）
 runs/
 logs/
+tensorboard/
+tb_logs/
+lightning_logs/
+events.out.tfevents.*
 *.log
 
 ### --- Python 缓存与环境 ---
