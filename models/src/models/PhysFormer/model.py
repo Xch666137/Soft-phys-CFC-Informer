@@ -271,18 +271,30 @@ class PhysFormer(nn.Module):
             mean_val = self.phys_layer.target_mean if hasattr(self.phys_layer, 'target_mean') else torch.zeros(3, device=res_load.device)
             std_val  = self.phys_layer.target_std  if hasattr(self.phys_layer, 'target_std')  else torch.ones(3, device=res_load.device)
             
-            zero_load = - (mean_val[0] / (std_val[0] + 1e-5))
-            zero_pv   = - (mean_val[1] / (std_val[1] + 1e-5))
-            zero_wind = - (mean_val[2] / (std_val[2] + 1e-5))
+            zero_load = - (mean_val[0] / (std_val[0] + 1e-4))
+            zero_pv   = - (mean_val[1] / (std_val[1] + 1e-4))
+            zero_wind = - (mean_val[2] / (std_val[2] + 1e-4))
             
             # 使用 Softplus 对下界进行软兜底，确保网络在数学上绝对无法输出小于 0 MW 的值 (消灭 RVM)
             raw_load = theory_load + activity_load * res_load
             raw_pv   = theory_pv   + activity_pv   * res_pv
             raw_wind = theory_wind + activity_wind * res_wind
 
-            final_load = zero_load + torch.nn.functional.softplus(raw_load - zero_load)
-            final_pv   = zero_pv   + torch.nn.functional.softplus(raw_pv   - zero_pv)
-            final_wind = zero_wind + torch.nn.functional.softplus(raw_wind - zero_wind)
+            # BUGFIX: 退出 fp16 环境，使用 fp32 计算 softplus 防止 overflow 产生 inf
+            with torch.amp.autocast('cuda', enabled=False):
+                # 将输入精确转为 float32
+                raw_load_f32, zero_load_f32 = raw_load.float(), zero_load.float()
+                raw_pv_f32, zero_pv_f32 = raw_pv.float(), zero_pv.float()
+                raw_wind_f32, zero_wind_f32 = raw_wind.float(), zero_wind.float()
+                
+                final_load = zero_load_f32 + torch.nn.functional.softplus(raw_load_f32 - zero_load_f32)
+                final_pv   = zero_pv_f32   + torch.nn.functional.softplus(raw_pv_f32   - zero_pv_f32)
+                final_wind = zero_wind_f32 + torch.nn.functional.softplus(raw_wind_f32 - zero_wind_f32)
+                
+                # 转回原有类型
+                final_load = final_load.to(raw_load.dtype)
+                final_pv = final_pv.to(raw_pv.dtype)
+                final_wind = final_wind.to(raw_wind.dtype)
 
         output = torch.cat([final_load, final_pv, final_wind], dim=-1)
 

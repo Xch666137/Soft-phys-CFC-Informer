@@ -23,8 +23,9 @@ class GateResponseRegularization(nn.Module):
 
         # 3. 计算皮尔逊相关系数 (Pearson Correlation)
         # BUGFIX: torch.norm 在输入全0时切线斜率为无穷大，会导致反向传播产生 NaN
-        # 注意：由于外部已强制转换为 fp32 计算 Loss，此处 eps 恢复为 1e-8
-        eps = 1e-8
+        # BUGFIX 2: 此分支由 Causal_coupling 在 model.forward 中调用，处于 AMP(FP16) 上下文！
+        # 1e-8 会立刻下溢为 0.0。必须使用严格的 FP16 正常数 1e-4！
+        eps = 1e-4
         numerator = (gate_centered * prior_centered).sum(dim=-1)
         
         norm_gate = torch.sqrt(torch.sum(gate_centered**2, dim=-1) + eps)
@@ -69,6 +70,10 @@ class PhysAwareBaseLoss(nn.Module):
 
         pred_real = pred * self.stds + self.means
         true_real = true * self.stds + self.means
+
+        # BUGFIX: 过滤可能由前向传播意外产生的 inf/NaN，防止差分时 inf-inf=NaN
+        pred_real = torch.nan_to_num(pred_real, nan=0.0, posinf=1e4, neginf=-1e4)
+        true_real = torch.nan_to_num(true_real, nan=0.0, posinf=1e4, neginf=-1e4)
 
         net_pred = pred_real[..., 0] - pred_real[..., 1] - pred_real[..., 2]
         net_true = true_real[..., 0] - true_real[..., 1] - true_real[..., 2]

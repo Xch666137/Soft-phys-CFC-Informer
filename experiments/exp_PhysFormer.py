@@ -438,9 +438,10 @@ class Exp_PhysFormer:
 
         # 4. 前向传播
         # 确保使用正确的 Context (Train/Val/Test)
-        context = torch.cuda.amp.autocast(enabled=self.args.use_amp) if self.args.use_gpu else torch.no_grad()
+        # BUGFIX: 验证和测试阶段强制关闭 autocast 以避免更易触发的 fp16 溢出
+        is_train = (phase == 'train')
+        context = torch.cuda.amp.autocast(enabled=(self.args.use_amp and is_train)) if self.args.use_gpu else torch.no_grad()
         if phase in ['val', 'test']:
-            # 验证时通常不需要 autocast 或保持一致，这里简单起见跟随配置
             pass
 
         with context:
@@ -1001,6 +1002,18 @@ class EarlyStopping:
         self.logger = logger  # 传入 logger
 
     def __call__(self, val_loss, model, path):
+        import numpy as np
+        # BUGFIX: 防止 val_loss 为 NaN 时短路比较逻辑强制保存损坏的模型
+        if not np.isfinite(val_loss):
+            if self.logger:
+                self.logger.warning(f'Warning: EarlyStopping encountered invalid val_loss: {val_loss}. Skipping save.')
+            elif self.verbose:
+                print(f'Warning: EarlyStopping encountered invalid val_loss: {val_loss}. Skipping save.')
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+            return
+
         # 这里的 val_loss 实际上是 NRMSE，越小越好
         score = -val_loss
         if self.best_score is None:

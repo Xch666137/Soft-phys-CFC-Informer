@@ -341,7 +341,7 @@ class ExplicitPhysicalMapping(nn.Module):
         # cut_out: 停机风速 (m/s归一化)
 
         # 归一化风速（相对于切入→额定区间）
-        w_norm = (wind_speed - cut_in) / (rated - cut_in + 1e-5)
+        w_norm = (wind_speed - cut_in) / (rated - cut_in + 1e-4)
         w_scale = F.softplus(self.wind_scale)
         p_curve = w_scale * torch.sigmoid(5.0 * (w_norm - 0.5))
 
@@ -378,7 +378,7 @@ class ExplicitPhysicalMapping(nn.Module):
 
         # 归一化到与标签相同的量纲（便于与统计流输出叠加）
         if hasattr(self, 'target_mean'):
-            phys_out_norm = (phys_out_real - self.target_mean) / (self.target_std + 1e-5)
+            phys_out_norm = (phys_out_real - self.target_mean) / (self.target_std + 1e-4)
         else:
             phys_out_norm = phys_out_real                             # 未注册统计量时原样输出
 
