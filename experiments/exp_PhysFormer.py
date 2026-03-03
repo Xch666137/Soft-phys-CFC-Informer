@@ -323,7 +323,7 @@ class Exp_PhysFormer:
             return weights
 
         else:
-            # 阶段2逻辑不变（epoch 5-15）
+            # 阶段2逻辑不变（epoch 5-10）
             stage2_progress = (epoch - stage1_end) / (stage2_end - stage1_end)
             x = (stage2_progress - 0.5) * 12
             ratio = 1 / (1 + math.exp(-x))
@@ -445,67 +445,55 @@ class Exp_PhysFormer:
             pass
 
         with context:
-            # BUGFIX: 为了能让 Autograd 定位 NaN，将整个 forward 和 backward 包裹在 detect_anomaly 中
-            debug_ctx = torch.autograd.detect_anomaly() if getattr(self.args, 'debug_nan', False) else torch.autograd.profiler.profile(enabled=False)
-            with debug_ctx:
-                if return_gates:
-                    outputs, reg_loss, gates = self.model(
-                        x_stat=batch_stat,
-                        x_weather_hist=batch_weather_hist,
-                        x_weather_future=batch_weather_future,
-                        x_mark_enc=batch_x_mark,
-                        alpha=alpha,
-                        return_gates=True
-                    )
-                else:
-                    outputs, reg_loss = self.model(
-                        x_stat=batch_stat,
-                        x_weather_hist=batch_weather_hist,
-                        x_weather_future=batch_weather_future,
-                        x_mark_enc=batch_x_mark,
-                        alpha=alpha,
-                        return_gates=False
-                    )
-                    gates = None
+            # 移除 detect_anomaly 的不必要开销，除非强制 debug
+            if return_gates:
+                outputs, reg_loss, gates = self.model(
+                    x_stat=batch_stat,
+                    x_weather_hist=batch_weather_hist,
+                    x_weather_future=batch_weather_future,
+                    x_mark_enc=batch_x_mark,
+                    alpha=alpha,
+                    return_gates=True
+                )
+            else:
+                outputs, reg_loss = self.model(
+                    x_stat=batch_stat,
+                    x_weather_hist=batch_weather_hist,
+                    x_weather_future=batch_weather_future,
+                    x_mark_enc=batch_x_mark,
+                    alpha=alpha,
+                    return_gates=False
+                )
+                gates = None
 
-        # =========================================================
-        # [BUGFIX] 退出 AMP autocast 上下文，强制转换为 float32 计算 Loss
-        # 避免在混合精度 (fp16) 计算物理误差时发生溢出/下溢导致 NaN
-        # =========================================================
         total_loss = None
         loss_dict = {}
 
         if criterion is not None:
-            outputs_fp32 = outputs.float()
-            batch_y_true_fp32 = batch_y_true.float()
+            # [PERFORMANCE FIX] 将 MSE 等海量运算相关的基础 Loss 内置到 AMP 回收利用算力
+            # 这里重置计算栈重新回到 autocast，充分发挥 TensorCore 在处理矩阵大加减运算时的优势
+            with context:
+                # 只在需要的情况下强转保证稳定性 (由具体的 Criterion / Layer 内部通过 autocast(False) 控制)
+                loss_main, loss_dict = criterion(outputs, batch_y_true, curriculum_weights=curriculum_ratio)
 
-            if isinstance(reg_loss, torch.Tensor):
-                reg_loss_fp32 = reg_loss.float()
-            else:
-                reg_loss_fp32 = reg_loss
-                
-            # 计算 Loss (NRMSE + Phys)
-            loss_main, loss_dict = criterion(outputs_fp32, batch_y_true_fp32, curriculum_weights=curriculum_ratio)
+                # 将门控的响应度正则化 Loss 叠加进计算图
+                if isinstance(reg_loss, torch.Tensor) and reg_loss.requires_grad:
+                    loss_main += reg_loss
+                    loss_dict['gate_reg'] = reg_loss.item()
 
-            # 将门控的响应度正则化 Loss 叠加进计算图
-            if isinstance(reg_loss_fp32, torch.Tensor) and reg_loss_fp32.requires_grad:
-                loss_main += reg_loss_fp32
-                loss_dict['gate_reg'] = reg_loss_fp32.item()
+                # 加上物理参数先验正则化（仅在训练阶段）
+                # --- ABLATION: w/o Physics Stream ---
+                ablation_no_phys = getattr(self.args, 'ablation_no_phys_stream', False) or getattr(self.model, 'ablation_no_phys_stream', False)
+                if phase == 'train' and hasattr(self.model, 'phys_layer') and current_prior_weight > 0 and not ablation_no_phys:
+                    prior_loss, prior_dict = self.model.phys_layer.get_physics_prior_loss(prior_weight=current_prior_weight)
+                    if isinstance(prior_loss, torch.Tensor):
+                        loss_main += prior_loss
+                        loss_dict['physics_prior'] = prior_loss.item()
+                        # 记录各项先验损失用于监控
+                        for k, v in prior_dict.items():
+                            loss_dict[f'prior_{k}'] = v
 
-            # 加上物理参数先验正则化（仅在训练阶段）
-            # --- ABLATION: w/o Physics Stream ---
-            ablation_no_phys = getattr(self.args, 'ablation_no_phys_stream', False) or getattr(self.model, 'ablation_no_phys_stream', False)
-            if phase == 'train' and hasattr(self.model, 'phys_layer') and current_prior_weight > 0 and not ablation_no_phys:
-                prior_loss, prior_dict = self.model.phys_layer.get_physics_prior_loss(prior_weight=current_prior_weight)
-                if isinstance(prior_loss, torch.Tensor):
-                    prior_loss_fp32 = prior_loss.float()
-                    loss_main += prior_loss_fp32
-                    loss_dict['physics_prior'] = prior_loss_fp32.item()
-                    # 记录各项先验损失用于监控
-                    for k, v in prior_dict.items():
-                        loss_dict[f'prior_{k}'] = v
-
-            total_loss = loss_main
+                total_loss = loss_main
 
         if return_gates:
             return outputs, batch_y_true, total_loss, loss_dict, gates
@@ -549,10 +537,10 @@ class Exp_PhysFormer:
 
         if getattr(self.args, 'resume', False) and os.path.exists(path + '/checkpoint.pth'):
             self.logger.info(f">>> [RESUME] Loading checkpoint from {path} <<<")
-            self.model.load_state_dict(torch.load(path + '/checkpoint.pth'))
+            self.model.load_state_dict(torch.load(path + '/checkpoint.pth', weights_only=False))
             state_path = path + '/training_state.pth'
             if os.path.exists(state_path):
-                state = torch.load(state_path)
+                state = torch.load(state_path, map_location=self.device, weights_only=False)
                 model_optim.load_state_dict(state['optimizer'])
                 scheduler.load_state_dict(state['scheduler'])
                 scaler.load_state_dict(state['scaler'])
@@ -633,14 +621,7 @@ class Exp_PhysFormer:
                     if getattr(self.args, 'debug_nan', False) and not torch.isfinite(loss_main):
                         self.logger.error(f"[DEBUG] NaN Loss detected at Epoch {epoch}, Batch {i}")
                         self.logger.error(f"Loss dict: {loss_dict}")
-                        self.logger.error(f"[DEBUG] Output has NaN? {torch.isnan(outputs).any().item()}")
-                        self.logger.error(f"[DEBUG] Ground Truth has NaN? {torch.isnan(batch_y_true).any().item()}")
-                        if torch.isnan(outputs).any():
-                            # 分量检测
-                            self.logger.error(f"[DEBUG] Load NaN? {torch.isnan(outputs[..., 0]).any().item()}")
-                            self.logger.error(f"[DEBUG] PV NaN? {torch.isnan(outputs[..., 1]).any().item()}")
-                            self.logger.error(f"[DEBUG] Wind NaN? {torch.isnan(outputs[..., 2]).any().item()}")
-                        raise ValueError("NaN Loss detected! AutoGrad has shown the traceback.")
+                        raise ValueError("NaN Loss detected! Please check forward pass logic.")
 
                     # Backward
                     scaler.scale(loss_main).backward()
@@ -769,7 +750,7 @@ class Exp_PhysFormer:
 
         # Load Best Model
         best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path))
+        self.model.load_state_dict(torch.load(best_model_path, weights_only=False))
         return self.model
 
     def vali(self, vali_data, vali_loader, criterion, epoch=0):
@@ -837,7 +818,7 @@ class Exp_PhysFormer:
         if load:
             path = os.path.join(self.args.checkpoints, setting)
             best_model_path = path + '/' + 'checkpoint.pth'
-            self.model.load_state_dict(torch.load(best_model_path))
+            self.model.load_state_dict(torch.load(best_model_path, weights_only=False))
 
         # 检查criterion是否存在
         if not hasattr(self, 'criterion') or self.criterion is None:

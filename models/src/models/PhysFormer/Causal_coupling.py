@@ -245,16 +245,14 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         gate_pv_soft = self.gate_learner_pv(gate_input_pv)
         gate_wind_soft = self.gate_learner_wind(gate_input_wind)
 
-        prior_pv_expanded = prior_pv.repeat(1, 1, D)
-        prior_wind_expanded = prior_wind.repeat(1, 1, D)
-
         # -------------------------------------------------------------------
         # 严格物理门控 (Strict Physical Gating)
         # prior 决定绝对物理上限 (夜间严格为0)，soft_gate 决定日间的微调(0~1)
-        # [修改] 废除 0.5+ 的缩放污染，保护物理方程的绝对主导权。
+        # [PERFORMANCE FIX] prior_pv 本身是由 x_weather.unsqueeze(-1) 得来，所以自身已经是 [B, S, 1]
+        # 直接使用乘法触发隐式广播机制，避免无谓的显存分配。
         # -------------------------------------------------------------------
-        gate_pv = prior_pv_expanded * gate_pv_soft
-        gate_wind = prior_wind_expanded * gate_wind_soft
+        gate_pv = prior_pv * gate_pv_soft
+        gate_wind = prior_wind * gate_wind_soft
         gate_load = gate_load_soft
 
         # 时序平滑 (不变)
@@ -301,10 +299,10 @@ class PhysicsGuidedCausalCoupling(nn.Module):
             reg_loss += 0.01 * ((irr_t - (-0.2)) ** 2 + (wind_t - (-1.0)) ** 2)
 
             loss_corr_pv, pv_corr = self.gate_response_reg(
-                gate_pv_soft, prior_pv_expanded
+                gate_pv_soft, prior_pv
             )
             loss_corr_wind, wind_corr = self.gate_response_reg(
-                gate_wind_soft, prior_wind_expanded
+                gate_wind_soft, prior_wind
             )
             reg_loss += (loss_corr_pv + loss_corr_wind)
 

@@ -142,6 +142,12 @@ class VPPDataset(Dataset):
 
         self.target_num = 3
         self.covariate_num = data.shape[1] - self.target_num
+        
+        # [PERFORMANCE FIX] 将全部数据一次性转换为 Tensor 保存在 CPU 内存中，
+        # 避免 DataLoader worker 在每个 batch / 每个 __getitem__ 都重新执行 tensor allocation
+        self.data_x_tensor = torch.tensor(self.data_x, dtype=torch.float32)
+        self.data_y_tensor = torch.tensor(self.data_y, dtype=torch.float32)
+        self.data_stamp_tensor = torch.tensor(self.data_stamp, dtype=torch.float32)
 
     def __getitem__(self, index):
         s_begin = index
@@ -149,21 +155,19 @@ class VPPDataset(Dataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        seq_x = self.data_x[s_begin:s_end]
-        seq_y = self.data_y[r_begin:r_end]
-        seq_x_mark = self.data_stamp[s_begin:s_end]
-        seq_y_mark = self.data_stamp[r_begin:r_end]
+        # 直接从预先创建的 Tensor 切片，零内存拷贝复制
+        seq_x = self.data_x_tensor[s_begin:s_end]
+        seq_y = self.data_y_tensor[r_begin:r_end]
+        seq_x_mark = self.data_stamp_tensor[s_begin:s_end]
+        seq_y_mark = self.data_stamp_tensor[r_begin:r_end]
 
         if self.set_type == 0 and self.noise_level > 0:
-            seq_x = seq_x.copy()
-            noise = np.random.normal(0, self.noise_level, seq_x.shape)
+            seq_x = seq_x.clone() # 使用 clone 而不是 numpy 的 copy
+            noise = torch.randn_like(seq_x) * self.noise_level
             if seq_x.shape[1] > self.target_num:
                 seq_x[:, self.target_num:] += noise[:, self.target_num:]
 
-        return torch.tensor(seq_x, dtype=torch.float32), \
-            torch.tensor(seq_y, dtype=torch.float32), \
-            torch.tensor(seq_x_mark, dtype=torch.float32), \
-            torch.tensor(seq_y_mark, dtype=torch.float32)
+        return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
         return len(self.data_x) - self.seq_len - self.pred_len + 1
@@ -304,42 +308,37 @@ class PhysFormerDataset(VPPDataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        # 1. 原始切片
-        seq_raw = self.data_x[s_begin:s_end]  # [Seq, 6]
-        seq_y_raw = self.data_y[r_begin:r_end]  # [Label + Pred, 6]
+        # 1. 直接从预先生成的 Tensor 切片提取，零拷贝
+        seq_raw = self.data_x_tensor[s_begin:s_end]           # [Seq, 6]
+        seq_y_raw = self.data_y_tensor[r_begin:r_end]         # [Label + Pred, 6]
 
         # 2. 提取输入流
-        x_stat = seq_raw[:, 0:3].copy()  # [Seq, 3]
-        x_weather_hist = seq_raw[:, 3:6].copy()  # [Seq, 3]
+        x_stat = seq_raw[:, 0:3]                              # [Seq, 3]
+        x_weather_hist = seq_raw[:, 3:6]                      # [Seq, 3]
 
         # 3. 未来数据处理
-        # PhysFormer 是 Encoder-Only 模型，直接预测 'pred_len'。
-        # 输出不需要包含 'label_len'，否则维度会无法对齐。
-        # 我们严格切取最后 'pred_len' 个数据。
-        x_weather_future = seq_y_raw[-self.pred_len:, 3:6].copy()  # [Pred, 3]
-        y = seq_y_raw[-self.pred_len:, 0:3].copy()  # [Pred, 3]
+        x_weather_future = seq_y_raw[-self.pred_len:, 3:6]    # [Pred, 3]
+        y = seq_y_raw[-self.pred_len:, 0:3]                   # [Pred, 3]
 
         # 4. 时间特征
-        x_mark_enc = self.data_stamp[s_begin:s_end].copy()
-        # y_mark 在 Encoder-Only 中通常不用，但保留以兼容接口
-        y_mark = self.data_stamp[r_begin:r_end].copy()
+        x_mark_enc = self.data_stamp_tensor[s_begin:s_end]
+        y_mark = self.data_stamp_tensor[r_begin:r_end]
 
         # 5. 噪声注入 (仅训练)
         if self.set_type == 0 and self.noise_level > 0:
-            noise_hist = np.random.normal(0, self.noise_level, x_weather_hist.shape)
-            noise_future = np.random.normal(0, self.noise_level, x_weather_future.shape)
+            # 必须 clone() 以防止修改底层的持久化共享 Tensor
+            x_weather_hist = x_weather_hist.clone()
+            x_weather_future = x_weather_future.clone()
+            
+            # 使用 PyTorch 原生算子生成随机噪声
+            noise_hist = torch.randn_like(x_weather_hist) * self.noise_level
+            noise_future = torch.randn_like(x_weather_future) * self.noise_level
+            
             x_weather_hist += noise_hist
             x_weather_future += noise_future
 
-        # ===== Step 5: 转为Tensor并返回 =====
-        return (
-            torch.tensor(x_stat, dtype=torch.float32),  # [Seq, 3]
-            torch.tensor(x_weather_hist, dtype=torch.float32),  # [Seq, 3]
-            torch.tensor(x_weather_future, dtype=torch.float32),  # [Pred, 3]
-            torch.tensor(y, dtype=torch.float32),  # [Pred, 3]
-            torch.tensor(x_mark_enc, dtype=torch.float32),  # [Seq, 8]
-            torch.tensor(y_mark, dtype=torch.float32)  # [Pred, 8]
-        )
+        # ===== Step 5: 直接返回 Tensor =====
+        return x_stat, x_weather_hist, x_weather_future, y, x_mark_enc, y_mark
 
     def __len__(self):
         return len(self.data_x) - self.seq_len - self.pred_len + 1

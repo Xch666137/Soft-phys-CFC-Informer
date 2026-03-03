@@ -250,6 +250,12 @@ class PhysFormer(nn.Module):
         res_pv   = kinematic_smooth(res_pv)
         res_wind = kinematic_smooth(res_wind)
 
+        # BUGFIX: FP16 防止数值雪崩。归一化空间中真实物理波动在 [-5, 5] 内。
+        # 限定在此范围可以完全避免极端的 0.0 * inf = NaN 浮点未定义灾难。
+        res_load = torch.clamp(res_load, min=-50.0, max=50.0)
+        res_pv   = torch.clamp(res_pv,   min=-50.0, max=50.0)
+        res_wind = torch.clamp(res_wind, min=-50.0, max=50.0)
+
         # === Step 7: Physics Guidance & Combination ===
         # --- ABLATION: w/o Physics Stream ---
         if self.ablation_no_phys_stream:

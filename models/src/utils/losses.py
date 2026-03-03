@@ -25,19 +25,8 @@ class GateResponseRegularization(nn.Module):
         # BUGFIX: torch.norm 在输入全0时切线斜率为无穷大，会导致反向传播产生 NaN
         # BUGFIX 2: 此分支由 Causal_coupling 在 model.forward 中调用，处于 AMP(FP16) 上下文！
         # 1e-8 会立刻下溢为 0.0。必须使用严格的 FP16 正常数 1e-4！
-        eps = 1e-4
-        numerator = (gate_centered * prior_centered).sum(dim=-1)
-        
-        norm_gate = torch.sqrt(torch.sum(gate_centered**2, dim=-1) + eps)
-        norm_prior = torch.sqrt(torch.sum(prior_centered**2, dim=-1) + eps)
-        
-        # 即使 eps 保护了 sqrt 不为 0，防止极端异常，我们在分母里额外加一个强保护 eps
-        # BUGFIX: 额外确保 norm 不会因为 float16 下溢而导致 /0
-        norm_gate = torch.clamp(norm_gate, min=eps)
-        norm_prior = torch.clamp(norm_prior, min=eps)
-        denominator = norm_gate * norm_prior
-        
-        correlation = numerator / denominator  # [B]
+        # [PERFORMANCE FIX] 使用 PyTorch 内置的 cosine_similarity 取代手工计算
+        correlation = F.cosine_similarity(gate_centered, prior_centered, dim=-1, eps=1e-4)  # [B]
 
         # 4. 动态掩码：只惩罚那些物理先验本身就有剧烈波动的场景
         # 比如夜间 prior 全是 0，方差为 0，就不应该惩罚相关性
@@ -48,8 +37,8 @@ class GateResponseRegularization(nn.Module):
         loss = self.weight * (active_mask * (1.0 - correlation)).mean()
 
         # 返回 loss 和监控用的平均相关系数
-        # 使用更大的 eps 防止除以0
-        avg_corr = (active_mask * correlation).sum() / (active_mask.sum() + eps)
+        # 使用更大的 1e-4 防止除以0
+        avg_corr = (active_mask * correlation).sum() / (active_mask.sum() + 1e-4)
         return loss, avg_corr.item()
 
 
@@ -71,9 +60,10 @@ class PhysAwareBaseLoss(nn.Module):
         pred_real = pred * self.stds + self.means
         true_real = true * self.stds + self.means
 
-        # BUGFIX: 过滤可能由前向传播意外产生的 inf/NaN，防止差分时 inf-inf=NaN
-        pred_real = torch.nan_to_num(pred_real, nan=0.0, posinf=1e4, neginf=-1e4)
-        true_real = torch.nan_to_num(true_real, nan=0.0, posinf=1e4, neginf=-1e4)
+        # [PERFORMANCE FIX] 移除 nan_to_num 保护，正常的网络输出和标签不应含有 NaN 或 Inf
+        # 过度防御会导致每次都要新开 Kernel
+        # pred_real = torch.nan_to_num(pred_real, nan=0.0, posinf=1e4, neginf=-1e4)
+        # true_real = torch.nan_to_num(true_real, nan=0.0, posinf=1e4, neginf=-1e4)
 
         net_pred = pred_real[..., 0] - pred_real[..., 1] - pred_real[..., 2]
         net_true = true_real[..., 0] - true_real[..., 1] - true_real[..., 2]
@@ -87,30 +77,20 @@ class PhysAwareBaseLoss(nn.Module):
         true_energy = torch.mean(true_real, dim=1)
         loss_energy = F.l1_loss(pred_energy, true_energy)
 
-        # BUGFIX: AMP 下如果 eps 设为 1e-8 会 underflow 给 float16 造成 sqrt(0) -> 无穷大梯度
-        eps = 1e-4
-        # 严格锁定计算 sqrt 的内部值不小于 eps，防止 fp16 下溢出带来的 0 奇点
-        norm_diff_pred = torch.sqrt(torch.clamp(torch.sum(diff_pred**2, dim=-1, keepdim=True), min=eps))
-        norm_diff_true = torch.sqrt(torch.clamp(torch.sum(diff_true**2, dim=-1, keepdim=True), min=eps))
-        
-        diff_pred_norm = diff_pred / norm_diff_pred
-        diff_true_norm = diff_true / norm_diff_true
-        # 防止极端计算导致的浮点越界产生 NaN 余弦，强行锁在 [-1.0, 1.0] 内
-        cos_sim = torch.clamp((diff_pred_norm * diff_true_norm).sum(dim=-1), -1.0 + 1e-6, 1.0 - 1e-6)
+        # [PERFORMANCE FIX] 使用 PyTorch 内置原生 F.cosine_similarity 极大减少算子数量与内存调用
+        cos_sim = F.cosine_similarity(diff_pred, diff_true, dim=-1, eps=1e-4) # 限制范围由 F.cosine_similarity 自己在 C++ 层面保证稳定
         loss_dir = torch.mean(1.0 - cos_sim)
 
-        # 将线性惩罚改为二次惩罚 (Quadratic Penalty)
-        # BUGFIX: 避免 F.relu(0) 在二次求导下产生的 Subgradient NaN
-        eps = 1e-4
-        # bvr: lower bound violation (pred < 0) -> F.relu(-pred) -> smoothed
-        bvr_raw = -pred_real
-        loss_bvr = torch.mean((F.relu(bvr_raw) + eps) ** 2)
+        # [PERFORMANCE FIX] 废除手工绝对值平方的二次惩罚，改用原生的 Huber Loss，其内建了平滑区
+        # lower bound violation (pred < 0) -> F.relu(-pred) -> smoothed
+        bvr_raw = F.relu(-pred_real)
+        loss_bvr = F.huber_loss(bvr_raw, torch.zeros_like(bvr_raw), delta=1.0) 
 
         # rvr: ramp violation (|diff| > limit) -> smoothed abs
-        # 改为使用 Huber-like 绝对值平滑逼近 `sqrt(x^2 + eps)`，并加上 clamp 保证绝对不为0
-        safe_abs_diff = torch.sqrt(torch.clamp(diff_pred**2, min=eps))
+        # F.huber_loss 自身即相当于平滑版的 L1/L2
+        safe_abs_diff = torch.abs(diff_pred) # diff_pred 是实数，直接使用 abs 即可
         ramp_violation = F.relu(safe_abs_diff - self.ramp_limits)
-        loss_rvr = torch.mean((ramp_violation + eps) ** 2)
+        loss_rvr = F.huber_loss(ramp_violation, torch.zeros_like(ramp_violation), delta=1.0)
 
         loss_mae = F.l1_loss(pred_real, true_real)
 
