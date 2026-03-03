@@ -43,3 +43,8 @@ Thumbs.db
 *.zip
 *.tar.gz
 *.rar
+
+### --- agent相关配置 ---
+CLAUDE.md
+.agent
+.claude
