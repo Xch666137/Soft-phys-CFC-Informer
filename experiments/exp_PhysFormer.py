@@ -171,7 +171,7 @@ class Exp_PhysFormer:
             shuffle_flag = True
             drop_last = True
             batch_size = self.args.batch_size
-            noise_level = 0.03
+            noise_level = 0.01
         else:
             shuffle_flag = False
             drop_last = False
@@ -371,7 +371,7 @@ class Exp_PhysFormer:
             base_loss_module=base_criterion,
             device=self.device,
             warmup_batches=50,
-            ema_decay=0.9
+            ema_decay=0.95
         )
 
         return criterion
@@ -441,8 +441,6 @@ class Exp_PhysFormer:
         # BUGFIX: 验证和测试阶段强制关闭 autocast 以避免更易触发的 fp16 溢出
         is_train = (phase == 'train')
         context = torch.cuda.amp.autocast(enabled=(self.args.use_amp and is_train)) if self.args.use_gpu else torch.no_grad()
-        if phase in ['val', 'test']:
-            pass
 
         with context:
             # 移除 detect_anomaly 的不必要开销，除非强制 debug
@@ -521,7 +519,7 @@ class Exp_PhysFormer:
         # 4. 学习率调度器: 余弦退火
         scheduler = CosineAnnealingLR(
             model_optim,
-            T_max=self.args.train_epochs,
+            T_max=max(1, int(self.args.train_epochs * 0.7)),  # 70%处降至最低LR，匹配early stop节奏
             eta_min=1e-6
         )
 
@@ -592,10 +590,13 @@ class Exp_PhysFormer:
                     if hasattr(self.model, 'phys_layer'):
                         for param in self.model.phys_layer.parameters():
                             param.requires_grad = True
-                    current_prior_weight = getattr(self.args, 'physics_prior_weight', 0.1)
+                    # prior_weight 随训练进度线性衰减：初期强约束防跑偏，后期放松允许精细适应
+                    base_prior_weight = getattr(self.args, 'physics_prior_weight', 0.1)
+                    decay_ratio = max(0.2, 1.0 - (epoch - warmup_epochs) / (self.args.train_epochs - warmup_epochs))
+                    current_prior_weight = base_prior_weight * decay_ratio
                     if epoch == warmup_epochs:
                         self.logger.info(
-                            f">>> [PhysLayer Control] Epoch {epoch + 1}+: Physics parameters UNFROZEN. Prior weight: {current_prior_weight}")
+                            f">>> [PhysLayer Control] Epoch {epoch + 1}+: Physics parameters UNFROZEN. Prior weight: {current_prior_weight:.4f} (decay enabled)")
             # ----------------------------------------------------
 
             # 获取当前 Epoch 的课程 Ratio
@@ -631,10 +632,8 @@ class Exp_PhysFormer:
                     if i % 50 == 0:  # 每 50 个 batch 记录一次梯度，避免拖慢速度
                         self._log_gradient_norms(global_step)
 
-                    # 动态梯度裁剪
-                    progress_ratio = curr_ratio.get('net', 0.0) if isinstance(curr_ratio, dict) else curr_ratio
-                    clip_norm = 0.5 if 0.1 < progress_ratio < 0.9 else 1.0
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=clip_norm)
+                    # 统一梯度裁剪：不再在阶段2收紧clip，避免物理约束梯度被卡死
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     scaler.step(model_optim)
                     scaler.update()
 
@@ -719,15 +718,13 @@ class Exp_PhysFormer:
                 f"Balancing Scale: {avg_scale:.2f}"
             )
 
-            # 打印各项物理Loss的原始值，而非权重
-            phys_terms = ['net', 'energy', 'deriv', 'bvr', 'physics_prior']
-            phys_str = " | ".join([f"{k}:{loss_dict.get(k, 0):.4f}" for k in phys_terms])
-            self.logger.info(f"  >> [Phys Losses] {phys_str}")
-
+            # 打印全部物理指标（两行）
             self.logger.info(
-                f"  >> [Gates] Load: {avg_gates['load']:.3f} | PV: {avg_gates['pv']:.3f} | "
-                f"Wind: {avg_gates['wind']:.3f}"
+                f"  >> [Fit]  MSE:{loss_dict.get('mse', 0):.4f} | MAE:{loss_dict.get('mae', 0):.4f}"
             )
+            phys_terms = ['net', 'energy', 'deriv', 'dir', 'bvr', 'rvr', 'physics_prior']
+            phys_str = " | ".join([f"{k}:{loss_dict.get(k, 0):.4f}" for k in phys_terms])
+            self.logger.info(f"  >> [Phys] {phys_str}")
 
             # 每个 Epoch 结束记录验证集 NRMSE
             self.writer.add_scalar('Loss/Val_NRMSE', vali_nrmse, epoch)

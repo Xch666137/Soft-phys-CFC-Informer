@@ -130,22 +130,22 @@ class PhysLoss(nn.Module):
 
         self.sub_weights = {
             'net': 1.0, 'energy': 0.5, 'deriv': 0.3,
-            'dir': 0.1, 'bvr': 2.0, 'rvr': 2.0
+            'dir': 0.3, 'bvr': 2.0, 'rvr': 2.0
         }
 
         self.register_buffer('scale_ema', torch.tensor(1.0))
         self.register_buffer('batch_count', torch.tensor(0))
 
-    def _compute_phys_ref(self, c):
-        """原始参考物理Loss（不含curriculum权重），用于scale校准"""
-        return (
-            self.sub_weights['net']    * c['net']    +
-            self.sub_weights['energy'] * c['energy'] +
-            self.sub_weights['deriv']  * c['deriv']  +
-            self.sub_weights['dir']    * c['dir']    +
-            self.sub_weights['bvr']    * c['bvr']    +
-            self.sub_weights['rvr']    * c['rvr']
-        )
+    def _compute_phys_ref(self, c, curriculum_weights=None):
+        """参考物理Loss，用于scale校准。只汇总curriculum活跃的子项，
+        避免不活跃项抬高分母导致scale_ema被压低。"""
+        total = 0.0
+        for k in ['net', 'energy', 'deriv', 'dir', 'bvr', 'rvr']:
+            # 如果提供了curriculum_weights，跳过权重为0的项
+            if curriculum_weights is not None and curriculum_weights.get(k, 0.0) < 1e-6:
+                continue
+            total += self.sub_weights[k] * c[k]
+        return total
 
     def forward(self, pred, true, curriculum_weights=0.0):
         c = self.base_loss.get_raw_components(pred, true)
@@ -188,7 +188,7 @@ class PhysLoss(nn.Module):
 
                 else:
                     # [核心修复] 基于无curriculum权重的原始参考量计算scale
-                    loss_phys_ref = self._compute_phys_ref(c)
+                    loss_phys_ref = self._compute_phys_ref(c, curriculum_weights)
                     # BUGFIX: 由于在外部已强制转换至 fp32 (float32)，此处阈值恢复为 1e-8 的安全下限
                     eps_scale = 1e-8
                     if loss_phys_ref > eps_scale:

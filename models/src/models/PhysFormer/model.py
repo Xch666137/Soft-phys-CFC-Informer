@@ -238,17 +238,9 @@ class PhysFormer(nn.Module):
         # === [NEW] Kinematic Smoothing (物理惯性平滑) ===
         # 强行过滤由于 Transformer Point-wise Mapping 带来的高频自注意力随机抖动 (降低 CSA)
         # kernel_size=3 的低通滤波，原生赋予模型物理随动惯性
-        def kinematic_smooth(res_tensor):
-            # [B, Pred, 1] -> [B, 1, Pred]
-            res_t = res_tensor.transpose(1, 2)
-            # 使用 replicate padding 保持序列长度不变且边缘平滑
-            res_pad = torch.nn.functional.pad(res_t, (1, 1), mode='replicate')
-            res_smooth = torch.nn.functional.avg_pool1d(res_pad, kernel_size=3, stride=1)
-            return res_smooth.transpose(1, 2)
-            
-        res_load = kinematic_smooth(res_load)
-        res_pv   = kinematic_smooth(res_pv)
-        res_wind = kinematic_smooth(res_wind)
+        res_load = self._kinematic_smooth(res_load)
+        res_pv   = self._kinematic_smooth(res_pv)
+        res_wind = self._kinematic_smooth(res_wind)
 
         # BUGFIX: FP16 防止数值雪崩。归一化空间中真实物理波动在 [-5, 5] 内。
         # 限定在此范围可以完全避免极端的 0.0 * inf = NaN 浮点未定义灾难。
@@ -322,6 +314,15 @@ class PhysFormer(nn.Module):
             return output, reg_loss, gates_info
         else:
             return output, reg_loss
+
+    @staticmethod
+    def _kinematic_smooth(res_tensor):
+        """物理惯性平滑：kernel_size=3 的低通滤波"""
+        # [B, Pred, 1] -> [B, 1, Pred]
+        res_t = res_tensor.transpose(1, 2)
+        res_pad = torch.nn.functional.pad(res_t, (1, 1), mode='replicate')
+        res_smooth = torch.nn.functional.avg_pool1d(res_pad, kernel_size=3, stride=1)
+        return res_smooth.transpose(1, 2)
 
     def _init_weights(self, m):
         """通用的权重初始化策略"""
