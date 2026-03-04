@@ -77,8 +77,16 @@ class PhysAwareBaseLoss(nn.Module):
         true_energy = torch.mean(true_real, dim=1)
         loss_energy = F.l1_loss(pred_energy, true_energy)
 
-        # [PERFORMANCE FIX] 使用 PyTorch 内置原生 F.cosine_similarity 极大减少算子数量与内存调用
-        cos_sim = F.cosine_similarity(diff_pred, diff_true, dim=-1, eps=1e-4) # 限制范围由 F.cosine_similarity 自己在 C++ 层面保证稳定
+        # [FIX] DIR Loss：沿时序维度(dim=-1)逐分量做余弦相似度
+        # 原先 dim=-1 作用于 [B, T-1, 3]，等于在 3 个分量构成的向量上做方向对比，
+        # 导致 load 量级远大于 pv/wind 时，pv/wind 的方向错误被完全淹没，DIR 虚高。
+        # 修改后对转置后的 [B, 3, T-1] 在 dim=-1（时序维）做余弦，
+        # 每个分量独立判断自己的时序趋势是否对齐，语义更准确，梯度更干净。
+        cos_sim = F.cosine_similarity(
+            diff_pred.transpose(1, 2),   # [B, 3, T-1]
+            diff_true.transpose(1, 2),   # [B, 3, T-1]
+            dim=-1, eps=1e-4             # 沿时序维度
+        )  # → [B, 3]
         loss_dir = torch.mean(1.0 - cos_sim)
 
         # [PERFORMANCE FIX] 废除手工绝对值平方的二次惩罚，改用原生的 Huber Loss，其内建了平滑区

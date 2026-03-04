@@ -99,6 +99,14 @@ class PhysicsGuidedCausalCoupling(nn.Module):
             groups=d_model  # 独立平滑每个通道
         )
 
+        # [FIX] Wind 专用宽核 Smoother，作用于 attn_wind 输出（而非 gate）
+        # kernel=7 对应 1h45min（15min步长），足以滤除湍流引起的高频颤振
+        self.smoother_wind_attn = nn.Conv1d(
+            d_model, d_model,
+            kernel_size=7, padding=3,
+            groups=d_model
+        )
+
         # ============================================================
         # Part 5: 融合与归纳偏置
         # ============================================================
@@ -231,6 +239,12 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         attn_pv, _ = self.attn_pv(q_pv, k_phys, v_phys)
         attn_wind, _ = self.attn_wind(q_wind, k_phys, v_phys)
 
+        # [FIX] 对 attn_wind 施加宽核平滑，消除物理流中高频风速噪声的直接注入
+        # 平滑发生在与 gate 相乘之前，只影响 Wind 路径，不污染 PV/Load
+        attn_wind = self.smoother_wind_attn(
+            attn_wind.transpose(1, 2)
+        ).transpose(1, 2)
+
         # ===== Step 3: 计算 Gate (决定检索结果的可信度) =====
         # 即使 Attention 检索到了东西，我们也需要 Gate 来决定是否通过
         # 这一步引入了 Curriculum Learning 和 Hard Prior
@@ -301,10 +315,13 @@ class PhysicsGuidedCausalCoupling(nn.Module):
             loss_corr_pv, pv_corr = self.gate_response_reg(
                 gate_pv_soft, prior_pv
             )
-            loss_corr_wind, wind_corr = self.gate_response_reg(
-                gate_wind_soft, prior_wind
-            )
-            reg_loss += (loss_corr_pv + loss_corr_wind)
+            # [FIX] 禁用 wind 的 GateResponseReg
+            # 原因：风速在运行区间内本身就是高随机过程，强迫 gate 跟随 prior_wind
+            # 相当于把高频风速噪声硬编码进门控，产生乘法噪声共振。
+            # PV 仍保留此约束（夜间严格置零），对 wind 无物理必要性。
+            loss_corr_wind = torch.tensor(0.0, device=stat_feat.device)
+            wind_corr = 0.0
+            reg_loss += loss_corr_pv  # 只保留 PV 的相关性约束
 
         if return_gates:
             gate_pv_seq = gate_pv.mean(dim=-1).detach().cpu().numpy()
