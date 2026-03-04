@@ -20,7 +20,7 @@ model_paths = {
     'Autoformer': f'{base_dir}/Autoformer_vpp_dataset_3years_sl672_pl96_vpp',
     'DLinear':    f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
     'PatchTST':   f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
-    'PhysFormer': f'{base_dir}/PhysFormer/checkpoints/PhysFormer_ensemble_seed2024',
+    'PhysFormer': f'{base_dir}/PhysFormer/checkpoints/PhysFormer_full_seed2024',
 }
 
 # ==========================================

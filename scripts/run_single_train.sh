@@ -52,7 +52,7 @@ CUDA_VISIBLE_DEVICES=0 python scripts/run_PhysFormer.py \
   --batch_size 128 \
   --train_epochs 100 \
   --learning_rate 3e-4 \
-  --weight_decay 1e-4 \
+  --weight_decay 1e-5 \
   --physics_prior_weight 0.05 \
   --grad_clip 1.0 \
   --patience 10 \

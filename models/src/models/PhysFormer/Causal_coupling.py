@@ -100,10 +100,10 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         )
 
         # [FIX] Wind 专用宽核 Smoother，作用于 attn_wind 输出（而非 gate）
-        # kernel=7 对应 1h45min（15min步长），足以滤除湍流引起的高频颤振
+        # kernel=5 对应 1h15min（15min步长），在滤除湍流高频和保留中频趋势间取平衡
         self.smoother_wind_attn = nn.Conv1d(
             d_model, d_model,
-            kernel_size=7, padding=3,
+            kernel_size=5, padding=2,
             groups=d_model
         )
 

@@ -145,6 +145,12 @@ class PhysFormer(nn.Module):
             nn.Linear(d_model // 2, 1)
         )
 
+        # 8. 可学习的 Wind 残差门控
+        # 控制数据驱动残差 vs 物理先验的贡献比例
+        # sigmoid(0.0) = 0.5 → 初始为物理/数据 5:5；训练后收敛到最优比例
+        # 论文可解释性：该参数表示模型对物理先验的信任度
+        self.wind_res_scale = nn.Parameter(torch.tensor(0.0))
+
         # 8. 权重初始化
         self.apply(self._init_weights)
         self._init_gating_mechanisms()
@@ -263,23 +269,26 @@ class PhysFormer(nn.Module):
             activity_pv = activity_future[:, :, 1].unsqueeze(-1)
             activity_wind = activity_future[:, :, 2].unsqueeze(-1)
 
-            # === [NEW] Bounded Physical Act-Residual (物理边界感知型激活) ===
-            # 将神经网络结构拉回到真实的物理底线 (Zero Bound) 之上
-            # 真实物理 0 MW 对应归一化空间的 -mean/std
+            # [FIX-C] 对 activity_wind 施加平滑：切入风速附近的 0/1 阶跃 → 斜坡过渡
+            # 物理合理：真实风机启停有几分钟的升速/降速过程
+            activity_wind = self._kinematic_smooth(activity_wind)
+
+            # === Bounded Physical Act-Residual (物理边界感知型激活) ===
             mean_val = self.phys_layer.target_mean if hasattr(self.phys_layer, 'target_mean') else torch.zeros(3, device=res_load.device)
             std_val  = self.phys_layer.target_std  if hasattr(self.phys_layer, 'target_std')  else torch.ones(3, device=res_load.device)
-            
+
             zero_load = - (mean_val[0] / (std_val[0] + 1e-4))
             zero_pv   = - (mean_val[1] / (std_val[1] + 1e-4))
             zero_wind = - (mean_val[2] / (std_val[2] + 1e-4))
-            
-            # [FIX] 方案二：activity_mask 移至最终输出层掩码，消除 Softplus(0)=ln(2) 的夜间正偏置
-            # 原做法：raw = theory + activity * res  → activity=0 时 raw=theory，Softplus(theory-zero)=Softplus(0)=ln(2)≠0
-            # 新做法：raw 无 activity 遮罩，Softplus 之后再用 activity 对 final 做硬掩码
-            #        夜间 activity=0 → final = zero_val（精确归一化 0 MW），ln(2) 偏置彻底消除
-            raw_load = theory_load + activity_load * res_load  # Load 无零限制，保持原逻辑
-            raw_pv   = theory_pv   + res_pv                    # 不再用 activity_pv 遮罩 res_pv
-            raw_wind = theory_wind + res_wind                  # 不再用 activity_wind 遮罩 res_wind
+
+            raw_load = theory_load + activity_load * res_load
+            raw_pv   = theory_pv   + res_pv
+
+            # [FIX] Wind 残差门控：防止 theory 和 res 对风速双重计数导致增益翻倍
+            # wind_res_scale 可学习，sigmoid 后控制残差贡献比例（0=纯物理，1=纯数据）
+            # 论文意义：该参数体现模型对物理先验的信任度，可作为消融实验的分析维度
+            wind_res_gate = torch.sigmoid(self.wind_res_scale)
+            raw_wind = theory_wind + wind_res_gate * res_wind
 
             # BUGFIX: 退出 fp16 环境，使用 fp32 计算 softplus 防止 overflow 产生 inf
             with torch.amp.autocast('cuda', enabled=False):
@@ -291,7 +300,11 @@ class PhysFormer(nn.Module):
                 # Softplus 下界约束（保持物理有界性）
                 bounded_load = zero_load_f32 + torch.nn.functional.softplus(raw_load_f32 - zero_load_f32)
                 bounded_pv   = zero_pv_f32   + torch.nn.functional.softplus(raw_pv_f32   - zero_pv_f32)
-                bounded_wind = zero_wind_f32 + torch.nn.functional.softplus(raw_wind_f32 - zero_wind_f32)
+
+                # [FIX] Wind 改用硬截断（torch.maximum）替代 Softplus
+                # 原因：Softplus 在零点引入 +ln(2)≈0.693 的正偏置，对量级最小的 Wind 通道
+                # 造成系统性高估，直接导致 MSE 偏高。硬截断无偏置，同样保证非负物理约束。
+                bounded_wind = torch.maximum(raw_wind_f32, zero_wind_f32)
 
                 # [关键] 在最终输出层用 activity_mask 做硬掩码：
                 #   - 夜间/停机 (activity=0): final = zero_val，精确归一化 0 MW

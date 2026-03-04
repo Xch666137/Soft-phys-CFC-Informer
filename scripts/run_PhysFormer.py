@@ -54,7 +54,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=128, help='batch size of train input data')
     parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
     parser.add_argument('--learning_rate', type=float, default=3e-4, help='optimizer learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='optimizer weight decay')
+    parser.add_argument('--weight_decay', type=float, default=1e-5, help='optimizer weight decay')
     parser.add_argument('--physics_prior_weight', type=float, default=0.1, help='physics parameter prior regularization weight')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='gradient clipping max norm')
     parser.add_argument('--patience', type=int, default=10, help='early stopping patience')
