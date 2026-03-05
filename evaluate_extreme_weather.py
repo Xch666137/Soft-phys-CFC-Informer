@@ -13,14 +13,15 @@ import pandas as pd
 base_dir = './exp_results'
 
 model_paths = {
-    'LSTM':       f'{base_dir}/LSTM_vpp_dataset_3years_sl672_pl96_vpp',
-    'GRU':        f'{base_dir}/GRU_vpp_dataset_3years_sl672_pl96_vpp',
-    'PINN':       f'{base_dir}/PINN_vpp_dataset_3years_sl672_pl96_vpp',
-    'Informer':   f'{base_dir}/Informer_vpp_dataset_3years_sl672_pl96_vpp',
-    'Autoformer': f'{base_dir}/Autoformer_vpp_dataset_3years_sl672_pl96_vpp',
-    'DLinear':    f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
-    'PatchTST':   f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
-    'PhysFormer': f'{base_dir}/PhysFormer/checkpoints/PhysFormer_full_seed2024',
+    'LSTM':         f'{base_dir}/LSTM_vpp_dataset_3years_sl672_pl96_vpp',
+    'GRU':          f'{base_dir}/GRU_vpp_dataset_3years_sl672_pl96_vpp',
+    'PINN':         f'{base_dir}/PINN_vpp_dataset_3years_sl672_pl96_vpp',
+    'Informer':     f'{base_dir}/Informer_vpp_dataset_3years_sl672_pl96_vpp',
+    'Autoformer':   f'{base_dir}/Autoformer_vpp_dataset_3years_sl672_pl96_vpp',
+    'DLinear':      f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
+    'PatchTST':     f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
+    'iTransformer': f'{base_dir}/iTransformer_vpp_dataset_3years_sl672_pl96_vpp',
+    'PhysFormer':   f'{base_dir}/PhysFormer/checkpoints/PhysFormer_full_seed2024',
 }
 
 # ==========================================
@@ -50,6 +51,11 @@ extreme_indices = np.argsort(total_volatility)[-top_k:]
 
 print(f"-> 测试集总样本数: {len(total_volatility)}")
 print(f"-> 已提取极端波动样本数: {top_k}\n")
+
+# 计算全局严格阈值 rho_k (使用全局参考真实数据，保持与全局评估相同的物理阈值)
+ref_true_diff = np.abs(np.diff(ref_true, axis=1))
+global_rho_k = np.percentile(ref_true_diff, 99.5, axis=(0, 1))
+print(f"-> 严格高频变化阈值 (rho_k): Load={global_rho_k[0]:.4f}, PV={global_rho_k[1]:.4f}, Wind={global_rho_k[2]:.4f} MW\n")
 
 # ==========================================
 # 3. 核心计算循环 (仅在极端样本上)
@@ -83,22 +89,27 @@ for model, folder_path in model_paths.items():
         true_net = true[:, :, 0] - true[:, :, 1] - true[:, :, 2]
         net_mae = np.mean(np.abs(pred_net - true_net))
 
-        # 5. RVM (边界违规幅度): 全部预测点上 relu(-pred) 均值，衡量整体违规严重程度
-        rvm = float(np.mean(np.maximum(-pred_pv_wind, 0)))
-
-        # 6. DSA（差分误差对齐）: mean(|Δpred - Δtrue|)，衡量预测趋势变化与真实趋势的小心度
         if pred.shape[1] > 1:
-            dsa = float(np.mean(np.abs(np.diff(pred, axis=1) - np.diff(true, axis=1))))
+            pred_diff = np.abs(np.diff(pred, axis=1))
+            true_diff = np.abs(np.diff(true, axis=1))
+            
+            # 5. Strict RVR (%) 严格高频违规率 (应用全局阈值 global_rho_k)
+            ramp_violations = pred_diff > global_rho_k
+            strict_rvr = (np.sum(ramp_violations) / ramp_violations.size) * 100
+            
+            # 6. DSA（差分误差对齐）
+            dsa = float(np.mean(np.abs(pred_diff - true_diff)))
         else:
+            strict_rvr = 0.0
             dsa = 0.0
 
         results[model] = {
-            'MSE ↓':        mse,
-            'BVR (%) ↓':   bvr,
-            'MVS (MW) ↓':  mvs,
-            'NET MAE ↓':   net_mae,
-            'RVM ↓':       rvm,
-            'DSA ↓':       dsa,
+            'MSE ↓':           mse,
+            'BVR (%) ↓':       bvr,
+            'MVS (MW) ↓':      mvs,
+            'NET MAE ↓':       net_mae,
+            'Strict RVR (%) ↓': strict_rvr,
+            'DSA ↓':           dsa,
         }
         print(f"[{model}] 处理完成.")
     else:
@@ -112,14 +123,14 @@ if results:
     df = df.reindex(model_paths.keys())
 
     # 按指定列顺序输出
-    col_order = ['MSE ↓', 'BVR (%) ↓', 'MVS (MW) ↓', 'NET MAE ↓', 'RVM ↓', 'DSA ↓']
+    col_order = ['MSE ↓', 'BVR (%) ↓', 'MVS (MW) ↓', 'NET MAE ↓', 'Strict RVR (%) ↓', 'DSA ↓']
     df = df[[c for c in col_order if c in df.columns]]
 
-    print("\n" + "=" * 88)
+    print("\n" + "=" * 95)
     print("   IEEE TABLE II - EXTREME WEATHER ROBUSTNESS (TOP 10% VOLATILITY)")
-    print("=" * 88)
+    print("=" * 95)
     print(df.to_string(float_format=lambda x: f"{x:.4f}"))
-    print("=" * 88 + "\n")
+    print("=" * 95 + "\n")
 
     df.to_csv("IEEE_Extreme_Weather_Table.csv", float_format="%.4f")
     print("已生成极端天气评估表格: IEEE_Extreme_Weather_Table.csv")

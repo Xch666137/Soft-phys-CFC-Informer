@@ -13,9 +13,9 @@ class PhysicsGuidedCausalCoupling(nn.Module):
     3. 时序平滑约束 (Temporal Smoothing)
     """
 
-    def __init__(self, d_model, n_heads=4, dropout=0.1, smooth_kernel=3):
+    def __init__(self, d_model, n_heads=4, dropout=0.1, smooth_kernel=3, ablation_no_gate_reg=False):
         super().__init__()
-
+        self.ablation_no_gate_reg = ablation_no_gate_reg
         self.d_model = d_model
 
         # ============================================================
@@ -189,16 +189,9 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         B, S, D = stat_feat.shape
 
         # ===== 将 Curriculum Learning 的 alpha 计算放在最优先 =====
-        if self.training:
-            # 冻结机制：前50%不更新阈值梯度，强制模型适应初始物理规则
-            if alpha > 0.5:
-                with torch.no_grad():
-                    prior_load, prior_pv, prior_wind = self.get_hard_prior(x_weather)
-            else:
-                prior_load, prior_pv, prior_wind = self.get_hard_prior(x_weather)
-        else:
-            alpha = 0.1  # 测试时保留10%安全先验
-            prior_load, prior_pv, prior_wind = self.get_hard_prior(x_weather)
+        # 不管是 training 还是 eval，门控融合比例 alpha 应完全受外部 curriculum_ratio 控制
+        # 原逻辑在此处对 eval 会强制改变行为，现在废除这一不一致性。
+        prior_load, prior_pv, prior_wind = self.get_hard_prior(x_weather)
 
 
         # ===== 计算历史天气波动率特征 =====
@@ -269,14 +262,14 @@ class PhysicsGuidedCausalCoupling(nn.Module):
         gate_wind = prior_wind * gate_wind_soft
         gate_load = gate_load_soft
 
-        # 时序平滑 (不变)
-        def apply_smoothing(g, max_val=1.5):
-            smoothed = self.smoother(g.transpose(1, 2)).transpose(1, 2)
-            return torch.clamp(smoothed, 0.0, max_val)
-
-        gate_pv = apply_smoothing(gate_pv, max_val=1.5)
-        gate_wind = apply_smoothing(gate_wind, max_val=1.5)
-        gate_load = apply_smoothing(gate_load, max_val=1.0)
+        # 时序平滑 (废除这种破坏门控高频敏捷度的强制低通滤波)
+        # 直接使用门控的原始值，以适应风/光的真实秒级跳变
+        # gate_pv = apply_smoothing(gate_pv, max_val=1.5)
+        # gate_wind = apply_smoothing(gate_wind, max_val=1.5)
+        # gate_load = apply_smoothing(gate_load, max_val=1.0)
+        gate_pv = torch.clamp(gate_pv, 0.0, 1.5)
+        gate_wind = torch.clamp(gate_wind, 0.0, 1.5)
+        gate_load = torch.clamp(gate_load, 0.0, 1.0)
 
         # ===== Step 4: 物理特征融合 =====
         # 使用 Gate 对 Attention 的结果进行加权
@@ -317,11 +310,17 @@ class PhysicsGuidedCausalCoupling(nn.Module):
             )
             # [FIX] 禁用 wind 的 GateResponseReg
             # 原因：风速在运行区间内本身就是高随机过程，强迫 gate 跟随 prior_wind
-            # 相当于把高频风速噪声硬编码进门控，产生乘法噪声共振。
+            # 相当于把高频 wind 噪声硬编码进门控，产生乘法噪声共振。
             # PV 仍保留此约束（夜间严格置零），对 wind 无物理必要性。
             loss_corr_wind = torch.tensor(0.0, device=stat_feat.device)
             wind_corr = 0.0
-            reg_loss += loss_corr_pv  # 只保留 PV 的相关性约束
+            
+            # --- ABLATION: w/o Gate Reg ---
+            if not self.ablation_no_gate_reg:
+                reg_loss += loss_corr_pv  # 只保留 PV 的相关性约束
+            else:
+                # Still record pv_corr for analysis but don't add to reg_loss
+                pass
 
         if return_gates:
             gate_pv_seq = gate_pv.mean(dim=-1).detach().cpu().numpy()

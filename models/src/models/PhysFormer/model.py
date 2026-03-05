@@ -33,7 +33,8 @@ class PhysFormer(nn.Module):
                  ablation_no_pgcc=False,
                  ablation_no_future_glu=False,
                  ablation_no_curriculum=False,
-                 ablation_fixed_phys=False):
+                 ablation_fixed_phys=False,
+                 ablation_no_gate_reg=False):
 
         super(PhysFormer, self).__init__()
         
@@ -43,6 +44,7 @@ class PhysFormer(nn.Module):
         self.ablation_no_future_glu = ablation_no_future_glu
         self.ablation_no_curriculum = ablation_no_curriculum
         self.ablation_fixed_phys = ablation_fixed_phys
+        self.ablation_no_gate_reg = ablation_no_gate_reg
         self.seq_len = seq_len
         self.pred_len = pred_len
         # --- 1. 双流 Embedding 层 ---
@@ -89,7 +91,8 @@ class PhysFormer(nn.Module):
         self.causal_coupling = PhysicsGuidedCausalCoupling(
             d_model=d_model,
             n_heads=n_heads,
-            dropout=dropout
+            dropout=dropout,
+            ablation_no_gate_reg=self.ablation_no_gate_reg
         )
 
         # --- ABLATION: w/o PGCC ---
@@ -108,13 +111,9 @@ class PhysFormer(nn.Module):
         )
         self.weather_fusion_proj = nn.Linear(d_model * 2, d_model)
 
-        # 共享投影：提取天气对所有功率的共性影响
-        self.shared_projection = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.LayerNorm(d_model),
-            nn.GELU(),
-            nn.Dropout(dropout)
-        )
+        # [REMOVED] shared_projection 已被移除，原负责提取共性影响的设计会导致
+        # 三个差异巨大的预测流产生严重的负迁移(Negative Transfer)和梯度冲突。
+        # 让 future_feat_combined 直接进入到各自分离的深层 Head 中，提升解耦性。
 
         # Head A: Load (相对简单，浅层网络)
         # 输入: [B, P, D] -> 输出: [B, P, 1]
@@ -233,20 +232,18 @@ class PhysFormer(nn.Module):
                 # if w/o physics stream, there is no phys_layer to use.
                 future_feat_combined = future_feat_history
 
-        # 经过共享投影层
-        future_feat = self.shared_projection(future_feat_combined)
-
+        # [FIX] 绕过共享投影层，避免梯度干扰导致提前发生早停
         # === Step 6: Residual Prediction (使用差异化 Head) ===
-        res_load = self.head_load(future_feat)  # [B, Pred, 1]
-        res_pv = self.head_pv(future_feat)
-        res_wind = self.head_wind(future_feat)
+        res_load = self.head_load(future_feat_combined)  # [B, Pred, 1]
+        res_pv = self.head_pv(future_feat_combined)
+        res_wind = self.head_wind(future_feat_combined)
 
         # === [NEW] Kinematic Smoothing (物理惯性平滑) ===
-        # 强行过滤由于 Transformer Point-wise Mapping 带来的高频自注意力随机抖动 (降低 CSA)
-        # kernel_size=3 的低通滤波，原生赋予模型物理随动惯性
-        res_load = self._kinematic_smooth(res_load)
-        res_pv   = self._kinematic_smooth(res_pv)
-        res_wind = self._kinematic_smooth(res_wind)
+        # 废除强行过滤。Transformer Point-wise Mapping 带来的高频抖动应交由 DIR 损失和特征学习解决
+        # 强制平滑会导致波峰波谷错位，且风光出力本身即具有秒级高频跳变。
+        # res_load = self._kinematic_smooth(res_load)
+        # res_pv   = self._kinematic_smooth(res_pv)
+        # res_wind = self._kinematic_smooth(res_wind)
 
         # BUGFIX: FP16 防止数值雪崩。归一化空间中真实物理波动在 [-5, 5] 内。
         # 限定在此范围可以完全避免极端的 0.0 * inf = NaN 浮点未定义灾难。
@@ -270,8 +267,8 @@ class PhysFormer(nn.Module):
             activity_wind = activity_future[:, :, 2].unsqueeze(-1)
 
             # [FIX-C] 对 activity_wind 施加平滑：切入风速附近的 0/1 阶跃 → 斜坡过渡
-            # 物理合理：真实风机启停有几分钟的升速/降速过程
-            activity_wind = self._kinematic_smooth(activity_wind)
+            # 废除平滑，交由特征融合自然过渡
+            # activity_wind = self._kinematic_smooth(activity_wind)
 
             # === Bounded Physical Act-Residual (物理边界感知型激活) ===
             mean_val = self.phys_layer.target_mean if hasattr(self.phys_layer, 'target_mean') else torch.zeros(3, device=res_load.device)

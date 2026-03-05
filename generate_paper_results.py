@@ -33,37 +33,40 @@ plt.rcParams.update({
 base_dir = './exp_results'
 
 model_paths = {
-    'LSTM':       f'{base_dir}/LSTM_vpp_dataset_3years_sl672_pl96_vpp',
-    'GRU':        f'{base_dir}/GRU_vpp_dataset_3years_sl672_pl96_vpp',
-    'PINN':       f'{base_dir}/PINN_vpp_dataset_3years_sl672_pl96_vpp',
-    'Informer':   f'{base_dir}/Informer_vpp_dataset_3years_sl672_pl96_vpp',
-    'Autoformer': f'{base_dir}/Autoformer_vpp_dataset_3years_sl672_pl96_vpp',
-    'DLinear':    f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
-    'PatchTST':   f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
-    'PhysFormer': f'{base_dir}/PhysFormer/checkpoints/PhysFormer_full_seed2024',
+    'LSTM':         f'{base_dir}/LSTM_vpp_dataset_3years_sl672_pl96_vpp',
+    'GRU':          f'{base_dir}/GRU_vpp_dataset_3years_sl672_pl96_vpp',
+    'PINN':         f'{base_dir}/PINN_vpp_dataset_3years_sl672_pl96_vpp',
+    'Informer':     f'{base_dir}/Informer_vpp_dataset_3years_sl672_pl96_vpp',
+    'Autoformer':   f'{base_dir}/Autoformer_vpp_dataset_3years_sl672_pl96_vpp',
+    'DLinear':      f'{base_dir}/DLinear_vpp_dataset_3years_sl672_pl96_vpp',
+    'PatchTST':     f'{base_dir}/PatchTST_vpp_dataset_3years_sl672_pl96_vpp',
+    'iTransformer': f'{base_dir}/iTransformer_vpp_dataset_3years_sl672_pl96_vpp',
+    'PhysFormer':   f'{base_dir}/PhysFormer/checkpoints/PhysFormer_full_seed2024',
 }
 
 # 颜色方案（IEEE 风格，高对比度低饱和学术风）
 MODEL_COLORS = {
-    'LSTM':       '#8c564b', # 棕色
-    'GRU':        '#9467bd', # 紫色
-    'PINN':       '#e377c2', # 粉色
-    'Informer':   '#d62728', # 红色
-    'Autoformer': '#ff7f0e', # 橙色
-    'DLinear':    '#2ca02c', # 绿色
-    'PatchTST':   '#1f77b4', # 蓝色
-    'PhysFormer': '#d73027', # 高亮正红（主角强调，与其他拉开反差）
+    'LSTM':         '#8c564b', # 棕色
+    'GRU':          '#9467bd', # 紫色
+    'PINN':         '#e377c2', # 粉色
+    'Informer':     '#d62728', # 红色
+    'Autoformer':   '#ff7f0e', # 橙色
+    'DLinear':      '#2ca02c', # 绿色
+    'PatchTST':     '#1f77b4', # 蓝色
+    'iTransformer': '#1f77b4', # 蓝色
+    'PhysFormer':   '#d73027', # 高亮正红（主角强调，与其他拉开反差）
 }
 
 MODEL_STYLES = {
-    'LSTM':       (':',   1.5),
-    'GRU':        ('-.',  1.5),
-    'PINN':       (':',   1.5),
-    'Informer':   ('--',  1.8),
-    'Autoformer': (':',   1.5),
-    'DLinear':    ('-.',  1.5),
-    'PatchTST':   ('--',  1.8),
-    'PhysFormer': ('-',   2.5),
+    'LSTM':         (':',   1.5),
+    'GRU':          ('-.',  1.5),
+    'PINN':         (':',   1.5),
+    'Informer':     ('--',  1.8),
+    'Autoformer':   (':',   1.5),
+    'DLinear':      ('-.',  1.5),
+    'PatchTST':     ('--',  1.8),
+    'iTransformer': ('.-',  2.0),
+    'PhysFormer':   ('-',   2.5),
 }
 
 CHANNEL_NAMES = ['Load', 'PV', 'Wind']
@@ -85,12 +88,22 @@ for model, path in model_paths.items():
         metrics = np.load(metrics_path, allow_pickle=True)
         results[model] = {
             'MAE': float(metrics[0]),
+            'MSE': float(metrics[1]),
             'RMSE': float(metrics[2]),
-            'BVR (%)': float(metrics[5]),
         }
+        
+        if len(metrics) > 5:
+            results[model]['BVR (%)'] = float(metrics[5])
 
         if os.path.exists(pred_path):
             pred = np.load(pred_path, allow_pickle=True)
+            
+            # 兼容老版基线:如果 metrics.npy 里没有存 BVR
+            if 'BVR (%)' not in results[model]:
+                violation_count = np.sum(pred < 0)
+                total_count = pred.size
+                results[model]['BVR (%)'] = float((violation_count / total_count) * 100)
+                
             pred_pv_wind = pred[:, :, 1:3]  # PV 和 Wind 通道
 
             # MVS: 仅在违规点上计算平均违规幅度
@@ -98,20 +111,27 @@ for model, path in model_paths.items():
             mvs = float(np.mean(np.abs(violations))) if len(violations) > 0 else 0.0
             results[model]['MVS'] = mvs
 
-            # RVM（边界违规幅度）: 全部预测点上的平均 relu(-pred) 值，衡量整体违规严重程度
-            rvm = float(np.mean(np.maximum(-pred_pv_wind, 0)))
-            results[model]['RVM'] = rvm
-
-            # DSA（差分误差对齐）: mean(|Δpred - Δtrue|)，衡量预测趋势变化与真实趋势的吃合度
             if pred.shape[1] > 1 and os.path.exists(true_path):
                 true_arr = np.load(true_path, allow_pickle=True)
-                dsa = float(np.mean(np.abs(np.diff(pred, axis=1) - np.diff(true_arr, axis=1))))
+                
+                # 计算 Strict RVR (%) (99.5th percentile 严格阈值)
+                pred_diff = np.abs(np.diff(pred, axis=1))
+                true_diff = np.abs(np.diff(true_arr, axis=1))
+                # 使用真实数据的 99.5 百分位作为各个通道的严格阈值 \rho_k
+                rho_k = np.percentile(true_diff, 99.5, axis=(0, 1))
+                ramp_violations = pred_diff > rho_k
+                strict_rvr = (np.sum(ramp_violations) / ramp_violations.size) * 100
+                results[model]['Strict RVR (%)'] = float(strict_rvr)
+                
+                # DSA（差分误差对齐）: mean(|Δpred - Δtrue|)
+                dsa = float(np.mean(np.abs(pred_diff - true_diff)))
             else:
+                results[model]['Strict RVR (%)'] = float('nan')
                 dsa = float('nan')
             results[model]['DSA'] = dsa
         else:
             results[model]['MVS'] = float('nan')
-            results[model]['RVM'] = float('nan')
+            results[model]['Strict RVR (%)'] = float('nan')
             results[model]['DSA'] = float('nan')
     else:
         print(f"[警告] metrics.npy 未找到: {metrics_path}")
@@ -124,13 +144,13 @@ for model, path in model_paths.items():
 # 3. Table I
 # ==========================================
 if results:
-    df = pd.DataFrame(results).T[['MAE', 'RMSE', 'BVR (%)', 'MVS', 'RVM', 'DSA']]
-    df.columns = ['MAE ↓', 'RMSE ↓', 'BVR (%) ↓', 'MVS ↓', 'RVM ↓', 'DSA ↓']
-    print("\n" + "=" * 68)
+    df = pd.DataFrame(results).T[['MSE', 'MAE', 'RMSE', 'BVR (%)', 'MVS', 'Strict RVR (%)']]
+    df.columns = ['MSE ↓', 'MAE ↓', 'RMSE ↓', 'BVR (%) ↓', 'MVS ↓', 'Strict RVR (%) ↓']
+    print("\n" + "=" * 80)
     print("      IEEE TRANSACTIONS ON SMART GRID - TABLE I")
-    print("=" * 68)
+    print("=" * 80)
     print(df.to_string(float_format=lambda x: f"{x:.4f}"))
-    print("=" * 68 + "\n")
+    print("=" * 80 + "\n")
     df.to_csv("IEEE_Table_I_Results.csv", float_format="%.4f")
     print("已生成表格文件: IEEE_Table_I_Results.csv\n")
 

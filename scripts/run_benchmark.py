@@ -133,7 +133,7 @@ def main():
 
             # 3. 读取并记录结果
             # 结果保存在 ./exp_results/{setting}/metrics.npy
-            # 顺序: [mae, mse, rmse, mape, mspe, bvr, rvr] (共7个)
+            # 顺序: [mae, mse, rmse, bvr, rvr] (共5个)
             res_path = f'./exp_results/{setting}/metrics.npy'
             if os.path.exists(res_path):
                 metrics = np.load(res_path)
@@ -141,8 +141,8 @@ def main():
                     'MSE': metrics[1],
                     'MAE': metrics[0],
                     'RMSE': metrics[2],
-                    'BVR (%)': metrics[5],  # 物理边界违规率
-                    'RVR (%)': metrics[6]  # 爬坡违规率
+                    'BVR (%)': metrics[3],  # 物理边界违规率
+                    'RVR (%)': metrics[4]  # 爬坡违规率
                 }
 
             # 4. 清理资源

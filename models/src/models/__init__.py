@@ -24,6 +24,7 @@ from .GRU import GRU
 from .PINN import PINN
 from .DLinear import DLinear
 from .PatchTST import PatchTST
+from .iTransformer import iTransformer
 
 # 为方便使用，定义模型名称到类的映射
 MODEL_REGISTRY = {
@@ -35,6 +36,7 @@ MODEL_REGISTRY = {
     'PINN': PINN,
     'DLinear': DLinear,
     'PatchTST': PatchTST,
+    'iTransformer': iTransformer,
 }
 
 def get_model(model_name):
@@ -65,6 +67,7 @@ __all__ = [
     'PINN',
     'DLinear',
     'PatchTST',
+    'iTransformer',
 
     # PhysFormer 组件
     'PhysicsGuidedCausalCoupling',

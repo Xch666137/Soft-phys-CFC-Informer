@@ -17,7 +17,7 @@ from tqdm import tqdm
 from data_loader.data_factory import PhysFormerDataset
 from models.src.models import PhysFormer
 from models.src.utils.losses import PhysAwareBaseLoss, PhysLoss
-from models.src.utils.metrics import metric, NRMSE_Channel_Avg
+from models.src.utils.metrics import metric, NRMSE_Channel_Avg, PhysicsComplianceMetrics
 
 warnings.filterwarnings('ignore')
 torch.backends.cudnn.benchmark = True
@@ -259,6 +259,7 @@ class Exp_PhysFormer:
             ablation_no_future_glu=getattr(self.args, 'ablation_no_future_glu', False),
             ablation_no_curriculum=getattr(self.args, 'ablation_no_curriculum', False),
             ablation_fixed_phys=getattr(self.args, 'ablation_fixed_phys', False),
+            ablation_no_gate_reg=getattr(self.args, 'ablation_no_gate_reg', False),
         )
 
         return model
@@ -279,10 +280,10 @@ class Exp_PhysFormer:
         各物理项的相对重要性完全由 PhysLoss.sub_weights 承载
         两者职责分离，互不重叠。
         """
-        # 阶段定义
-        stage1_end = 5
-        stage2_end = 10
-        stage3_end = 30
+        # 阶段定义 (配合 warmup_epochs = 10 延长平稳期)
+        stage1_end = 10
+        stage2_end = 15
+        stage3_end = 35
 
         # 最终目标权重（基于指导文档和现有实现）
         target_weights = {
@@ -323,7 +324,7 @@ class Exp_PhysFormer:
             return weights
 
         else:
-            # 阶段2逻辑不变（epoch 5-10）
+            # 阶段2逻辑不变（epoch 10-15）
             stage2_progress = (epoch - stage1_end) / (stage2_end - stage1_end)
             x = (stage2_progress - 0.5) * 12
             ratio = 1 / (1 + math.exp(-x))
@@ -434,7 +435,9 @@ class Exp_PhysFormer:
 
         # 提取 network 的 curriculum ratio
         progress_ratio = curriculum_ratio.get('net', 0.0) if isinstance(curriculum_ratio, dict) else curriculum_ratio
-        alpha = 1.0 - progress_ratio  # 进度越深，alpha 越小，越依赖软门控
+        # BUGFIX: 不要让 alpha 衰减到 0.0。强制保留最低 10% 的物理硬约束介入作为全局正则化，
+        # 这也是修复前 Val NRMSE 能达到 0.036 的关键泛化兜底。
+        alpha = max(0.1, 1.0 - progress_ratio)
 
         # 4. 前向传播
         # 确保使用正确的 Context (Train/Val/Test)
@@ -556,8 +559,8 @@ class Exp_PhysFormer:
             self.criterion.train()
 
             # 物理参数的冻结与解冻机制 ---
-            # 设定预热期为 5 个 epoch (可根据实际收敛速度微调)
-            warmup_epochs = 5
+            # 设定预热期为 10 个 epoch，让 Transformer 侧有充足的初期收敛时间，降低物理极早期介入的抖动
+            warmup_epochs = 10
 
             # --- ABLATION: Fixed Thresholds OR w/o Curriculum ---
             if getattr(self.args, 'ablation_fixed_phys', False):
@@ -891,13 +894,47 @@ class Exp_PhysFormer:
             print("[DEBUG] 反归一化被跳过！metric 将在归一化空间计算！")
 
         metrics_result = metric(preds, trues, ramp_limits=actual_ramp_limits)
-        avg_phys_metrics = {k: np.mean(v) if len(v) > 0 else 0.0 for k, v in phys_metrics.items()}
+        mae, mse, rmse, bvr, rvr = metrics_result
+        
+        print("\n" + "=" * 60)
+        print("  Standard Prediction Metrics (Test Set)")
+        print("=" * 60)
+        print(f"  MSE          : {mse:.6f}")
+        print(f"  MAE          : {mae:.6f}")
+        print(f"  RMSE         : {rmse:.6f}")
+        print("=" * 60)
+
+        # [FIX] 摒弃错误的 loss_dict 平均值，调用真实的物理合规性计算工具
+        compliance = PhysicsComplianceMetrics(
+            means=self.train_means,
+            stds=self.train_stds,
+            ramp_limits=actual_ramp_limits
+        )
+        real_compliance_metrics = compliance.compute_all_metrics(
+            pred=preds, true=trues, time_interval=0.25
+        )
 
         print("\n" + "=" * 60)
-        print("  VPP Physics Compliance Report (Test Set)")
+        print("  VPP Physics Compliance Report (Test Set) [DENORMALIZED]")
         print("=" * 60)
-        for k, v in avg_phys_metrics.items():
-            print(f"  {k.upper():<20} : {v:.6f}")
+        
+        # 挑选最核心的几个打印展示
+        display_keys = {
+            'dir_mean': 'DIR (Cos Loss)',
+            'kcl_residual_mae': 'NET (KCL MAE)',
+            'energy_energy_error_mae': 'ENERGY (Err MAE)',
+            'violation_violation_rate': 'BVR (%)'
+        }
+        for k, label in display_keys.items():
+            if k in real_compliance_metrics:
+                print(f"  {label:<20} : {real_compliance_metrics[k]:.6f}")
+
+        # 计算综合平均 RVR (%)
+        rvr_keys = [k for k in real_compliance_metrics.keys() if 'ramp_violation_rate' in k]
+        if rvr_keys:
+            avg_rvr = np.mean([real_compliance_metrics[k] for k in rvr_keys])
+            print(f"  {'RVR (%)':<20} : {avg_rvr:.6f}")
+        
         print("=" * 60 + "\n")
 
         path = os.path.join(self.args.checkpoints, setting)
@@ -912,7 +949,8 @@ class Exp_PhysFormer:
             np.save(os.path.join(folder_path, 'vis_speed.npy'), np.array(vis_data['speed']))
 
         np.save(os.path.join(folder_path, 'gate_details.npy'), detailed_gates)
-        np.save(os.path.join(folder_path, 'phys_metrics.npy'), avg_phys_metrics)
+        # 将我们真实计算的合规字典保存
+        np.save(os.path.join(folder_path, 'phys_metrics.npy'), real_compliance_metrics)
         np.save(os.path.join(folder_path, 'metrics.npy'), np.array(metrics_result))
         np.save(os.path.join(folder_path, 'pred.npy'), preds)
         np.save(os.path.join(folder_path, 'true.npy'), trues)

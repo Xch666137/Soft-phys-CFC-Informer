@@ -130,7 +130,7 @@ class PhysLoss(nn.Module):
 
         self.sub_weights = {
             'net': 1.0, 'energy': 0.5, 'deriv': 0.3,
-            'dir': 0.3, 'bvr': 2.0, 'rvr': 2.0
+            'dir': 0.05, 'bvr': 2.0, 'rvr': 2.0
         }
 
         self.register_buffer('scale_ema', torch.tensor(1.0))

@@ -23,13 +23,6 @@ def RMSE(pred, true):
     return np.sqrt(MSE(pred, true))
 
 
-def MAPE(pred, true):
-    return np.mean(np.abs((pred - true) / true))
-
-
-def MSPE(pred, true):
-    return np.mean(np.square((pred - true) / true))
-
 def NRMSE_Channel_Avg(pred, true):
     """
     计算各通道独立 NRMSE 后的平均值，消除量纲影响。
@@ -106,14 +99,12 @@ def metric(pred, true, ramp_limits):
     mae = MAE(pred, true)
     mse = MSE(pred, true)
     rmse = RMSE(pred, true)
-    mape = MAPE(pred, true)
-    mspe = MSPE(pred, true)
 
     # 物理指标 (仅针对预测值 pred 计算)
     bvr = BVR(pred)
     rvr = RVR(pred, limits=ramp_limits)
 
-    return mae, mse, rmse, mape, mspe, bvr, rvr
+    return mae, mse, rmse, bvr, rvr
 
 
 # ============================================================================
@@ -344,6 +335,31 @@ class PhysicsComplianceMetrics:
         # 1. 边界违规率
         violation = self.violation_rate(pred)
         all_metrics.update({f'violation_{k}': v for k, v in violation.items()})
+
+        # 1.5 物理时序方向一致性 (DIR)
+        # 必须基于真实的物理序列波动计算
+        pred_real = self.denormalize(pred)
+        if true is not None:
+            true_real = self.denormalize(true)
+            # 兼容 shapes [T, 3] 或 [B, T, 3]
+            if len(pred_real.shape) == 2:
+                diff_pred = pred_real[1:, :] - pred_real[:-1, :]
+                diff_true = true_real[1:, :] - true_real[:-1, :]
+                 # 手动计算各特征的余弦避免 pytorch 依赖
+                num = np.sum(diff_pred * diff_true, axis=0)
+                den = np.sqrt(np.sum(diff_pred**2, axis=0)) * np.sqrt(np.sum(diff_true**2, axis=0)) + 1e-8
+                dir_loss_channel = 1.0 - (num / den)
+                all_metrics['dir_mean'] = np.mean(dir_loss_channel)
+            elif len(pred_real.shape) == 3:
+                diff_pred = pred_real[:, 1:, :] - pred_real[:, :-1, :]
+                diff_true = true_real[:, 1:, :] - true_real[:, :-1, :]
+                # dim 1 是时间步。计算沿时间的余弦
+                num = np.sum(diff_pred * diff_true, axis=1) # [B, 3]
+                den = np.sqrt(np.sum(diff_pred**2, axis=1)) * np.sqrt(np.sum(diff_true**2, axis=1)) + 1e-8
+                dir_loss = 1.0 - (num / den)
+                all_metrics['dir_mean'] = np.mean(dir_loss)
+        else:
+            all_metrics['dir_mean'] = 0.0
 
         # 2. KCL残差
         kcl = self.kcl_residual(pred, true)

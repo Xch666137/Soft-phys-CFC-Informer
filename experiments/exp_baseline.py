@@ -18,6 +18,7 @@ from models.src.models.GRU import GRU
 from models.src.models.PINN import PINN
 from models.src.models.DLinear import DLinear
 from models.src.models.PatchTST import PatchTST
+from models.src.models.iTransformer import iTransformer
 from models.src.utils.metrics import metric
 
 
@@ -92,11 +93,10 @@ class Exp_Baselines(Exp_PhysFormer):
         model_dict = {
             'Informer': Informer,
             'Autoformer': Autoformer,
-            'LSTM': LSTM,
-            'GRU': GRU,
             'PINN': PINN,
             'DLinear': DLinear,
             'PatchTST': PatchTST,
+            'iTransformer': iTransformer,
         }
 
         if self.args.model not in model_dict:
@@ -105,7 +105,7 @@ class Exp_Baselines(Exp_PhysFormer):
         Model = model_dict[self.args.model]
 
         # 针对 Transformer 类的特殊配置
-        if self.args.model in ['Autoformer', 'Informer']:
+        if self.args.model in ['Autoformer', 'Informer', 'iTransformer']:
             if not hasattr(self.args, 'moving_avg'): self.args.moving_avg = 5
             if not hasattr(self.args, 'output_attention'): self.args.output_attention = False
 
@@ -197,7 +197,7 @@ class Exp_Baselines(Exp_PhysFormer):
                 batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp = \
                     self._process_one_batch(batch_x, batch_y, batch_x_mark, batch_y_mark)
 
-                if self.args.model in ['Informer', 'Autoformer']:
+                if self.args.model in ['Informer', 'Autoformer', 'iTransformer']:
                     if self.args.output_attention:
                         outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                     else:
@@ -261,7 +261,7 @@ class Exp_Baselines(Exp_PhysFormer):
                         self._process_one_batch(batch_x, batch_y, batch_x_mark, batch_y_mark)
 
                     with autocast(enabled=use_amp):
-                        if self.args.model in ['Informer', 'Autoformer']:
+                        if self.args.model in ['Informer', 'Autoformer', 'iTransformer']:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                             if self.args.output_attention: outputs = outputs[0]
                         else:
@@ -326,7 +326,7 @@ class Exp_Baselines(Exp_PhysFormer):
                 batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp = \
                     self._process_one_batch(batch_x, batch_y, batch_x_mark, batch_y_mark)
 
-                if self.args.model in ['Informer', 'Autoformer']:
+                if self.args.model in ['Informer', 'Autoformer', 'iTransformer']:
                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                     if self.args.output_attention: outputs = outputs[0]
                 else:
@@ -383,7 +383,7 @@ class Exp_Baselines(Exp_PhysFormer):
             self.logger.warning(f"Failed to calculate ramp limits in test: {e}. Using default.")
             ramp_limits = np.array([1.5, 0.5, 0.8])  # Fallback
 
-        mae, mse, rmse, mape, mspe, bvr, rvr = metric(preds_phys, trues_phys, ramp_limits=ramp_limits)
+        mae, mse, rmse, bvr, rvr = metric(preds_phys, trues_phys, ramp_limits=ramp_limits)
 
         # 使用 self.logger 输出最终指标
         self.logger.info(f'MSE:{mse:.6f}, MAE:{mae:.6f}')
@@ -398,7 +398,7 @@ class Exp_Baselines(Exp_PhysFormer):
             os.makedirs(folder_path)
 
         # 修改 exp_baseline.py 最后几行
-        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe, bvr, rvr]))
+        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, bvr, rvr]))
         np.save(folder_path + 'pred.npy', preds_phys)
         np.save(folder_path + 'true.npy', trues_phys)
 

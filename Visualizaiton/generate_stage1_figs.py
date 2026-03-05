@@ -153,9 +153,9 @@ def plot_fig5_pareto():
     # Data from Table I
     data = {
         'Model': ['LSTM', 'GRU', 'PINN', 'Informer', 'Autoformer', 'DLinear', 'PatchTST', 'PhysFormer'],
-        'MSE': [0.0167, 0.0163, 0.0157, 0.0121, 0.1253, 0.1014, 0.0230, 0.0127],
-        'BVR': [11.25, 11.15, 10.94, 19.53, 12.67, 7.03, 12.63, 0.46],
-        'MVS': [0.0093, 0.0103, 0.0097, 0.0036, 0.0737, 0.0295, 0.0207, 0.0149],
+        'MSE': [0.0167, 0.0163, 0.0157, 0.0121, 0.1253, 0.1014, 0.0230, 0.0128],
+        'BVR': [11.25, 11.15, 10.94, 19.53, 12.67, 7.03, 12.63, 0.00],
+        'MVS': [0.0093, 0.0103, 0.0097, 0.0036, 0.0737, 0.0295, 0.0207, 0.0000],
         'Category': ['RNN', 'RNN', 'PINN', 'Transformer', 'Transformer', 'Transformer', 'Transformer', 'PhysFormer']
     }
     df = pd.DataFrame(data)
@@ -170,13 +170,16 @@ def plot_fig5_pareto():
     
     for i, row in df_focus.iterrows():
         color = COLORS.get(row['Category'], '#333333')
+        # 计算气泡大小，确保 MVS=0 时依然可见 (代表极致合规)
+        size = max(row['MVS'] * bubble_scale, 80) 
+        
         # 对于 PhysFormer 使用特殊的视觉强调
         if row['Model'] == 'PhysFormer':
-            ax.scatter(row['MSE'], row['BVR'], s=row['MVS']*bubble_scale, color=color, alpha=0.8, edgecolors='black', linewidth=1.5, zorder=5)
-            # 添加一点光晕
-            ax.scatter(row['MSE'], row['BVR'], s=row['MVS']*bubble_scale*2.5, color=color, alpha=0.2, zorder=4)
+            ax.scatter(row['MSE'], row['BVR'], s=size, color=color, alpha=0.9, edgecolors='black', linewidth=1.5, zorder=5)
+            # 添加光晕效果
+            ax.scatter(row['MSE'], row['BVR'], s=size*2.5, color=color, alpha=0.15, zorder=4)
         else:
-            ax.scatter(row['MSE'], row['BVR'], s=row['MVS']*bubble_scale, color=color, alpha=0.6, edgecolors='white', linewidth=0.5, zorder=3)
+            ax.scatter(row['MSE'], row['BVR'], s=size, color=color, alpha=0.6, edgecolors='white', linewidth=0.5, zorder=3)
             
         # 添加模型文字标签
         y_offset = -0.8 if row['Model'] == 'Informer' else 0.8
@@ -198,8 +201,8 @@ def plot_fig5_pareto():
                 fontsize=9, ha='center', va='bottom', fontweight='bold' if row['Model'] == 'PhysFormer' else 'normal')
 
     # 绘制理想的 Pareto 前沿线（虚线）
-    pareto_x = [0.0121, 0.0127]
-    pareto_y = [19.53, 0.46]
+    pareto_x = [0.0121, 0.0128]
+    pareto_y = [19.53, 0.00]
     ax.plot(pareto_x, pareto_y, linestyle='--', color='gray', alpha=0.5, zorder=1)
 
     ax.set_xlabel('Mean Squared Error (MSE) $\\downarrow$')
@@ -232,13 +235,13 @@ def plot_fig9_ablation():
     print("Generating Figure 9: Ablation Study...")
     # Data from Table IV
     labels = ['w/o Curriculum', 'w/o Future GLU', 'w/o PGCC', 'w/o Phys Stream', 'PhysFormer']
-    mse_vals = [0.0138, 0.0129, 0.0127, 0.0131, 0.0127]
-    # base MSE 选用没有课程学习的 0.0138
-    base_mse = 0.0138
+    mse_vals = [0.0139, 0.0130, 0.0128, 0.0134, 0.0128]
+    # base MSE 选用没有课程学习的 0.0139
+    base_mse = 0.0139
     # 相对 MSE 增长 (这里我们画相对变化，或者直接画绝对值也可以，为了体现递进，用条形图画绝对值并标出差值)
     # y2 画 gate_r。 对于 N/A 我们填 0，并在图上标 N/A
-    gate_r_vals = [0.810, 0.813, 0.0, 0.0, 0.816]
-    gate_r_labels = ['0.810', '0.813', 'N/A', 'N/A', '0.816']
+    gate_r_vals = [0.7866, 0.8024, 0.0, 0.0, 0.8306]
+    gate_r_labels = ['0.7866', '0.8024', 'N/A', 'N/A', '0.8306']
 
     x = np.arange(len(labels))
     width = 0.35
