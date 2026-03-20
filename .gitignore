@@ -1,4 +1,4 @@
-### --- 数据与模型 (你指定的需求) ---
+### --- 模型权重与序列化文件 ---
 *.pth
 *.pt
 *.pkl
@@ -8,11 +8,12 @@
 ### --- 论文源码 ---
 *.tex
 
-### --- 数据集与日志 ---
-# 排除所有数据集文件夹（建议将数据放在名为 data 的目录下）以及所有checkpoint
-data/
-experiments/
-# 排除训练产生的日志（TensorBoard 及通用日志）
+### --- 数据集 ---
+/data/
+!physformer/data/
+
+### --- 训练产物 ---
+/checkpoints/
 runs/
 logs/
 tensorboard/
@@ -21,30 +22,32 @@ lightning_logs/
 events.out.tfevents.*
 *.log
 
+### --- 可视化输出 (可重新生成) ---
+visualization/output/
+
 ### --- Python 缓存与环境 ---
 __pycache__/
 *.py[cod]
 *$py.class
-# 虚拟环境目录
+*.egg-info/
 venv/
 .venv/
 env/
 dist/
 build/
-.claude
 
-### --- PyCharm & 系统文件 ---
+### --- IDE & 系统文件 ---
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
 
-### --- 其他可能的大文件 ---
+### --- 压缩包 ---
 *.zip
 *.tar.gz
 *.rar
 
-### --- agent相关配置 ---
+### --- Agent 配置 ---
 CLAUDE.md
 .agent
 .claude
