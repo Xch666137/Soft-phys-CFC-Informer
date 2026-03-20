@@ -1,0 +1,11 @@
+[project]
+name = "physformer"
+version = "1.0.0"
+description = "PhysFormer: Physics-guided Transformer for VPP multi-target load forecasting"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["physformer*"]
+
+[project.scripts]
+physformer-train = "physformer.cli:main"
