@@ -207,8 +207,6 @@ def plot_fig5_pareto():
 
     ax.set_xlabel('Mean Squared Error (MSE) $\\downarrow$')
     ax.set_ylabel('Boundary Violation Rate (BVR \%) $\\downarrow$')
-    ax.set_title('Fig. 5: Accuracy-Compliance Pareto Frontier (Bubble Size = MVS)')
-    
     # Legend for Categories
     legend_elements = [
         Patch(facecolor=COLORS['PhysFormer'], label='PhysFormer (Ours)'),
@@ -224,7 +222,6 @@ def plot_fig5_pareto():
             transform=ax.transAxes, fontsize=9, style='italic', color='dimgray')
 
     plt.tight_layout()
-    plt.subplots_adjust(top=0.90)
     plt.savefig(os.path.join(base_dir, 'IEEE_Fig5_Pareto_2D.pdf'))
     plt.close()
 
@@ -278,8 +275,6 @@ def plot_fig9_ablation():
     # Titles and Legends
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels, rotation=15, ha='right')
-    ax1.set_title('Fig. 9: Ablation Analysis on Predictive Accuracy vs. Causal Interpretability')
-    
     # Combined legend
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()

@@ -84,8 +84,6 @@ def plot_fig8_extreme_weather():
     
     ax1.set_xticks(x)
     ax1.set_xticklabels(models, rotation=20, ha='right')
-    ax1.set_title('Fig. 8: Model Robustness under Extreme Volatile Weather (Top 10%)')
-    
     # Vertical distinguishing line before PhysFormer
     ax1.axvline(x[-1]-1 + width*2, color='gray', linestyle='--')
     

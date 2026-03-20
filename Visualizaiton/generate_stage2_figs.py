@@ -42,14 +42,9 @@ def plot_fig3_causal_gate():
     gate_seq = pv_gate[0, :length]
     irr_seq = irr[0, :length]
     
-    # 为绘制散点回归，直接将第一条长序列打平
-    flat_gate = pv_gate[0].flatten()
-    flat_irr = irr[0].flatten()
-    
-    # Remove zeros for better plotting of correlation
-    mask = flat_irr > 0.01 
-    gate_clean = flat_gate[mask]
-    irr_clean = flat_irr[mask]
+    # 使用全部样本计算散点回归（而非仅 sample 0）
+    flat_gate = pv_gate.flatten().astype(np.float64)
+    flat_irr = irr.flatten().astype(np.float64)
     
     # Subplots: top for time series, bottom for regression
     fig = plt.figure(figsize=(10, 6))
@@ -76,33 +71,28 @@ def plot_fig3_causal_gate():
     
     ax1.set_xlabel('Time Steps (15-min intervals)')
     ax1.set_xlim(0, length)
-    ax1.set_title('Fig. 3: Time-Series Entanglement of Causal Gate and Physical Environment')
-    
     # combine legends
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax1_twin.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', frameon=False)
     
     # --- Bottom: Regression Scatter ---
-    # Downsample to avoid too heavy plot
-    idx = np.random.choice(len(gate_clean), size=min(1500, len(gate_clean)), replace=False)
-    gate_sub = gate_clean[idx]
-    irr_sub = irr_clean[idx]
-    
+    # Downsample to avoid too heavy plot (use all samples, all time points)
+    n_total = len(flat_gate)
+    idx = np.random.choice(n_total, size=min(2000, n_total), replace=False)
+    gate_sub = flat_gate[idx]
+    irr_sub = flat_irr[idx]
+
     ax2.scatter(irr_sub, gate_sub, alpha=0.3, color='#2C7BB6', s=10)
-    
-    # Fit regression line
-    irr_sub_f64 = irr_sub.astype(np.float64)
-    gate_sub_f64 = gate_sub.astype(np.float64)
-    m, b = np.polyfit(irr_sub_f64, gate_sub_f64, 1)
-    x_line = np.linspace(0, max(irr_sub_f64), 100)
+
+    # Fit regression line on all data
+    m, b = np.polyfit(flat_irr, flat_gate, 1)
+    x_line = np.linspace(0, max(flat_irr), 100)
     ax2.plot(x_line, m * x_line + b, color='black', linestyle='--', lw=2, label='Linear Fit')
-    
-    # Calculate pearson r
-    irr_clean_f64 = irr_clean.astype(np.float64)
-    gate_clean_f64 = gate_clean.astype(np.float64)
-    r, _ = pearsonr(irr_clean_f64, gate_clean_f64)
-    ax2.text(0.05, 0.7, f'Pearson $r = {r:.3f}$ (Dataset Test)', transform=ax2.transAxes, 
+
+    # Calculate pearson r on all data (including night-time zeros)
+    r, _ = pearsonr(flat_irr, flat_gate)
+    ax2.text(0.05, 0.7, f'Pearson $r = {r:.4f}$ (N={n_total:,})', transform=ax2.transAxes,
              fontsize=11, fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
     
     ax2.set_xlabel('Normalized Irradiance')
