@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 from scripts.run_benchmark import get_args
-from experiments.exp_PhysFormer import Exp_PhysFormer
+from physformer.exp.exp_physformer import Exp_PhysFormer
 
 def setup_args(model_name):
     args = get_args()
@@ -55,7 +55,7 @@ def get_predictions(model_name, args):
         if model_name == 'PhysFormer':
             exp = Exp_PhysFormer(args)
         else:
-            from experiments.exp_baseline import Exp_Baselines
+            from physformer.exp.exp_baseline import Exp_Baselines
             exp = Exp_Baselines(args)
     finally:
         sys.stdout = old_stdout

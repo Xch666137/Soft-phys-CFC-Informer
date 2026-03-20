@@ -6,18 +6,12 @@ PhysFormer ONNX 导出脚本
 支持动态批次和序列长度。
 """
 
-import sys
 import os
 import argparse
 import torch
 import numpy as np
 
-# 添加项目根目录到路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(project_root)
-
-from models.src.models import PhysFormer
+from physformer.models import PhysFormer
 
 
 def parse_args():

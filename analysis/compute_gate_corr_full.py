@@ -5,7 +5,7 @@ import numpy as np
 from scipy import stats
 
 from scripts.run_benchmark import get_args
-from experiments.exp_PhysFormer import Exp_PhysFormer
+from physformer.exp.exp_physformer import Exp_PhysFormer
 
 def compute_from_model():
     """

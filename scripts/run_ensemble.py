@@ -1,16 +1,9 @@
-import sys
-import os
 import argparse
 import torch
 import numpy as np
 
-# 获取项目根目录，确保能 import 到 modules
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(project_root)
-
-from experiments.exp_PhysFormer import Exp_PhysFormer
-from models.src.utils.metrics import metric
+from physformer.exp.exp_physformer import Exp_PhysFormer
+from physformer.utils.metrics import metric
 
 def train_single_model(seed, args):
     """

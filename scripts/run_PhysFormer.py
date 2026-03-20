@@ -1,14 +1,6 @@
-import sys
-import os
-
-# 获取项目根目录，确保能 import 到 modules
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(project_root)
-
 import argparse
 import torch
-from experiments.exp_PhysFormer import Exp_PhysFormer
+from physformer.exp.exp_physformer import Exp_PhysFormer
 
 
 def main():

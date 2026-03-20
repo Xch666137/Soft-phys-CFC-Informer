@@ -8,11 +8,7 @@ import torch
 import warnings
 warnings.filterwarnings('ignore')
 
-# 保证能导入上级目录的模型
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from models.src.models.PhysFormer.physical_layer import ExplicitPhysicalMapping
+from physformer.models.physical_layer import ExplicitPhysicalMapping
 
 def set_ieee_style():
     plt.style.use('default')

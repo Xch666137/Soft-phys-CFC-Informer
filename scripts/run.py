@@ -1,19 +1,6 @@
-import sys
-import os
-
-# --- 新增代码开始 ---
-# 获取当前脚本的绝对路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# 获取项目根目录 (scripts 的上一级)
-project_root = os.path.dirname(current_dir)
-# 将项目根目录加入 python 搜索路径
-sys.path.append(project_root)
-# --- 新增代码结束 ---
-
-
 import argparse
 import torch
-from experiments.exp_baseline import Exp_Informer
+from physformer.exp.exp_baseline import Exp_Baselines
 
 
 def main():
@@ -76,7 +63,7 @@ def main():
 
     # 运行实验
     print(f'Args in experiment:\n{args}')
-    exp = Exp_Informer(args)
+    exp = Exp_Baselines(args)
 
     print('>>>>>>>start training : >>>>>>>>>>>>>>>>>>>>>>>>>>')
     exp.train()

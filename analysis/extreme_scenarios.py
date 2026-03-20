@@ -366,14 +366,6 @@ def main_example():
     """
     使用示例
     """
-    import sys
-    import os
-
-    # 添加项目根目录到路径
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(current_dir)
-    sys.path.append(project_root)
-
     # 这里假设已经有了数据集和预测结果
     # 实际使用时需要替换为真实数据
 
