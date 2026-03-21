@@ -209,6 +209,12 @@ def main():
             args.dec_in = 6
         if not hasattr(args, 'c_out'):
             args.c_out = 3
+        if not hasattr(args, 'use_multi_gpu'):
+            args.use_multi_gpu = False
+        if not hasattr(args, 'device_ids'):
+            args.device_ids = [args.gpu]
+        if not hasattr(args, 'd_layers'):
+            args.d_layers = 2
 
         exp = Exp_Baselines(args)
         print(f">>> Using Baseline Experiment: {model_name} <<<")
