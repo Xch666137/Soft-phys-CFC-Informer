@@ -1,0 +1,20 @@
+\section*{符号表}
+\addcontentsline{toc}{section}{符号表}
+\begin{IEEEdescription}[\IEEEusemathlabelsep\IEEEsetlabelwidth{$\text{PGCC, NRMSE, BPAR}$}]
+\item[$P_{\text{net}}, P_{\text{load}}, P_{\text{pv}}, P_{\text{wind}}$] 净负荷、负荷、光伏和风电功率 [MW]。
+\item[$G, T, v$] 辐照度 [W/m$^2$]、温度 [$^\circ$C]、风速 [m/s]。
+\item[$\eta_{\text{pv}}, \beta_T$] 光伏转换效率和温度系数 [/$^\circ$C]。
+\item[$v_{\text{ci}}, v_r, v_{\text{co}}$] 切入、额定和切出风速 [m/s]。
+\item[$\Gamma_{\text{run}}$] 风机运行指示函数。
+\item[$P_{\text{base}}, T_c, \gamma$] 基准负荷 [MW]、舒适温度 [$^\circ$C]、灵敏度。
+\item[$a_{\text{pv}}, a_{\text{wind}}$] 物理激活掩码 $\in [0,1]$。
+\item[$p_{\text{pv}}, p_{\text{wind}}$] 门控硬先验。
+\item[$g_{\text{pv}}, g_{\text{wind}}$] PGCC 门控 ($g_{\text{pv}} \in [0, 1.5]$)。
+\item[$\alpha, \upsilon$] 课程学习参数和天气波动率。
+\item[$\mathcal{L}_{\text{total}}, \mathcal{L}_{\text{mse}}, \mathcal{L}_{\text{net}}$] 混合损失、MSE 损失和净负荷损失。
+\item[$\mathcal{L}_{\text{bvr}}, \mathcal{L}_{\text{rvr}}, \mathcal{L}_{\text{prior}}$] 安全性和正则化损失。
+\item[$\gamma_{\text{ema}}$] 动态损失平衡比例。
+\item[$S, P, D$] 序列长度 (672, 96)、模型维度 (512)。
+\item[$\text{BVR, MVS, RVM}$] 安全性和爬坡违规指标。
+\item[$\text{PGCC, NRMSE, BPAR}$] 门控、误差和残差机制。
+\end{IEEEdescription}

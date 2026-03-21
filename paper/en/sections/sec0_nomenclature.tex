@@ -1,0 +1,20 @@
+\section*{Nomenclature}
+\addcontentsline{toc}{section}{Nomenclature}
+\begin{IEEEdescription}[\IEEEusemathlabelsep\IEEEsetlabelwidth{$\text{PGCC, NRMSE, BPAR}$}]
+\item[$P_{\text{net}}, P_{\text{load}}, P_{\text{pv}}, P_{\text{wind}}$] Net, load, PV, and wind power [MW].
+\item[$G, T, v$] Irradiance [W/m$^2$], temp [$^\circ$C], wind speed [m/s].
+\item[$\eta_{\text{pv}}, \beta_T$] PV conversion and temp. coeff. [/$^\circ$C].
+\item[$v_{\text{ci}}, v_r, v_{\text{co}}$] Cut-in, rated, and cut-out speed [m/s].
+\item[$\Gamma_{\text{run}}$] Wind power indicator function.
+\item[$P_{\text{base}}, T_c, \gamma$] Base load [MW], comfort temp [$^\circ$C], sens.
+\item[$a_{\text{pv}}, a_{\text{wind}}$] Physics activity masks $\in [0,1]$.
+\item[$p_{\text{pv}}, p_{\text{wind}}$] Gating hard priors.
+\item[$g_{\text{pv}}, g_{\text{wind}}$] PGCC gates ($g_{\text{pv}} \in [0, 1.5]$).
+\item[$\alpha, \upsilon$] Curriculum and weather volatility.
+\item[$\mathcal{L}_{\text{total}}, \mathcal{L}_{\text{mse}}, \mathcal{L}_{\text{net}}$] Hybrid, MSE, and net load losses.
+\item[$\mathcal{L}_{\text{bvr}}, \mathcal{L}_{\text{rvr}}, \mathcal{L}_{\text{prior}}$] Safety and regularization losses.
+\item[$\gamma_{\text{ema}}$] Dynamic loss balancing scale.
+\item[$S, P, D$] Seq length (672, 96), model dim (512).
+\item[$\text{BVR, MVS, RVM}$] Safety and ramp violation metrics.
+\item[$\text{PGCC, NRMSE, BPAR}$] Gating, error, and residual mechanisms.
+\end{IEEEdescription}

@@ -1,0 +1,140 @@
+\section{所提 PhysFormer 框架}
+\label{sec:method}
+
+\subsection{数学形式化与预测任务构建}
+在虚拟电厂（VPP）预测的背景下，目标是预测三个不同子组件的未来功率输出：基准负荷（$P_{\text{load}}$）、光伏发电（$P_{\text{pv}}$）和风力发电（$P_{\text{wind}}$）。VPP 的总净功率需求定义为 $P_{\text{net}} = P_{\text{load}} - P_{\text{pv}} - P_{\text{wind}}$。令 $\mathcal{X}_{\text{stat}} \in \mathbb{R}^{B \times S \times 3}$ 表示三个组件在长度为 $S$ 的历史回顾窗口内的历史观测序列，其中 $B$ 是批大小（batch size）。同时，相应的历史天气条件——包括温度、辐照度和风速——由 $\mathcal{X}_{\text{weather\_hist}} \in \mathbb{R}^{B \times S \times 3}$ 表示。模型还获得了预测时界 $P$ 内的未来天气预报，记为 $\mathcal{X}_{\text{weather\_future}} \in \mathbb{R}^{B \times P \times 3}$。给定这些输入，预测模型旨在生成输出 $Y \in \mathbb{R}^{B \times P \times 3}$ 的点预测，提供负荷、光伏和风电组件各自的未来轨迹。
+
+\subsection{整体架构}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{IEEE_Fig1_Architecture.png}
+\caption{所提出的 PhysFormer 的整体架构。它具有双流设计：由 Transformer 编码的统计流和显式物理映射流。这些流通过物理引导的因果耦合（PGCC）模块进行因果融合。未来天气条件使用门控线性单元（GLU）注入，以提供显式的远见。最后，理论锚定的残差头在物理导出的激活门控约束下对预测进行微调，消除了非物理预测。}
+\label{fig:overall_architecture}
+\end{figure}
+
+PhysFormer 被构建为一个具有物理引导因果耦合（PGCC）和理论锚定激活门控机制的双流 Transformer。处理流程严格遵循七步数据流：（1）将历史观测值 $\mathcal{X}_{\text{stat}}$ 和天气 $\mathcal{X}_{\text{weather\_hist}}$ 连接并由维度为 $d_{\text{model}}=512$、前馈维度 $d_{\text{ff}}=1024$、8 个头和 3 层的 Transformer 编码器进行编码，产生统计特征表示。（2）同时，$\mathcal{X}_{\text{weather\_hist}}$ 通过显式物理映射（ExplicitPhysicalMapping）模块处理，生成物理历史特征和理论基准。（3）PGCC 模块将统计序列与物理表示融合，形成因果耦合的潜在状态，并计算物理对齐正则化损失。（4）FlattenHead 机制将序列从历史维度 $S$ 线性投影到未来预测时界 $P$。（5）为了提供显式的远见，未来天气变量 $\mathcal{X}_{\text{weather\_future}}$ 被映射到物理表示，并通过具有残差逻辑的门控线性单元（GLU）注入到潜在序列中。（6）共享投影层将特征路由到不同的输出头——按深度区分——以预测每个组件的残差修正。（7）理论锚定输出结构应用物理导出的激活掩码，动态抑制或释放神经残差修正，产生最终的 VPP 预测。
+
+\subsection{显式物理映射}
+物理注入的核心在于显式物理映射（ExplicitPhysicalMapping）层，它通过领域特定的方程将相关的天气变量映射到理论功率基准。
+
+\subsubsection{光伏模型}
+理论光伏发电由辐照度 $G$ 驱动，并受电池温度影响而退化，建模为：
+\begin{equation}
+    P_{\text{pv}} = G \cdot \eta_{\text{pv}} \cdot \text{clamp}(1 - \beta_T \cdot (T - 25), 0, 1.5)
+\label{eq:pv_model}
+\end{equation}
+其中 $T$ 是温度，$\eta_{\text{pv}} = 0.33 \cdot \sigma(\theta_{\text{eff}})$ 是受单结硅电池 33\% 的 Shockley-Queisser 极限约束的可学习转换效率，$\beta_T = \text{softplus}(\theta_{\text{temp\_coef}}) \times 0.01 \in [0.003, 0.005]/^\circ\text{C}$ 是温度系数。为了在梯度反向传播期间保持数值稳定性，同时惩罚非物理的负效率，温度相关的退化通过 1.5 的饱和限制约束在安全运行流形内，这在容纳亚零度环境下的效率增益的同时，不会导致发散的梯度更新。
+
+\subsubsection{风电模型}
+风电极限在很大程度上取决于运行阈值：切入风速 $v_{\text{ci}}$、额定风速 $v_{\text{r}}$ 和切出风速 $v_{\text{co}}$。为了保持严格的阈值顺序，我们利用累积增量结构，其中 $v_{\text{ci}} = \text{softplus}(\theta_{\text{ci}})$，$v_{\text{r}} = v_{\text{ci}} + \text{softplus}(\theta_{\text{r\_delta}})$，以及 $v_{\text{co}} = v_{\text{r}} + \text{softplus}(\theta_{\text{co\_delta}})$。功率输出使用经过运行合规性修改的理想化软曲线近似：
+\begin{equation}
+    P_{\text{wind}} = \text{scale}_{\text{wind}} \cdot \sigma(5 \cdot (w_{\text{norm}} - 0.5)) \cdot I_{\text{running}}
+\label{eq:wind_ideal}
+\end{equation}
+其中 $w_{\text{norm}}$ 是归一化风速，$\text{scale}_{\text{wind}}$ 是代表装机容量的可学习幅度因子，而 $I_{\text{running}}$ 是一个概念性指示函数，仅在 $[v_{\text{ci}}, v_{\text{co}}]$ 运行窗口内严格为 1，否则为 0。必须指出的是，虽然\eqref{eq:wind_ideal}利用 $I_{\text{running}}$ 来定义理想的运行边界，但将其直接嵌入神经网络会引发不可微的零梯度死区（zero-gradient dead zone）。为了从根本上规避这一问题并维持连续的梯度流，PhysFormer 在实际的神经计算图中，完全使用连续且完全可微的物理激活掩码 $a_{\text{wind}}$（其推导详见随后的第~\ref{subsec:activity_gating}~节）替换了 $I_{\text{running}}$。因此，风电组件的实际前向传播路径被正式执行为：
+\begin{equation}
+    P_{\text{wind,actual}} = \text{scale}_{\text{wind}} \cdot \sigma(5 \cdot (w_{\text{norm}} - 0.5)) \cdot a_{\text{wind}}
+\label{eq:wind_actual}
+\end{equation}
+这种数学上的解耦无缝地连接了刚性的物理阈值与端到端的反向传播，彻底避免了使用直通估计器（Straight-Through Estimators, STE）。计算得出的 $P_{\text{wind,actual}}$ 随后直接作为 BPAR 机制中的 $P_{x,\text{theory}}$ 基准~\eqref{eq:bpar}，而相同的可微掩码 $a_{\text{wind}}$ 则被复用为抑制门控 $a_x$~\eqref{eq:activity_mask}，以确保对基准和神经残差的同步物理门控。此外，累积增量优化确保在梯度更新期间重叠的边界永远不会导致参数状态崩溃，使得约束在任何时候都在结构上得到保证。
+
+\subsubsection{负荷模型}
+我们通过二次热舒适模型抽象了由人类制冷和采暖活动触发的电力负荷变化：
+\begin{equation}
+    P_{\text{load}} = P_{\text{base}} + \text{softplus}(\gamma) \cdot (T - T_c)^2
+\label{eq:load_model}
+\end{equation}
+其中 $T_c$ 是一个可优化的热舒适基准，初始值为 $20^\circ\text{C}$。虽然 Transformer 的内在自注意力机制从根本上擅长提取表征人类社会活动的刚性昼夜和周周期性，但显式物理映射流刻意限制为隔离电力负荷的非线性、温度驱动的波动。因此，我们通过该二次舒适模型概念化热诱导的方差，显式地将气象敏感性与统计捕获的时间基准解耦。
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{IEEE_Fig2_PhysicalMapping.pdf}
+\caption{收敛后学习到的显式物理映射函数。(a) 不同辐照水平下的光伏温度退化，由可学习系数 $\beta_T = 0.0041/^\circ$C 支配。(b) 风力机功率曲线，在切入（$v_{\text{ci}}=3.5$ m/s）、额定（$v_r=12.0$ m/s）和切出（$v_{\text{co}}=25.0$ m/s）阈值之间具有平滑的 S 形过渡。(c) 具有经数据校准的舒适温度 $T_c \approx 20^\circ$C 的负荷热舒适需求。所有参数见表~\ref{tab:physical_params}。}
+\label{fig:physical_mapping}
+\end{figure*}
+
+\subsubsection{物理激活门控}
+\label{subsec:activity_gating}
+为了防止神经网络臆造出非物理的伪影，我们提出了一种显式的激活门控方案。对于光伏，夜间无关性建模为 $a_{\text{pv}} = \tanh(10 \cdot P_{\text{pv\_theory}})$。对于风电，随风速变化的激活采用可微软限制进行参数化：$a_{\text{wind}} = \tanh(10 \cdot \text{softplus}(v - v_{\text{ci}}) \cdot \text{softplus}(v_{\text{co}} - v))$。虽然 $a_{\text{wind}}$ 中的 $\text{softplus}$ 算子乘积在理论上会在风速趋近 $v_{\text{co}}$ 时诱发逐渐的衰减——从而略微偏离了刚性的水平额定输出平台——但这种保守的物理偏置已被无约束的神经残差头有效吸收。在 BPAR 框架内，残差机制会自动补偿由于数学平滑产生的二阶阻尼效应，确保最终输出在不牺牲可微性的情况下维持额定功率特性。风电组件极低的预测误差（表~\ref{tab:ablation}）证实了这种混合架构在调和连续梯度流与硬阈值行为方面的有效性。负荷本质上是刚性的，采用无条件乘法器 $a_{\text{load}} = 1$。这些物理导出的激活在最终的有界物理激活-残差（BPAR）层中充当确定性锚定的掩码，在确保连续梯度流的同时，无缝衔接有功运行状态与零发电周期之间的过渡。
+
+\subsection{物理引导因果耦合 (PGCC)}
+物理引导因果耦合（PGCC）模块根据物理编码的表示协调从统计流中检索的知识。
+
+\subsubsection{物理锚定的光照先验}
+我们首先建立一个数据无关的硬先验，以拒绝虚假相关性。门控依赖于参数化的照明 S 形先验 $p_{\text{pv}}^{\text{prior}} = \sigma(k_{\text{irr}} \cdot (G_{\text{norm}} - \theta_{\text{irr}}))$，约束动态保持为 $\theta_{\text{irr}} \in [-2.0, 0.5]$，斜率边界为 $k_{\text{irr}} \in [1, 100]$。这种硬先验在白昼和黑夜间隔之间建立了不容妥协的区别，拒绝了数据嵌入中的噪声伪影。
+
+\subsubsection{波动感知软门控}
+为了动态衡量对网络的信任度，系统嵌入了提取为 $\upsilon = \frac{1}{C}\sum_{c}\text{Var}_{t}(\mathcal{X}_{\text{weather},c})$ 的序列级样本波动。这些动态连同统计嵌入和注意力输出，被路由通过一个产生未缩放软条件图的下采样多层感知器。这种波动输入有助于网络动态调整其信任比，在条件不稳定时降低物理组件的权重。
+
+\subsubsection{源异构门控边界}
+耦合实现了独立的激活范围，以适应发电来源的特性：
+\begin{gather}
+    \text{gate}_{\text{pv}} = \text{smooth} \left( p_{\text{pv}}^{\text{prior}} \cdot (0.5 + g_{\text{soft\_pv}}) \right) \in [0, 1.5] \label{eq:gate_pv} \\
+    \text{gate}_{\text{load}} = \text{smooth}(g_{\text{soft\_load}}) \in [0, 1.0] \label{eq:gate_load}
+\end{gather}
+为 $\text{gate}_{\text{pv}}$ 设置 $1.5$ 的不对称上限并非单纯的统计放宽，而是深思熟虑的工程要求。在 BPAR 的加性结构（$\hat{P}_x = \text{Softplus}(P_{\text{theory}} + r_x)$）中，该乘数自适应地为神经残差头提供了必要的\textit{工程余量（engineering headroom）}。在局部气象瞬变（如超辐照现象产生的 $1.2\times$ 至 $1.5\times$ 涌动）期间，标准的基于方差归一化的统计输入 $G_{\text{norm}}$ 经常为了维持全局优化稳定性而被压缩向 $1.0$ 限制。$1.5$ 的上限确保护性活动调节具有足够的动态范围，允许残差流充分恢复这些高频瞬态峰值。通过提供这种结构化的工程余量，PGCC 防止了预测流形在归一化晴空基线处过早饱和，从而确保最终输出能够严谨地追踪突发的环境极端工况。至关重要的是，PGCC 架构促进了印刻门控-辐照度相关性（Imprinted Gate-Irradiance Correlation）。通过显式的门控响应正则化，学习到的 $\text{gate}_{\text{pv}}$ 被严格锚定在物理现实中，相对于外部辐照度实现了 $r=0.8306$ 的确定性皮尔逊相关系数（图~\ref{fig:causal_gate}）。这种结构化对齐的物理映射在结构上与后续的残差预测能力隔离，使其对分布外（OOD）传感器漂移具有极强的韧性（即使在 50\% 噪声幅度下也能保持 $r > 0.81$），且不会降低预测误差。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{IEEE_Fig3_CausalGate.pdf}
+\caption{PGCC 中印刻的门控-辐照度相关性。上图：学习到的光伏门控和太阳辐射在代表性测试样本上的时间序列叠加。下图：散点回归确认了显式刻印的门控激活与辐照度之间存在极强的皮尔逊相关系数（$r=0.84$，$p < 0.001$）。全测试集相关性（$r=0.8306$，$N \approx 430$k）在正文中报告。请注意，尽管存在内部 \texttt{smooth} 和归一化约束，但皮尔逊相关性严格捕获了它们跨越绝对幅度量级的同步单调方差。}
+\label{fig:causal_gate}
+\end{figure}
+
+\subsubsection{由物理到数据的课程过渡}
+我们通过课程因子 $\alpha$ 来调节对齐阶段。当融合查询检索特征时，模块集成按以下比例动态缩放的输入：
+\begin{equation}
+    q = \alpha \cdot F_{\text{physics}} + (1 - \alpha) \cdot g_{\text{soft}} \cdot F_{\text{stat}}
+\label{eq:curriculum_query}
+\end{equation}
+在初始训练阶段（$\alpha \to 1$），交叉注意力查询被严格限制为从结构化物理表示中检索，建立必要的确定性基础。随着训练的进行（$\alpha \to 0$），查询逐渐向包含由 $g_{\text{soft}}$ 门控的数据学习残差状态过渡，平衡既定的物理先验与经验统计适配。
+
+\subsubsection{时间平滑}
+由于内部帧依赖关系，局部序列不连续性经常困扰原始门控参数。为了抵消这一点，所有时间门控变量都通过分组一维深度卷积（内核大小 3，组数=$d_{\text{model}}$）。此滤波器在结构上抑制了门控分配层内的高频混沌波动，同时保留了宏观水平的位移指标。
+
+\subsection{外生天气集成}
+在 FlattenHead 将融合的表示投影到显式的未来上下文之后，框架必须系统地集成给定预测时界内的即将到来的天气模式。由于仅靠历史上下文无法获得预测时界的气象条件，因此提供这种显式的远见至关重要。未来物理潜在空间 $F_{\text{weather\_future}}$ 与神经历史 $F_{\text{history}}$ 连接，并通过门控线性单元（$\text{gate} = \sigma(\text{linear}(F_{\text{cat}}))$）进行聚合。有界残差输出产生为 $F_{\text{future}} = \text{gate} \cdot \text{proj}(F_{\text{cat}}) + F_{\text{history}}$。这种显式有界的前向可见性确保了残差头经过适当调节，以对即将到来的确定性干扰（如黎明过渡或突然的风电切出）作出反应。
+
+\subsection{有界物理动作残差 (BPAR) 机制} \label{subsec:bpar}
+为了在保持连续梯度流的同时系统地减轻非物理异常，我们提出了有界物理激活-残差（BPAR）机制。令 $\mu_x$ 和 $\sigma_x$ 分别表示组件 $x$ 的全局均值和标准差。我们将归一化物理零点定义为 $P_{x,\text{zero}} = (0 - \mu_x) / \sigma_x$。BPAR 通过在可微 Softplus 流形内将神经残差 $r_x$ 锚定在理论基准上，重建预测流形：
+\begin{equation}
+    \hat{P}_{x,\text{raw}} = \text{Softplus}\Big((P_{x,\text{theory}} + r_x) - P_{x,\text{zero}}\Big) + P_{x,\text{zero}}
+\label{eq:bpar}
+\end{equation}
+根据 Softplus 函数的基本性质（$\text{Softplus}(z) > 0, \forall z \in \mathbb{R}$），这种结构化映射确保了在标准运行条件下的归一化域中 $\hat{P}_{x,\text{raw}} > P_{x,\text{zero}}$。至关重要的是，在反归一化后，物理功率输出 $\hat{P}_{\text{phys}} = \hat{P}_{x,\text{raw}} \cdot \sigma_x + \mu_x$ 在结构上被约束为严格驻留在可行的物理流形内。虽然恒等式 $\hat{P}_{\text{phys}} > 0$~MW 对于 $\sigma_x > 0$ 严格成立，但我们通过在计算 $P_{x,\text{zero}}$ 时保持一个数值下限 $\epsilon=10^{-5}$ 来考虑退化的方差状态（例如夜间光伏）。在这种情况下，反归一化恒等式转化为 $\hat{P}_{\text{phys}} \approx \hat{P}_{x,\text{raw}} \cdot \sigma_{x,\text{actual}} + \mu_x$，它在物理边界上保持了一个可忽略的误差界限（保证 $\hat{P}_{\text{phys}} > - \epsilon \cdot \sigma_{\text{norm}} \approx 0$ MW），从而即使在极端的近零方差下也保留了近乎完美的边界合规性。
+
+随后，为了处理结构化非活动期（如夜间光伏休眠），将预测与物理激活掩码 $a_x \in [0, 1]$ 融合：
+\begin{equation}
+    \hat{P}_{x,\text{final}} = a_x \cdot \hat{P}_{x,\text{raw}} + (1 - a_x) \cdot P_{x,\text{zero}}
+\label{eq:activity_mask}
+\end{equation}
+每当激活掩码 $a_x$ 趋近于 0（由气象先验驱动）时，BPAR 机制会平稳地驱动输出趋向物理零基准。这种结构化组合本质上通过架构必然性屏蔽了模型免受边界违规的影响，同时将异常爬坡量级最小化到物理上可忽略不计的水平。虽然纯数据驱动的模型可能通过允许轨迹跨越零功率阈值（违反 BVR）来表现出较低的高频噪声，但 BPAR 机制执行了一种“安全优先”的权衡：它优先考虑绝对消除物理违规（BVR=0.00\%），而非在边界限制处展现表面的时间平滑性。因此，在零点附近遇到的任何微小结构修正都作为正确的物理遵循决策，将深度学习的表示能力与严格的运行安全性协调在一起。
+
+\subsection{物理约束的课程训练 (Physics-Constrained Curriculum Training)}
+为了在捕获复杂的非线性时间动态的同时强制执行刚性的物理约束，我们采用了一种分阶段的课程训练策略。该方法旨在减轻深度神经网络在面临不容妥协的物理边界时可能遇到的梯度优化冲突。
+
+\subsubsection{损失函数设计}
+总目标函数定义为统计损失与对齐正则化的组合：
+\begin{equation}
+    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{stat}} + \lambda_1 \cdot \mathcal{L}_{\text{align}} + \lambda_2 \cdot \mathcal{L}_{\text{smooth}}
+\label{eq:total_loss}
+\end{equation}
+其中，$\mathcal{L}_{\text{stat}}$ 是预测输出 $\hat{P}_{x}$ 与地面真值 $P_{x}$ 之间的均方误差（MSE）。物理对齐损失 $\mathcal{L}_{\text{align}}$ 对 PGCC 输出的物理响应门控进行正则化：
+\begin{equation}
+    \mathcal{L}_{\text{align}} = \text{MSE}(\text{gate}_{\text{pv}}, p_{\text{pv}}^{\text{prior}})
+\label{eq:align_loss}
+\end{equation}
+该项通过强制门控遵循气象先验，确保了 $r=0.8306$ 的皮尔逊相关性，即正交监督因果对齐。
+
+\subsubsection{四个阶段的课程学习}
+训练过程根据课程时间表 $\alpha$ 和损失权重 $\lambda$ 分为四个阶段：
+\begin{itemize}
+    \item \textbf{阶段 I（预热）：} 仅优化 $\mathcal{L}_{\text{align}}$。在此阶段，系统学习将潜层空间与物理驱动因素对齐，使模型初步理解环境输入。
+    \item \textbf{阶段 II（物理主导）：} 引入 $\mathcal{L}_{\text{stat}}$，但保持高 $\lambda_1$ 且 $\alpha \to 1$。神经网络被锚定在物理基准上，重点学习如何进行初步修正。
+    \item \textbf{阶段 III（混合优化）：} 随着 $\alpha$ 逐渐减小，模型开始更多地依赖统计流。此时权重处于平衡状态，使模型在物理框架内寻找最优适配。
+    \item \textbf{阶段 IV（微调）：} 全面进入数据驱动残差模式，$\alpha \to 0$。模型在严格遵守物理边界（由 BPAR 机制保证）的前提下，最大化拟合精度。
+\end{itemize}
+
+\subsubsection{层级学习率与早停}
+为了保护已学习到的物理语义不被高频神经噪声破坏，我们对物理映射流和统计 Transformer 流应用了不同的学习率。物理参数采用较小的学习率（$10^{-5}$），而 Transformer 骨干网络则在 $10^{-4}$ 下进行优化。通过在验证集指标（BVR 与 MAE 的加权组合）连续 5 个 epoch 未能改善时提前终止（Early Stopping），进一步确保了泛化稳健性。
