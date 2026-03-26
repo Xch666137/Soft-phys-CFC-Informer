@@ -1,0 +1,24 @@
+Dear Editor,
+
+We are pleased to submit our manuscript entitled "PhysFormer: A Bounded Residual Transformer With Physics-Guided Causal Coupling for Safety-Constrained Virtual Power Plant Forecasting" for consideration for publication in the Journal of Modern Power Systems and Clean Energy.
+
+Data-driven deep learning models for virtual power plant (VPP) forecasting frequently produce physically impossible outputs, such as negative power or nighttime solar generation. Existing post-hoc clipping remedies introduce non-differentiable dead zones that disrupt end-to-end optimization. To address this fundamental gap, we propose PhysFormer, a physics-guided interpretable Transformer that structurally enforces physical compliance without sacrificing predictive accuracy. The key contributions of this work include:
+
+1) A Bounded Physical Act-Residual (BPAR) mechanism that employs differentiable Softplus clamping combined with physics-derived activity masks to mathematically guarantee zero boundary violations (BVR = 0.00%) while preserving continuous gradient flow.
+
+2) An orthogonal Physics-Guided Causal Coupling (PGCC) module that imprints physical priors onto latent gating variables via supervised regularization, achieving a deterministic Pearson correlation of r = 0.8306 with external irradiance, thereby conferring structural transparency without cannibalizing predictive capacity.
+
+3) A Physics-Constrained Curriculum Training strategy that sequentially introduces physical constraints to avoid early-stage gradient conflicts between theory-anchored baselines and unconstrained network heads.
+
+Extensive experiments on a real-world 3-year VPP dataset demonstrate that PhysFormer achieves a superior accuracy-compliance Pareto positioning, operating within 6% MSE of unconstrained state-of-the-art baselines while maintaining absolute physical safety under both standard and extreme weather conditions.
+
+We believe this work provides a timely and significant contribution to the field of physics-informed energy forecasting, which aligns well with the scope of Journal of Modern Power Systems and Clean Energy. This manuscript has not been published or submitted elsewhere. All authors have read and approved the final manuscript.
+
+Thank you for your time and consideration.
+
+Sincerely,
+
+Xingyu Liu (Corresponding Author)
+Department of Electrical Engineering
+Shanghai University of Electric Power, Shanghai, China
+E-mail: y24203228@mail.shiep.edu.cn

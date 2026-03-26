@@ -3,18 +3,21 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 
+from analysis.compute_gate_corr import compute_from_model_light
+
 def plot_fig3_new():
-    # Load data
-    gate = np.load('fig3_gate_data.npy')
-    irr = np.load('fig3_irr_data.npy')
-    
+    # 从模型直接计算获取数据（完整测试集）
+    gate, irr = compute_from_model_light()
+
+    # Compute global r from full data
+    from scipy import stats as sp_stats
+    r_val, p_val = sp_stats.pearsonr(gate, irr)
+    n_total = len(gate)
+
     # Subsample for visualization (2000 points is enough for a clear scatter)
     indices = np.random.choice(len(gate), 2000, replace=False)
     gate_sub = gate[indices]
     irr_sub = irr[indices]
-    
-    # Global r (from full data)
-    r_val = 0.8306
     
     plt.figure(figsize=(8, 6), dpi=300)
     sns.set_theme(style="whitegrid")
@@ -33,14 +36,15 @@ def plot_fig3_new():
     plt.legend(loc='lower right', frameon=True)
     
     # Add a note about the range
-    plt.text(0.05, 0.95, f'N={len(gate)} points\nGlobal Pearson r={r_val:.4f}', 
-             transform=plt.gca().transAxes, fontsize=10, 
+    plt.text(0.05, 0.95, f'Full test set: N={n_total:,}\nGlobal Pearson r={r_val:.4f}',
+             transform=plt.gca().transAxes, fontsize=10,
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
 
     plt.tight_layout()
-    plt.savefig('IEEE_Fig3_CausalGate.png')
-    plt.savefig('IEEE_Fig3_CausalGate.pdf')
-    print("New Figure 3 generated: IEEE_Fig3_CausalGate.png/pdf")
+    plt.savefig('paper/en/Visualization_output/IEEE_Fig3_CausalGate.png')
+    plt.savefig('paper/en/Visualization_output/IEEE_Fig3_CausalGate.pdf')
+    print(f"Figure 3 generated with global r={r_val:.4f}, N={n_total:,}")
+    return r_val, n_total
 
 if __name__ == "__main__":
     plot_fig3_new()

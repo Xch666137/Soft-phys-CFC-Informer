@@ -31,13 +31,14 @@
 \usepackage{cite}                % IEEE 样式文献引用排序
 \usepackage[hidelinks]{hyperref} % 超链接（隐藏边框）
 
-% --- Layout Compression for IEEE Formatting ---
-% Gently squeeze vertical spacing to eliminate trailing single lines on the last page.
-\setlength{\textfloatsep}{8pt plus 1.0pt minus 2.0pt}  % Space between floats and text
-\setlength{\floatsep}{6pt plus 1.0pt minus 1.0pt}      % Space between floats
-\setlength{\intextsep}{6pt plus 1.0pt minus 1.0pt}     % Space above and below in-text floats
-\setlength{\abovedisplayskip}{3pt plus 1pt minus 1pt}  % Space above equations
-\setlength{\belowdisplayskip}{3pt plus 1pt minus 1pt}  % Space below equations
+% --- Layout Compression for MPCE 9-page limit ---
+\setlength{\textfloatsep}{6pt plus 1.0pt minus 2.0pt}
+\setlength{\floatsep}{4pt plus 1.0pt minus 1.0pt}
+\setlength{\intextsep}{4pt plus 1.0pt minus 1.0pt}
+\setlength{\abovedisplayskip}{2pt plus 1pt minus 1pt}
+\setlength{\belowdisplayskip}{2pt plus 1pt minus 1pt}
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{2pt}
 
 \renewcommand{\algorithmicrequire}{\textbf{Input:}}
 
@@ -54,14 +55,16 @@
 % ─── 论文信息 ────────────────────────────────────
 \title{PhysFormer: A Bounded Residual Transformer With Physics-Guided Causal Coupling for Safety-Constrained Virtual Power Plant Forecasting}
 
-% [TODO]: Please replace the placeholder authors with actual information before submission.
-\author{%
-  \IEEEauthorblockN{Author One\IEEEauthorrefmark{1}}
-  \IEEEauthorblockA{\IEEEauthorrefmark{1}Department, University, City, Country. Email: xxx@uni.edu}
+\author{Xingyu Liu\,\textsuperscript{*} and Zhong Tang%
+  \thanks{The authors are with the Department of Electrical Engineering,
+  Shanghai University of Electric Power, Shanghai, China.}
+  \thanks{\textsuperscript{*}Corresponding author: X.~Liu
+  (e-mail: y24203228@mail.shiep.edu.cn).}
+  \thanks{Z.~Tang (e-mail: tangzhong64@163.com).}
 }
 
-\markboth{IEEE TRANSACTIONS ON SMART GRID}%
-         {Author \MakeLowercase{\textit{et al.}}: PhysFormer}
+\markboth{Journal of Modern Power Systems and Clean Energy}%
+         {Liu \MakeLowercase{\textit{et al.}}: PhysFormer}
 
 % ════════════════════════════════════════════════
 \begin{document}
@@ -74,8 +77,8 @@
 % ─── Index Terms ─────────────────────────────────
 \input{sections/sec0_keywords}
 
-% ─── Nomenclature ────────────────────────────────
-\input{sections/sec0_nomenclature}
+% ─── Nomenclature (removed for MPCE 9-page limit) ─
+% \input{sections/sec0_nomenclature}
 
 % ─── 正文 ────────────────────────────────────────
 \input{sections/sec1_intro}

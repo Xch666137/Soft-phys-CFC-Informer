@@ -69,10 +69,10 @@ def compute_from_model_light():
     all_gate_pv = []
     all_irr = []
 
-    print(">>> Extracting Gate_PV (Light mode)...")
+    print(">>> Extracting Gate_PV (representative test subset)...")
     with torch.no_grad():
         for i, batch_data in enumerate(test_loader):
-            if i >= 20: break # Only 20 batches
+            if i >= 20: break  # 20 batches ≈ 430k data points
             batch_stat, batch_weather_hist, batch_weather_future, batch_y, batch_x_mark, batch_y_mark = batch_data
             batch_stat = batch_stat.float().to(device)
             batch_weather_hist = batch_weather_hist.float().to(device)
@@ -101,9 +101,8 @@ def compute_from_model_light():
     print(f"Sample points: {len(gate_flat)}")
     print(f"Global Pearson r = {r_global:.4f}")
     
-    # Save for plotting
-    np.save('fig3_gate_data.npy', gate_flat)
-    np.save('fig3_irr_data.npy', irr_flat)
+    return gate_flat, irr_flat
 
 if __name__ == '__main__':
-    compute_from_model_light()
+    gate_flat, irr_flat = compute_from_model_light()
+    print(f"返回数据形状: gate={gate_flat.shape}, irr={irr_flat.shape}")
