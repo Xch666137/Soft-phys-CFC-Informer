@@ -15,6 +15,7 @@
 
 ### --- 训练产物 ---
 /checkpoints/
+/exp_results/
 runs/
 logs/
 tensorboard/

@@ -5,50 +5,32 @@ echo "======================================================="
 echo "         PhysFormer Ablation Study Pipeline"
 echo "======================================================="
 
-echo ""
-echo "[1/6] Evaluating Full PhysFormer (Baseline)..."
-echo ""
-python scripts/run_PhysFormer.py --is_training 0 --checkpoint_name "PhysFormer_ensemble_seed2024"
+echo
+echo "[1/6] Evaluating Full PhysFormer..."
+python run.py --config configs/physformer_default.yaml --checkpoint_name "PhysFormer_full_seed2024" --test_only
 
-echo ""
-echo "======================================================="
+echo
 echo "[2/6] Running Ablation: w/o Physics Stream..."
-echo "======================================================="
-python scripts/run_PhysFormer.py --is_training 1 --checkpoint_name "PhysFormer_No_Phys" --ablation_no_phys_stream
+python run.py --config configs/physformer_ablation_v1.yaml --checkpoint_name "PhysFormer_No_Phys"
 
-echo ""
-echo "======================================================="
+echo
 echo "[3/6] Running Ablation: w/o PGCC..."
-echo "======================================================="
-python scripts/run_PhysFormer.py --is_training 1 --checkpoint_name "PhysFormer_No_PGCC" --ablation_no_pgcc
+python run.py --config configs/physformer_ablation_v2.yaml --checkpoint_name "PhysFormer_No_PGCC"
 
-echo ""
-echo "======================================================="
+echo
 echo "[4/6] Running Ablation: w/o Future GLU..."
-echo "======================================================="
-python scripts/run_PhysFormer.py --is_training 1 --checkpoint_name "PhysFormer_No_Future_GLU" --ablation_no_future_glu
+python run.py --config configs/physformer_ablation_v3.yaml --checkpoint_name "PhysFormer_No_Future_GLU"
 
-echo ""
-echo "======================================================="
+echo
 echo "[5/6] Running Ablation: w/o Curriculum..."
-echo "======================================================="
-python scripts/run_PhysFormer.py --is_training 1 --checkpoint_name "PhysFormer_No_Curriculum" --ablation_no_curriculum
+python run.py --config configs/physformer_ablation_v4.yaml --checkpoint_name "PhysFormer_No_Curriculum"
 
-echo ""
-echo "======================================================="
-echo "[6/6] Running Ablation: Fixed Thresholds (No Data-Driven Fine-Tuning)..."
-echo "======================================================="
-python scripts/run_PhysFormer.py --is_training 1 --checkpoint_name "PhysFormer_Fixed_Phys" --ablation_fixed_phys
+echo
+echo "[6/6] Running Ablation: Fixed Phys..."
+python run.py --config configs/physformer_ablation_v5.yaml --checkpoint_name "PhysFormer_Fixed_Phys"
 
-echo ""
-echo "======================================================="
-echo "      All Ablation Experiments Finished!"
-echo "======================================================="
-
-echo ""
+echo
 echo "======================================================="
 echo "      Generating Ablation Results Table..."
 echo "======================================================="
-python scripts/collect_ablation_results.py
-
-echo "Pipeline complete."
+python analysis/collect_ablation_results.py

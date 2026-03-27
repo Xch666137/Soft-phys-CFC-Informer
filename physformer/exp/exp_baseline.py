@@ -1,16 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import os
 import time
 import numpy as np
 import warnings
 from tqdm import tqdm
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.cuda.amp import autocast, GradScaler
 
-from .exp_physformer import Exp_PhysFormer, EarlyStopping
-from ..data.data_factory import data_provider
+from .base_experiment import BaseExperiment
 from ..models.informer import Informer
 from ..models.autoformer import Autoformer
 from ..models.lstm import LSTM
@@ -74,25 +71,29 @@ class PINN_SoftConstraintLoss(nn.Module):
         return loss_total
 
 
-class Exp_Baselines(Exp_PhysFormer):
+class Exp_Baselines(BaseExperiment):
     """
     针对 VPP 高渗透率数据定制的 Baseline 实验控制器
     修改：统一了 Log 系统和 tqdm 进度条
     """
 
     def __init__(self, args):
-        # 调用父类初始化，这里会执行 _init_logger 创建 self.logger
-        super().__init__(args)
-
+        args.trainer_family = 'baseline'
         # 强制修正参数以适配 VPP 数据集结构
-        self.args.enc_in = 6  # Encoder 输入维度 (含气象)
-        self.args.dec_in = 6  # Decoder 输入维度 (含气象)
-        self.args.c_out = 3  # 输出维度 (只预测 Load, PV, Wind)
+        args.enc_in = 6  # Encoder 输入维度 (含气象)
+        args.dec_in = 6  # Decoder 输入维度 (含气象)
+        args.c_out = 3  # 输出维度 (只预测 Load, PV, Wind)
+
+        super().__init__(args)
+        self.model = self._build_model().to(self.device)
+        self.logger.info(f"{self.args.model} Model Structure:\n{self.model}")
 
     def _build_model(self):
         model_dict = {
             'Informer': Informer,
             'Autoformer': Autoformer,
+            'LSTM': LSTM,
+            'GRU': GRU,
             'PINN': PINN,
             'DLinear': DLinear,
             'PatchTST': PatchTST,
@@ -116,25 +117,6 @@ class Exp_Baselines(Exp_PhysFormer):
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
 
         return model.to(self.device)
-
-    def _get_data(self, flag):
-        """
-        重写数据获取逻辑，严格屏蔽父类 Exp_PhysFormer 的干扰，
-        确保所有 Baseline 模型稳定加载返回 4 个元素的 VPPDataset。
-        """
-        # 1. 缓存真正的模型名称（如 'PINN', 'DLinear'）
-        cache_model = self.args.model
-
-        # 2. 强行伪装，诱导 data_provider 走向 VPPDataset 分支
-        self.args.model = 'Baseline_Forced'
-
-        # 3. 获取数据集
-        data_set, data_loader = data_provider(self.args, flag)
-
-        # 4. 阅后即焚，恢复真正的模型名称
-        self.args.model = cache_model
-
-        return data_set, data_loader
 
     def _select_optimizer(self):
         wd = self.args.weight_decay if self.args.weight_decay > 0 else 1e-4
@@ -213,20 +195,18 @@ class Exp_Baselines(Exp_PhysFormer):
                 true = batch_y.detach().cpu()
 
                 loss = criterion(pred, true)
-                total_loss.append(loss)
+                total_loss.append(loss.item())
 
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
 
-    def train(self, setting):
+    def train(self, setting=None):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
 
-        path = os.path.join(self.args.checkpoints, setting)
-        if not os.path.exists(path):
-            os.makedirs(path)
+        path = self._resolve_setting_dir(setting, create=True)
 
         criterion = self._select_criterion()
         optimizer = self._select_optimizer()
@@ -239,12 +219,20 @@ class Exp_Baselines(Exp_PhysFormer):
             eta_min=1e-6  # 最小保底 LR
         )
 
-        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True, logger=self.logger)
+        early_stopping = self._build_early_stopping()
 
-        use_amp = getattr(self.args, 'use_amp', True) and self.args.use_gpu
-        scaler = GradScaler(enabled=use_amp)
+        use_amp = self._amp_enabled()
+        scaler = self._create_grad_scaler()
+        start_epoch, global_step = self._restore_training_runtime(
+            setting=setting,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            criterion=criterion,
+            early_stopping=early_stopping,
+        )
 
-        for epoch in range(self.args.train_epochs):
+        for epoch in range(start_epoch, self.args.train_epochs):
             train_loss = []
             self.model.train()
             epoch_time = time.time()
@@ -256,11 +244,11 @@ class Exp_Baselines(Exp_PhysFormer):
                       ncols=100) as pbar:
 
                 for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                    optimizer.zero_grad()
+                    optimizer.zero_grad(set_to_none=True)
                     batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp = \
                         self._process_one_batch(batch_x, batch_y, batch_x_mark, batch_y_mark)
 
-                    with autocast(enabled=use_amp):
+                    with self._autocast_context(use_amp):
                         if self.args.model in ['Informer', 'Autoformer', 'iTransformer']:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                             if self.args.output_attention: outputs = outputs[0]
@@ -275,14 +263,9 @@ class Exp_Baselines(Exp_PhysFormer):
 
                     train_loss.append(loss.item())
 
-                    if use_amp:
-                        scaler.scale(loss).backward()
-                        scaler.step(optimizer)
-                        scaler.update()
-                    else:
-                        loss.backward()
-                        optimizer.step()
+                    self._backward_step(loss, optimizer, scaler=scaler, parameters=self.model.parameters())
 
+                    global_step += 1
                     pbar.update(1)
 
             train_loss = np.average(train_loss)
@@ -299,21 +282,30 @@ class Exp_Baselines(Exp_PhysFormer):
                 f"Train Loss: {train_loss:.7f} Vali Loss: {vali_loss:.7f} Test Loss: {test_loss:.7f}"
             )
 
-            early_stopping(vali_loss, self.model, path)
+            early_stopping(
+                vali_loss,
+                self.model,
+                path,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
+                epoch=epoch,
+                global_step=global_step,
+                criterion=criterion,
+            )
             if early_stopping.early_stop:
                 self.logger.info("Early stopping")
                 break
 
-        best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path))
-        return self.model
+        return self._finalize_training(setting)
 
-    def test(self, setting, test=0):
+    def test(self, setting=None, load=True, return_preds=False, extreme_scenario_test=False, test=None):
         test_data, test_loader = self._get_data(flag='test')
-        if test:
+        if test is not None:
+            load = bool(test)
+        if load:
             self.logger.info('loading model')
-            load_path = os.path.join(self.args.checkpoints, setting, 'checkpoint.pth')
-            self.model.load_state_dict(torch.load(load_path))
+            self._load_model_checkpoint(setting)
 
         self.model.eval()
         preds = []
@@ -338,10 +330,8 @@ class Exp_Baselines(Exp_PhysFormer):
                 preds.append(outputs.detach().cpu().numpy())
                 trues.append(batch_y.detach().cpu().numpy())
 
-        preds = np.array(preds)
-        trues = np.array(trues)
-        preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
-        trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
+        preds = np.concatenate(preds, axis=0)
+        trues = np.concatenate(trues, axis=0)
 
         self.logger.info(">>> Performing Inverse Scaling for VPP Data <<<")
 
@@ -393,13 +383,13 @@ class Exp_Baselines(Exp_PhysFormer):
         self.logger.info(f'Physics Violation -> BVR:{bvr:.2f}%, RVR:{rvr:.2f}%')
 
         # 保存结果
-        folder_path = './exp_results/' + setting + '/'
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+        self._save_numpy_artifacts(
+            setting,
+            metrics=np.array([mae, mse, rmse, bvr, rvr]),
+            pred=preds_phys,
+            true=trues_phys,
+        )
 
-        # 修改 exp_baseline.py 最后几行
-        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, bvr, rvr]))
-        np.save(folder_path + 'pred.npy', preds_phys)
-        np.save(folder_path + 'true.npy', trues_phys)
-
+        if return_preds:
+            return preds_phys, trues_phys, np.array([mae, mse, rmse, bvr, rvr])
         return

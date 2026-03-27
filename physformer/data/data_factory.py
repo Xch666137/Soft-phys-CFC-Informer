@@ -1,21 +1,27 @@
-import pandas as pd
-import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import StandardScaler
-import warnings
 import os
+import warnings
+
+import numpy as np
+import pandas as pd
+import torch
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, Dataset
 
 warnings.filterwarnings('ignore')
 
+_PREPARED_DATA_CACHE = {}
+_TARGET_COLUMNS = ['Load', 'PV', 'Wind']
+_WEATHER_COLUMNS = ['Temp', 'Irradiance', 'WindSpeed']
+_EXPECTED_VPP_SCHEMA = ['date', *_TARGET_COLUMNS, *_WEATHER_COLUMNS]
 
-# --- 时间特征编码逻辑 ---
+
 def time_features(dates, freq='h'):
     """
-    手动提取时间特征并进行 Sin/Cos 编码 (8维)
-    修复了周期编码中的差一错误(Off-By-One)和闰月断层问题
+    Manual cyclic time encodings.
+
+    The encoding itself is frequency-agnostic, but the caller now decides which
+    frequency is semantically expected so the dataset and model stay aligned.
     """
-    # 确保是 pandas DatetimeIndex 以便调用 dt 属性
     if not isinstance(dates, pd.DatetimeIndex):
         dates = pd.to_datetime(dates)
 
@@ -25,52 +31,111 @@ def time_features(dates, freq='h'):
     hour = dates.hour.values
     minute = dates.minute.values
 
-    # 获取对应月份的实际天数，解决 28/29/30/31 天的差异
     days_in_month = dates.days_in_month.values
-
-    # 小时+分钟的连续浮点数
     hour_float = hour + minute / 60.0
 
-    # 归一化并编码 (彻底修复分母错位)
-    # 月份：1-12，分母为 12.0
     month_norm = 2 * np.pi * (month - 1) / 12.0
-    month_sin = np.sin(month_norm)
-    month_cos = np.cos(month_norm)
-
-    # 日期：1-当月最大天数，动态分母
     day_norm = 2 * np.pi * (day - 1) / days_in_month
-    day_sin = np.sin(day_norm)
-    day_cos = np.cos(day_norm)
-
-    # 星期：0-6，分母为 7.0 (保证周日6和周一0的距离正确)
     week_norm = 2 * np.pi * weekday / 7.0
-    week_sin = np.sin(week_norm)
-    week_cos = np.cos(week_norm)
-
-    # 小时：0-23.99，分母为 24.0
     hour_norm = 2 * np.pi * hour_float / 24.0
-    hour_sin = np.sin(hour_norm)
-    hour_cos = np.cos(hour_norm)
 
-    dt_enc = np.stack([
-        month_sin, month_cos,
-        day_sin, day_cos,
-        week_sin, week_cos,
-        hour_sin, hour_cos
+    return np.stack([
+        np.sin(month_norm), np.cos(month_norm),
+        np.sin(day_norm), np.cos(day_norm),
+        np.sin(week_norm), np.cos(week_norm),
+        np.sin(hour_norm), np.cos(hour_norm),
     ], axis=1)
 
-    return dt_enc
+
+def _data_cache_key(root_path, data_path, features, target, scale, freq):
+    return (
+        os.path.abspath(os.path.join(root_path, data_path)),
+        features,
+        target,
+        bool(scale),
+        freq,
+    )
+
+
+def _validate_dataframe(df_raw, features, target):
+    if 'date' not in df_raw.columns:
+        raise ValueError("Dataset must contain a 'date' column.")
+
+    if features in ['M', 'MS']:
+        required = _TARGET_COLUMNS + _WEATHER_COLUMNS
+        missing = [col for col in required if col not in df_raw.columns]
+        if missing:
+            raise ValueError(f"Dataset is missing required columns for multivariate mode: {missing}")
+        actual_prefix = df_raw.columns[:len(_EXPECTED_VPP_SCHEMA)].tolist()
+        if actual_prefix != _EXPECTED_VPP_SCHEMA:
+            raise ValueError(
+                "Dataset schema mismatch for multivariate mode. "
+                f"Expected leading columns {_EXPECTED_VPP_SCHEMA}, got {actual_prefix}"
+            )
+    elif features == 'S':
+        if not target:
+            raise ValueError("Single-target mode requires a non-empty target column.")
+        if target not in df_raw.columns:
+            raise ValueError(f"Target column '{target}' not found in dataset.")
+    else:
+        raise ValueError(f"Unsupported features mode: {features}")
+
+
+def _build_prepared_data(root_path, data_path, features, target, scale, freq):
+    key = _data_cache_key(root_path, data_path, features, target, scale, freq)
+    cached = _PREPARED_DATA_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    csv_path = os.path.abspath(os.path.join(root_path, data_path))
+    df_raw = pd.read_csv(csv_path)
+    _validate_dataframe(df_raw, features, target)
+
+    if features in ['M', 'MS']:
+        feature_columns = _TARGET_COLUMNS + _WEATHER_COLUMNS
+        df_data = df_raw[feature_columns]
+    else:
+        feature_columns = [target]
+        df_data = df_raw[feature_columns]
+
+    scaler = StandardScaler() if scale else None
+    if scale:
+        num_train = int(len(df_raw) * 0.7)
+        scaler.fit(df_data.iloc[:num_train].values)
+        data_values = scaler.transform(df_data.values)
+    else:
+        data_values = df_data.values
+
+    prepared = {
+        'df_raw': df_raw,
+        'feature_columns': feature_columns,
+        'data_values': data_values,
+        'date_features': time_features(df_raw['date'].values, freq=freq),
+        'scaler': scaler,
+        'num_train': int(len(df_raw) * 0.7),
+        'num_test': int(len(df_raw) * 0.2),
+    }
+    prepared['num_val'] = len(df_raw) - prepared['num_train'] - prepared['num_test']
+
+    if scale:
+        raw_train = df_data.iloc[:prepared['num_train']]
+        prepared['col_ranges'] = {
+            col: raw_train[col].max() - raw_train[col].min()
+            for col in raw_train.columns
+        }
+    else:
+        prepared['col_ranges'] = {}
+
+    _PREPARED_DATA_CACHE[key] = prepared
+    return prepared
 
 
 class VPPDataset(Dataset):
-    """
-    基础VPP数据集（保持向后兼容）
-    """
+    """Base VPP dataset."""
 
     def __init__(self, root_path, data_path='vpp_dataset_3years.csv',
-                 flag='train', size=None,
-                 features='M', target=None, scale=True,
-                 noise_level=0.03):
+                 flag='train', size=None, features='M', target=None, scale=True,
+                 noise_level=0.03, freq='t'):
 
         if size is None:
             self.seq_len = 96 * 4 * 7
@@ -83,6 +148,7 @@ class VPPDataset(Dataset):
 
         assert flag in ['train', 'test', 'val']
         type_map = {'train': 0, 'val': 1, 'test': 2}
+        self.flag = flag
         self.set_type = type_map[flag]
 
         self.features = features
@@ -91,60 +157,41 @@ class VPPDataset(Dataset):
         self.noise_level = noise_level
         self.root_path = root_path
         self.data_path = data_path
+        self.freq = freq
 
         self.__read_data__()
 
     def __read_data__(self):
-        self.scaler = StandardScaler()
-        df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
+        prepared = _build_prepared_data(
+            root_path=self.root_path,
+            data_path=self.data_path,
+            features=self.features,
+            target=self.target,
+            scale=self.scale,
+            freq=self.freq,
+        )
 
-        # 划分数据集
-        num_train = int(len(df_raw) * 0.7)
-        num_test = int(len(df_raw) * 0.2)
-        num_vali = len(df_raw) - num_train - num_test
+        self.scaler = prepared['scaler']
+        self.feature_columns = prepared['feature_columns']
+        self.col_ranges = prepared['col_ranges']
 
-        border1s = [0, num_train - self.seq_len, len(df_raw) - num_test - self.seq_len]
-        border2s = [num_train, num_train + num_vali, len(df_raw)]
+        num_train = prepared['num_train']
+        num_test = prepared['num_test']
+        num_val = prepared['num_val']
+
+        border1s = [0, num_train - self.seq_len, len(prepared['df_raw']) - num_test - self.seq_len]
+        border2s = [num_train, num_train + num_val, len(prepared['df_raw'])]
 
         border1 = border1s[self.set_type]
         border2 = border2s[self.set_type]
 
-        # 特征选择
-        if self.features == 'M' or self.features == 'MS':
-            cols_data = df_raw.columns[1:]
-            df_data = df_raw[cols_data]
-        elif self.features == 'S':
-            df_data = df_raw[[self.target]]
+        self.data_x = prepared['data_values'][border1:border2]
+        self.data_y = prepared['data_values'][border1:border2]
+        self.data_stamp = prepared['date_features'][border1:border2]
 
-        # 归一化
-        if self.scale:
-            train_data = df_data[border1s[0]:border2s[0]]
-            self.scaler.fit(train_data.values)
-            data = self.scaler.transform(df_data.values)
-        else:
-            data = df_data.values
+        self.target_num = min(3, self.data_x.shape[1])
+        self.covariate_num = max(0, self.data_x.shape[1] - self.target_num)
 
-        # 时间特征
-        df_stamp = df_raw[['date']][border1:border2]
-        df_stamp['date'] = pd.to_datetime(df_stamp.date)
-        data_stamp = time_features(df_stamp['date'].values, freq='t')
-
-        # 记录数据范围
-        self.col_ranges = {}
-        if self.scale:
-            raw_train = df_data.iloc[border1s[0]:border2s[0]]
-            for col in raw_train.columns:
-                self.col_ranges[col] = raw_train[col].max() - raw_train[col].min()
-
-        self.data_x = data[border1:border2]
-        self.data_y = data[border1:border2]
-        self.data_stamp = data_stamp
-
-        self.target_num = 3
-        self.covariate_num = data.shape[1] - self.target_num
-        
-        # [PERFORMANCE FIX] 将全部数据一次性转换为 Tensor 保存在 CPU 内存中，
-        # 避免 DataLoader worker 在每个 batch / 每个 __getitem__ 都重新执行 tensor allocation
         self.data_x_tensor = torch.tensor(self.data_x, dtype=torch.float32)
         self.data_y_tensor = torch.tensor(self.data_y, dtype=torch.float32)
         self.data_stamp_tensor = torch.tensor(self.data_stamp, dtype=torch.float32)
@@ -155,14 +202,13 @@ class VPPDataset(Dataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        # 直接从预先创建的 Tensor 切片，零内存拷贝复制
         seq_x = self.data_x_tensor[s_begin:s_end]
         seq_y = self.data_y_tensor[r_begin:r_end]
         seq_x_mark = self.data_stamp_tensor[s_begin:s_end]
         seq_y_mark = self.data_stamp_tensor[r_begin:r_end]
 
         if self.set_type == 0 and self.noise_level > 0:
-            seq_x = seq_x.clone() # 使用 clone 而不是 numpy 的 copy
+            seq_x = seq_x.clone()
             noise = torch.randn_like(seq_x) * self.noise_level
             if seq_x.shape[1] > self.target_num:
                 seq_x[:, self.target_num:] += noise[:, self.target_num:]
@@ -173,7 +219,7 @@ class VPPDataset(Dataset):
         return len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
-        """增强版反归一化"""
+        """Inverse transform with support for partial feature slices."""
         if not self.scale or self.scaler is None:
             return data
 
@@ -196,7 +242,8 @@ class VPPDataset(Dataset):
             data_rescaled = dummy_rescaled[:, :n_features_input]
         else:
             raise ValueError(
-                f"Input features ({n_features_input}) > Scaler features ({n_features_expected})")
+                f"Input features ({n_features_input}) > Scaler features ({n_features_expected})"
+            )
 
         if len(original_shape) == 3:
             data_rescaled = data_rescaled.reshape(original_shape)
@@ -206,17 +253,10 @@ class VPPDataset(Dataset):
 
 class PhysFormerDataset(VPPDataset):
     """
-    PhysFormer 专用数据集
+    PhysFormer-specific dataset.
 
-    数据格式假设：CSV列顺序为 [date, Load, PV, Wind, Temp, Irradiance, WindSpeed]
-
-    返回格式：
-        x_stat: [Seq, 3] - 历史观测 [Load, PV, Wind]
-        x_weather_hist: [Seq, 3] - 历史天气 [Temp, Irr, Speed]
-        x_weather_future: [Pred, 3] - 未来天气预报 [Temp, Irr, Speed]
-        y: [Label+Pred, 3] - 真实标签 [Load, PV, Wind]
-        x_mark_enc: [Seq, 8] - 历史时间特征
-        y_mark: [Label+Pred, 8] - 未来时间特征
+    Expected CSV column order is still:
+    [date, Load, PV, Wind, Temp, Irradiance, WindSpeed]
     """
 
     def __init__(self, *args, **kwargs):
@@ -224,80 +264,43 @@ class PhysFormerDataset(VPPDataset):
         self._compute_weather_stats()
 
     def _compute_weather_stats(self):
-        """从 Scaler 中提取天气变量的统计量"""
-        if self.scale and self.scaler is not None:
-            # 假设数据列顺序: [Load, PV, Wind, Temp, Irr, Speed]
-            # 天气特征通常在索引 3, 4, 5
+        if self.scale and self.scaler is not None and self.scaler.mean_.shape[0] >= 6:
             weather_indices = [3, 4, 5]
-
-            # 确保索引不越界
-            if self.scaler.mean_.shape[0] > max(weather_indices):
-                self.weather_mean = self.scaler.mean_[weather_indices]
-                self.weather_std = self.scaler.scale_[weather_indices]
-            else:
-                # 兜底：如果特征数不够（例如单变量预测），使用默认值或全0
-                self.weather_mean = np.zeros(3)
-                self.weather_std = np.ones(3)
+            self.weather_mean = self.scaler.mean_[weather_indices]
+            self.weather_std = self.scaler.scale_[weather_indices]
         else:
-            # 未归一化时的默认值（仅供参考）
             self.weather_mean = np.array([20.0, 400.0, 5.0])
             self.weather_std = np.array([10.0, 300.0, 3.0])
 
     def get_scaler_params(self):
-        """
-        Returns:
-            dict: {'mean': array, 'std': array, 'weather_mean': array, 'weather_std': array}
-        """
         if self.scale and self.scaler is not None:
             return {
                 'mean': self.scaler.mean_.copy(),
                 'std': self.scaler.scale_.copy(),
                 'weather_mean': self.weather_mean.copy(),
-                'weather_std': self.weather_std.copy()
+                'weather_std': self.weather_std.copy(),
             }
-
-    def get_physical_stats(self):
-        """
-        [新增方法] 计算并返回物理Loss所需的所有统计量：
-        1. 真实均值 (Means)
-        2. 真实标准差 (Stds)
-        3. 物理爬坡极限 (Ramp Limits)
-        """
-        stats = {
-            'means': None,
-            'stds': None,
-            'ramp_limits': None
+        return {
+            'mean': None,
+            'std': None,
+            'weather_mean': self.weather_mean.copy(),
+            'weather_std': self.weather_std.copy(),
         }
 
-        # 1. 提取均值和方差
+    def get_physical_stats(self):
+        stats = {'means': None, 'stds': None, 'ramp_limits': None}
+
         if self.scale and self.scaler is not None:
-            # 取前3列: Load, PV, Wind
             stats['means'] = self.scaler.mean_[:3]
             stats['stds'] = self.scaler.scale_[:3]
 
-        # 2. 计算爬坡极限 (Ramp Limits)
         try:
-            # 获取全量数据并反归一化 (还原为物理量 MW)
-            if self.scale:
-                # 注意：这里直接对 self.data_x 操作，它是 numpy array
-                # inverse_transform 会处理 tensor/numpy 转换
-                raw_data = self.inverse_transform(self.data_x)
-            else:
-                raw_data = self.data_x
-
-            # 只取前3列目标变量
+            raw_data = self.inverse_transform(self.data_x) if self.scale else self.data_x
             target_data = raw_data[:, :3]
-
-            # 计算一阶差分绝对值 |t - (t-1)|
             diff = np.abs(target_data[1:] - target_data[:-1])
-
-            # 计算 99.9% 分位数并给予 1.5 倍宽容度
-            ramp_limits = np.percentile(diff, 99.9, axis=0) * 1.5
-
-            stats['ramp_limits'] = ramp_limits
-
-        except Exception as e:
-            print(f"[Dataset Warning] Failed to calculate ramp limits: {e}")
+            stats['ramp_limits'] = np.percentile(diff, 99.9, axis=0) * 1.5
+        except Exception as exc:
+            print(f"[Dataset Warning] Failed to calculate ramp limits: {exc}")
             stats['ramp_limits'] = None
 
         return stats
@@ -308,96 +311,82 @@ class PhysFormerDataset(VPPDataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        # 1. 直接从预先生成的 Tensor 切片提取，零拷贝
-        seq_raw = self.data_x_tensor[s_begin:s_end]           # [Seq, 6]
-        seq_y_raw = self.data_y_tensor[r_begin:r_end]         # [Label + Pred, 6]
+        seq_raw = self.data_x_tensor[s_begin:s_end]
+        seq_y_raw = self.data_y_tensor[r_begin:r_end]
 
-        # 2. 提取输入流
-        x_stat = seq_raw[:, 0:3]                              # [Seq, 3]
-        x_weather_hist = seq_raw[:, 3:6]                      # [Seq, 3]
+        x_stat = seq_raw[:, 0:3]
+        x_weather_hist = seq_raw[:, 3:6]
+        x_weather_future = seq_y_raw[-self.pred_len:, 3:6]
+        y = seq_y_raw[-self.pred_len:, 0:3]
 
-        # 3. 未来数据处理
-        x_weather_future = seq_y_raw[-self.pred_len:, 3:6]    # [Pred, 3]
-        y = seq_y_raw[-self.pred_len:, 0:3]                   # [Pred, 3]
-
-        # 4. 时间特征
         x_mark_enc = self.data_stamp_tensor[s_begin:s_end]
         y_mark = self.data_stamp_tensor[r_begin:r_end]
 
-        # 5. 噪声注入 (仅训练)
         if self.set_type == 0 and self.noise_level > 0:
-            # 必须 clone() 以防止修改底层的持久化共享 Tensor
             x_weather_hist = x_weather_hist.clone()
             x_weather_future = x_weather_future.clone()
-            
-            # 使用 PyTorch 原生算子生成随机噪声
-            noise_hist = torch.randn_like(x_weather_hist) * self.noise_level
-            noise_future = torch.randn_like(x_weather_future) * self.noise_level
-            
-            x_weather_hist += noise_hist
-            x_weather_future += noise_future
+            x_weather_hist += torch.randn_like(x_weather_hist) * self.noise_level
+            x_weather_future += torch.randn_like(x_weather_future) * self.noise_level
 
-        # ===== Step 5: 直接返回 Tensor =====
         return x_stat, x_weather_hist, x_weather_future, y, x_mark_enc, y_mark
 
-    def __len__(self):
-        return len(self.data_x) - self.seq_len - self.pred_len + 1
+
+def _resolve_dataset_class(args):
+    trainer_family = getattr(args, 'trainer_family', None)
+    if trainer_family == 'physformer' or getattr(args, 'model', None) == 'PhysFormer':
+        return PhysFormerDataset
+    return VPPDataset
 
 
-# ===== DataLoader工厂函数 =====
+def _resolve_batch_size(args, flag, dataset_class):
+    if flag == 'train':
+        return getattr(args, 'batch_size')
+    if flag == 'val':
+        return getattr(args, 'val_batch_size', getattr(args, 'batch_size'))
+    explicit_test_batch = getattr(args, 'test_batch_size', None)
+    if explicit_test_batch is not None:
+        return explicit_test_batch
+    return 1 if dataset_class is VPPDataset else getattr(args, 'batch_size')
+
+
 def data_provider(args, flag):
     """
-    数据加载器工厂函数
-
-    Args:
-        args: 参数对象，需包含以下字段：
-            - root_path: 数据根目录
-            - data_path: 数据文件名
-            - features: 特征类型 ('M', 'S', 'MS')
-            - target: 目标列名（仅S模式需要）
-            - seq_len, label_len, pred_len: 序列长度
-            - batch_size: 批大小
-            - num_workers: 数据加载线程数
-        flag: 'train', 'val', 'test'
-
-    Returns:
-        data_set: Dataset对象
-        data_loader: DataLoader对象
+    Shared dataset/dataloader factory for PhysFormer and baselines.
     """
-    # 选择数据集类型
-    if args.model == 'PhysFormer':
-        Data = PhysFormerDataset
-    else:
-        Data = VPPDataset
+    dataset_class = _resolve_dataset_class(args)
+    shuffle_flag = flag == 'train'
+    drop_last = flag == 'train'
+    batch_size = _resolve_batch_size(args, flag, dataset_class)
+    train_noise_level = getattr(args, 'train_noise_level', 0.0)
 
-    # 确定是否打乱数据
-    shuffle_flag = (flag == 'train')
-    drop_last = (flag == 'train')
-
-    # 批大小调整
-    batch_size = args.batch_size
-    if flag == 'test':
-        batch_size = 1  # 测试时使用单样本，便于逐样本分析
-
-    # 创建数据集
-    data_set = Data(
+    data_set = dataset_class(
         root_path=args.root_path,
         data_path=args.data_path,
         flag=flag,
         size=[args.seq_len, args.label_len, args.pred_len],
         features=args.features,
         target=args.target,
-        scale=True,  # 始终启用归一化
-        noise_level=0.03 if flag == 'train' else 0.0  # 仅训练时加噪声
+        scale=True,
+        noise_level=train_noise_level if flag == 'train' else 0.0,
+        freq=getattr(args, 'freq', 't'),
     )
 
-    # 创建DataLoader
-    data_loader = DataLoader(
-        data_set,
-        batch_size=batch_size,
-        shuffle=shuffle_flag,
-        num_workers=args.num_workers,
-        drop_last=drop_last
-    )
+    num_workers = getattr(args, 'num_workers', 0)
+    loader_kwargs = {
+        'batch_size': batch_size,
+        'shuffle': shuffle_flag,
+        'num_workers': num_workers,
+        'drop_last': drop_last,
+        'pin_memory': bool(getattr(args, 'pin_memory', getattr(args, 'use_gpu', False))),
+    }
 
+    if num_workers > 0:
+        loader_kwargs['persistent_workers'] = bool(
+            getattr(args, 'persistent_workers', True)
+        )
+        prefetch_factor = getattr(args, 'prefetch_factor', None)
+        if prefetch_factor is not None:
+            loader_kwargs['prefetch_factor'] = prefetch_factor
+
+    data_loader = DataLoader(data_set, **loader_kwargs)
     return data_set, data_loader

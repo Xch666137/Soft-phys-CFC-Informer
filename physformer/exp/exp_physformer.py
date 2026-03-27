@@ -1,32 +1,32 @@
+import json
 import math
-
-import torch
-import torch.optim as optim
-import numpy as np
 import os
 import warnings
-import logging
-import matplotlib.pyplot as plt
-import json
 
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from ..data.data_factory import PhysFormerDataset
+from .base_experiment import BaseExperiment
 from ..models import PhysFormer
 from ..utils.losses import PhysAwareBaseLoss, PhysLoss
 from ..utils.metrics import metric, NRMSE_Channel_Avg, PhysicsComplianceMetrics
 
 warnings.filterwarnings('ignore')
-torch.backends.cudnn.benchmark = True
 
-class Exp_PhysFormer:
+class Exp_PhysFormer(BaseExperiment):
     def __init__(self, args):
-        self.args = args
-        self._init_logger()
-        self.device = self._acquire_device()
+        self._train_scaler_params = None
+        self._train_phys_stats = None
+        self.criterion = None
+        self.train_means = None
+        self.train_stds = None
+        self.train_ramp_limits = None
+        super().__init__(args)
         self.model = self._build_model().to(self.device)
 
         self.gate_history = {
@@ -34,13 +34,21 @@ class Exp_PhysFormer:
             'info_gain': [], 'volatility': [], 'weather': []
         }
 
-        # 初始化 TensorBoard Writer
-        # 日志保存在 checkpoints/你的实验名/tensorboard 目录下
-        tb_dir = os.path.join(self.args.checkpoints, self.args.checkpoint_name, 'tensorboard')
+        tb_dir = os.path.join(self.experiment_dir, 'tensorboard')
         self.writer = SummaryWriter(log_dir=tb_dir)
-        print(f">>> TensorBoard logging to: {tb_dir}")
+        self.logger.info(f">>> TensorBoard logging to: {tb_dir}")
 
-        print(f"PhysFormer Model Structure:\n{self.model}")
+        model_label = getattr(self.args, 'model', self.model.__class__.__name__)
+        self.logger.info(f"{model_label} Model Structure:\n{self.model}")
+
+    def _get_train_stats(self):
+        if self._train_scaler_params is not None and self._train_phys_stats is not None:
+            return self._train_scaler_params, self._train_phys_stats
+
+        train_data, _ = self._get_data(flag='train')
+        self._train_scaler_params = train_data.get_scaler_params()
+        self._train_phys_stats = train_data.get_physical_stats()
+        return self._train_scaler_params, self._train_phys_stats
 
     # 记录显式物理参数
     def _log_physical_params(self, global_step):
@@ -132,91 +140,8 @@ class Exp_PhysFormer:
 
         return fig
 
-    def _init_logger(self):
-        log_dir = os.path.join(self.args.checkpoints, 'logs')
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-
-        # 区分日志文件名，避免覆盖
-        log_file = os.path.join(log_dir, f'train_log_{self.args.checkpoint_name}.txt')
-
-        self.logger = logging.getLogger("PhysFormer")
-        self.logger.setLevel(logging.INFO)
-
-        if self.logger.hasHandlers():
-            self.logger.handlers.clear()
-
-        fh = logging.FileHandler(log_file)
-        fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        sh = logging.StreamHandler()
-        sh.setFormatter(logging.Formatter('%(message)s'))
-
-        self.logger.addHandler(fh)
-        self.logger.addHandler(sh)
-        self.logger.info(f"Log file created at: {log_file}")
-
-    def _acquire_device(self):
-        if self.args.use_gpu and torch.cuda.is_available():
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(self.args.gpu)
-            device = torch.device('cuda:{}'.format(self.args.gpu))
-            self.logger.info(f'Use GPU: cuda:{self.args.gpu}')
-        else:
-            device = torch.device('cpu')
-            self.logger.info('Use CPU')
-        return device
-
-    def _get_data(self, flag):
-        # 1. 动态参数设置
-        if flag == 'train':
-            shuffle_flag = True
-            drop_last = True
-            batch_size = self.args.batch_size
-            noise_level = 0.01
-        else:
-            shuffle_flag = False
-            drop_last = False
-            batch_size = self.args.batch_size
-            noise_level = 0.0
-
-        # 2. 实例化 Dataset
-        # size=[seq_len, 0, pred_len]
-        # PhysFormer 是 Encoder-Only 模型，不需要 label_len (Start Token)
-        # 将其设为 0，Dataset 就会直接从 seq_len 结束的位置开始取 pred_len 长度的标签
-        data_set = PhysFormerDataset(
-            root_path=self.args.root_path,
-            data_path=self.args.data_path,
-            flag=flag,
-            size=[self.args.seq_len, 0, self.args.pred_len],  # label_len 硬编码为 0
-            features=self.args.features,
-            scale=True,
-            target=self.args.target,
-            noise_level=noise_level
-        )
-
-        # 3. 构造 DataLoader
-        use_persistent = (self.args.num_workers > 0)
-
-        data_loader = DataLoader(
-            data_set,
-            batch_size=batch_size,
-            shuffle=shuffle_flag,
-            num_workers=self.args.num_workers,
-            drop_last=drop_last,
-            persistent_workers=use_persistent,
-            pin_memory=self.args.use_gpu
-        )
-
-        return data_set, data_loader
-
     def _build_model(self):
-        # 1.临时获取 Dataset 以提取统计参数
-        train_data, _ = self._get_data(flag='train')
-
-        # 2. 直接从训练集的 Scaler 中提取参数
-        # PhysFormerDataset 已经有一个 get_scaler_params 方法，可以复用
-        scaler_params = train_data.get_scaler_params()
-
-        # 检查是否获取成功
+        scaler_params, _ = self._get_train_stats()
         if scaler_params['mean'] is not None:
             # 假设前3列分别是 [Load, PV, Wind]，这取决于你的CSV列顺序
             # 这里的切片操作就是我们之前说的"提取/计算"
@@ -336,13 +261,11 @@ class Exp_PhysFormer:
 
     def _select_criterion(self):
         # 1. 获取训练集
-        if not hasattr(self, 'train_dataset'):
+        _, phys_stats = self._get_train_stats()
             # 注意：这里我们获取 dataset 对象，而不仅仅是 loader
-            self.train_dataset, _ = self._get_data(flag='train')
 
         # 2. 从 Dataset 中直接获取物理统计量 [NEW]
         # PhysFormerDataset 现在负责计算这些值
-        phys_stats = self.train_dataset.get_physical_stats()
 
         real_means = phys_stats['means']
         real_stds = phys_stats['stds']
@@ -394,7 +317,10 @@ class Exp_PhysFormer:
                 stat_params.append(param)
 
         # 打印参数分组信息（调试用）
-        print(f">>> [Layer-wise LR] Phys: {len(phys_params)} params, Gate: {len(gate_params)} params, Stat: {len(stat_params)} params")
+        self.logger.info(
+            f">>> [Layer-wise LR] Phys: {len(phys_params)} params, "
+            f"Gate: {len(gate_params)} params, Stat: {len(stat_params)} params"
+        )
 
         param_groups = [
             {'params': phys_params, 'lr': base_lr * 0.1, 'name': 'phys_params'},
@@ -412,8 +338,10 @@ class Exp_PhysFormer:
         for p_group in param_groups:
             sample_names = [n for n, p in self.model.named_parameters()
                             if any(p is pp for pp in p_group['params'])][:3]
-            print(f">>> Group '{p_group['name']}' lr={p_group['lr']:.2e}, "
-                  f"sample params: {sample_names}")
+            self.logger.info(
+                f">>> Group '{p_group['name']}' lr={p_group['lr']:.2e}, "
+                f"sample params: {sample_names}"
+            )
 
         return model_optim
 
@@ -443,7 +371,8 @@ class Exp_PhysFormer:
         # 确保使用正确的 Context (Train/Val/Test)
         # BUGFIX: 验证和测试阶段强制关闭 autocast 以避免更易触发的 fp16 溢出
         is_train = (phase == 'train')
-        context = torch.cuda.amp.autocast(enabled=(self.args.use_amp and is_train)) if self.args.use_gpu else torch.no_grad()
+        amp_enabled = self.device.type == 'cuda' and self.args.use_amp and is_train
+        context = self._autocast_context(amp_enabled)
 
         with context:
             # 移除 detect_anomaly 的不必要开销，除非强制 debug
@@ -501,13 +430,11 @@ class Exp_PhysFormer:
         else:
             return outputs, batch_y_true, total_loss, loss_dict
 
-    def train(self):
+    def train(self, setting=None):
         train_data, train_loader = self._get_data(flag='train')
         val_data, val_loader = self._get_data(flag='val')
 
-        path = os.path.join(self.args.checkpoints, self.args.checkpoint_name)
-        if not os.path.exists(path):
-            os.makedirs(path)
+        path = self._resolve_setting_dir(setting, create=True)
 
         # 1. 初始化 Loss (获取 log_vars 参数)
         self.criterion = self._select_criterion()
@@ -517,7 +444,7 @@ class Exp_PhysFormer:
         model_optim = self._select_optimizer()
 
         # 3. 早停机制 (监控 物理MAE)
-        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True, logger=self.logger)
+        early_stopping = self._build_early_stopping()
 
         # 4. 学习率调度器: 余弦退火
         scheduler = CosineAnnealingLR(
@@ -526,33 +453,24 @@ class Exp_PhysFormer:
             eta_min=1e-6
         )
 
-        scaler = torch.cuda.amp.GradScaler(enabled=self.args.use_amp)
+        scaler = self._create_grad_scaler()
 
         # 全局步数计数器与断点恢复逻辑
-        global_step = 0
         start_epoch = 0
+        global_step = 0
 
         if getattr(self.args, 'debug_nan', False):
             torch.autograd.set_detect_anomaly(True)
             self.logger.info(">>> [DEBUG] PyTorch Anomaly Detection Enabled! <<<")
 
-        if getattr(self.args, 'resume', False) and os.path.exists(path + '/checkpoint.pth'):
-            self.logger.info(f">>> [RESUME] Loading checkpoint from {path} <<<")
-            self.model.load_state_dict(torch.load(path + '/checkpoint.pth', weights_only=False))
-            state_path = path + '/training_state.pth'
-            if os.path.exists(state_path):
-                state = torch.load(state_path, map_location=self.device, weights_only=False)
-                model_optim.load_state_dict(state['optimizer'])
-                scheduler.load_state_dict(state['scheduler'])
-                scaler.load_state_dict(state['scaler'])
-                start_epoch = state['epoch'] + 1
-                global_step = state['global_step']
-                early_stopping.best_score = state['best_score']
-                early_stopping.val_loss_min = state['val_loss_min']
-                early_stopping.counter = state['counter']
-                self.logger.info(f">>> [RESUME] Successfully resumed from Epoch {state['epoch']} (Next: {start_epoch}) <<<")
-            else:
-                self.logger.warning(">>> [RESUME WARNING] training_state.pth not found! Resuming model weights ONLY. <<<")
+        start_epoch, global_step = self._restore_training_runtime(
+            setting=setting,
+            optimizer=model_optim,
+            scheduler=scheduler,
+            scaler=scaler,
+            criterion=self.criterion,
+            early_stopping=early_stopping,
+        )
 
         for epoch in range(start_epoch, self.args.train_epochs):
             self.model.train()
@@ -607,6 +525,7 @@ class Exp_PhysFormer:
 
             train_loss_log = []
             debug_log = {'scale': []}
+            epoch_metric_log = {}
 
             with tqdm(total=len(train_loader),
                       desc=f"Epoch {epoch + 1}/{self.args.train_epochs}",
@@ -628,17 +547,17 @@ class Exp_PhysFormer:
                         raise ValueError("NaN Loss detected! Please check forward pass logic.")
 
                     # Backward
-                    scaler.scale(loss_main).backward()
-                    scaler.unscale_(model_optim)
+                    def log_gradients():
+                        if i % 50 == 0:  # 每 50 个 batch 记录一次梯度，避免拖慢速度
+                            self._log_gradient_norms(global_step)
 
-                    # 在 Optimizer Step 之前记录梯度
-                    if i % 50 == 0:  # 每 50 个 batch 记录一次梯度，避免拖慢速度
-                        self._log_gradient_norms(global_step)
-
-                    # 统一梯度裁剪：不再在阶段2收紧clip，避免物理约束梯度被卡死
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                    scaler.step(model_optim)
-                    scaler.update()
+                    self._backward_step(
+                        loss_main,
+                        model_optim,
+                        scaler=scaler,
+                        parameters=self.model.parameters(),
+                        pre_step_hook=log_gradients,
+                    )
 
                     # 记录 Loss 和 物理参数
                     if i % 20 == 0:  # 每 20 个 batch 记录一次 Loss
@@ -681,6 +600,10 @@ class Exp_PhysFormer:
                     if 'scale' in loss_dict:
                         debug_log['scale'].append(loss_dict['scale'])
 
+                    for metric_name, metric_value in loss_dict.items():
+                        if isinstance(metric_value, (int, float)):
+                            epoch_metric_log.setdefault(metric_name, []).append(float(metric_value))
+
                     train_loss_log.append(loss_main.item())
                     pbar.update(1)
 
@@ -702,6 +625,11 @@ class Exp_PhysFormer:
 
             # Logging
             avg_scale = np.mean(debug_log['scale']) if debug_log['scale'] else 1.0
+            epoch_metrics = {
+                key: float(np.mean(values))
+                for key, values in epoch_metric_log.items()
+                if len(values) > 0
+            }
 
             # 格式化课程权重信息
             if isinstance(curr_ratio, dict):
@@ -723,10 +651,10 @@ class Exp_PhysFormer:
 
             # 打印全部物理指标（两行）
             self.logger.info(
-                f"  >> [Fit]  MSE:{loss_dict.get('mse', 0):.4f} | MAE:{loss_dict.get('mae', 0):.4f}"
+                f"  >> [Fit]  MSE:{epoch_metrics.get('mse', 0):.4f} | MAE:{epoch_metrics.get('mae', 0):.4f}"
             )
             phys_terms = ['net', 'energy', 'deriv', 'dir', 'bvr', 'rvr', 'physics_prior']
-            phys_str = " | ".join([f"{k}:{loss_dict.get(k, 0):.4f}" for k in phys_terms])
+            phys_str = " | ".join([f"{k}:{epoch_metrics.get(k, 0):.4f}" for k in phys_terms])
             self.logger.info(f"  >> [Phys] {phys_str}")
 
             # 每个 Epoch 结束记录验证集 NRMSE
@@ -737,25 +665,32 @@ class Exp_PhysFormer:
             self.writer.add_scalar('Gates/Avg_Wind', avg_gates['wind'], epoch)
             self.writer.add_scalar('Gates/Avg_Weather_Injection', avg_gates.get('weather_gate', 0.0), epoch)
 
-            early_stopping(vali_nrmse, self.model, path, model_optim, scheduler, scaler, epoch, global_step)
+            early_stopping(
+                vali_nrmse,
+                self.model,
+                path,
+                model_optim,
+                scheduler,
+                scaler,
+                epoch,
+                global_step,
+                criterion=self.criterion,
+            )
             if early_stopping.early_stop:
                 self.logger.info("Early stopping")
                 break
 
         # 训练结束后
         # 保存gate历史
+        self._save_numpy_artifacts(setting, gate_history=self.gate_history)
         gate_save_path = os.path.join(path, 'gate_history.npy')
-        np.save(gate_save_path, self.gate_history)
         self.logger.info(f"Gate history saved to {gate_save_path}")
 
-        # Load Best Model
-        best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path, weights_only=False))
-        return self.model
+        return self._finalize_training(setting)
 
     def vali(self, vali_data, vali_loader, criterion, epoch=0):
         self.model.eval()
-        self.criterion.eval()
+        criterion.eval()
         total_loss = []
 
         # 收集预测值用于计算 NRMSE
@@ -784,7 +719,8 @@ class Exp_PhysFormer:
                         if k in gates:
                             batch_gates[k].append(gates[k])
 
-                if i == 0:
+                plot_every = max(1, int(getattr(self.args, 'plot_val_every', 1)))
+                if i == 0 and epoch % plot_every == 0:
                     fig = self._plot_prediction(outputs, batch_y_true, vali_data)
                     self.writer.add_figure('Validation/Prediction_Sample', fig, global_step=epoch)
                     plt.close(fig)
@@ -807,23 +743,28 @@ class Exp_PhysFormer:
         avg_gates = {k: np.mean(v) if len(v) > 0 else 0.0 for k, v in batch_gates.items()}
 
         self.model.train()
-        self.criterion.train()
+        criterion.train()
 
         # 返回 avg_nrmse 作为早停依据
         return avg_loss, avg_nrmse, avg_gates
 
     def test(self, setting, load=True, return_preds=False, extreme_scenario_test=False):
         test_data, test_loader = self._get_data(flag='test')
+        path = self._resolve_setting_dir(setting)
 
         if load:
-            path = os.path.join(self.args.checkpoints, setting)
-            best_model_path = path + '/' + 'checkpoint.pth'
-            self.model.load_state_dict(torch.load(best_model_path, weights_only=False))
+            self._load_model_checkpoint(setting)
 
         # 检查criterion是否存在
         if not hasattr(self, 'criterion') or self.criterion is None:
             self.logger.warning("Warning: Criterion not found. Rebuilding from training stats...")
             self.criterion = self._select_criterion()
+
+        if self.train_ramp_limits is None or self.train_means is None or self.train_stds is None:
+            _, phys_stats = self._get_train_stats()
+            self.train_means = phys_stats['means']
+            self.train_stds = phys_stats['stds']
+            self.train_ramp_limits = phys_stats['ramp_limits']
 
         actual_ramp_limits = self.train_ramp_limits
 
@@ -888,21 +829,23 @@ class Exp_PhysFormer:
             # 恢复形状
             preds = preds_rescaled.reshape(shape_orig)
             trues = trues_rescaled.reshape(shape_orig)
-            print(f"[DEBUG] After inverse_transform: preds.min={preds.min():.3f}, preds.max={preds.max():.3f}")
-            print(f"[DEBUG] actual_ramp_limits={actual_ramp_limits}")
+            self.logger.info(
+                f"[DEBUG] After inverse_transform: preds.min={preds.min():.3f}, preds.max={preds.max():.3f}"
+            )
+            self.logger.info(f"[DEBUG] actual_ramp_limits={actual_ramp_limits}")
         else:
-            print("[DEBUG] 反归一化被跳过！metric 将在归一化空间计算！")
+            self.logger.warning("[DEBUG] Inverse scaling was skipped; metrics are computed in normalized space.")
 
         metrics_result = metric(preds, trues, ramp_limits=actual_ramp_limits)
         mae, mse, rmse, bvr, rvr = metrics_result
         
-        print("\n" + "=" * 60)
-        print("  Standard Prediction Metrics (Test Set)")
-        print("=" * 60)
-        print(f"  MSE          : {mse:.6f}")
-        print(f"  MAE          : {mae:.6f}")
-        print(f"  RMSE         : {rmse:.6f}")
-        print("=" * 60)
+        self.logger.info("=" * 60)
+        self.logger.info("Standard Prediction Metrics (Test Set)")
+        self.logger.info("=" * 60)
+        self.logger.info(f"MSE  : {mse:.6f}")
+        self.logger.info(f"MAE  : {mae:.6f}")
+        self.logger.info(f"RMSE : {rmse:.6f}")
+        self.logger.info("=" * 60)
 
         # [FIX] 摒弃错误的 loss_dict 平均值，调用真实的物理合规性计算工具
         compliance = PhysicsComplianceMetrics(
@@ -914,9 +857,9 @@ class Exp_PhysFormer:
             pred=preds, true=trues, time_interval=0.25
         )
 
-        print("\n" + "=" * 60)
-        print("  VPP Physics Compliance Report (Test Set) [DENORMALIZED]")
-        print("=" * 60)
+        self.logger.info("=" * 60)
+        self.logger.info("VPP Physics Compliance Report (Test Set) [DENORMALIZED]")
+        self.logger.info("=" * 60)
         
         # 挑选最核心的几个打印展示
         display_keys = {
@@ -927,43 +870,48 @@ class Exp_PhysFormer:
         }
         for k, label in display_keys.items():
             if k in real_compliance_metrics:
-                print(f"  {label:<20} : {real_compliance_metrics[k]:.6f}")
+                self.logger.info(f"{label:<20} : {real_compliance_metrics[k]:.6f}")
 
         # 计算综合平均 RVR (%)
         rvr_keys = [k for k in real_compliance_metrics.keys() if 'ramp_violation_rate' in k]
         if rvr_keys:
             avg_rvr = np.mean([real_compliance_metrics[k] for k in rvr_keys])
-            print(f"  {'RVR (%)':<20} : {avg_rvr:.6f}")
+            self.logger.info(f"{'RVR (%)':<20} : {avg_rvr:.6f}")
         
-        print("=" * 60 + "\n")
+        self.logger.info("=" * 60)
 
-        path = os.path.join(self.args.checkpoints, setting)
-        if not os.path.exists(path): os.makedirs(path)
-        folder_path = path + '/'
+        folder_path = self._resolve_setting_dir(setting, create=True)
 
         # 仅当收集到门控可视化数据时才保存（消融变体 w/o PGCC 和 w/o Physics 不生成）
-        if len(vis_data['gate_pv']) > 0:
-            np.save(os.path.join(folder_path, 'vis_gate_pv.npy'), np.array(vis_data['gate_pv']))
-            np.save(os.path.join(folder_path, 'vis_gate_wind.npy'), np.array(vis_data['gate_wind']))
-            np.save(os.path.join(folder_path, 'vis_irr.npy'), np.array(vis_data['irr']))
-            np.save(os.path.join(folder_path, 'vis_speed.npy'), np.array(vis_data['speed']))
+        if getattr(self.args, 'save_gate_details', False) and len(vis_data['gate_pv']) > 0:
+            self._save_numpy_artifacts(
+                setting,
+                vis_gate_pv=np.array(vis_data['gate_pv']),
+                vis_gate_wind=np.array(vis_data['gate_wind']),
+                vis_irr=np.array(vis_data['irr']),
+                vis_speed=np.array(vis_data['speed']),
+            )
 
-        np.save(os.path.join(folder_path, 'gate_details.npy'), detailed_gates)
+        if getattr(self.args, 'save_gate_details', False):
+            self._save_numpy_artifacts(setting, gate_details=detailed_gates)
         # 将我们真实计算的合规字典保存
-        np.save(os.path.join(folder_path, 'phys_metrics.npy'), real_compliance_metrics)
-        np.save(os.path.join(folder_path, 'metrics.npy'), np.array(metrics_result))
-        np.save(os.path.join(folder_path, 'pred.npy'), preds)
-        np.save(os.path.join(folder_path, 'true.npy'), trues)
+        self._save_numpy_artifacts(
+            setting,
+            phys_metrics=real_compliance_metrics,
+            metrics=np.array(metrics_result),
+            pred=preds,
+            true=trues,
+        )
 
         # 极端场景测试
         if extreme_scenario_test:
-            print("\n" + "="*60)
-            print("  极端场景测试 (Extreme Scenario Testing)")
-            print("="*60)
+            self.logger.info("=" * 60)
+            self.logger.info("Extreme Scenario Testing")
+            self.logger.info("=" * 60)
 
             # 检查是否有天气数据
             if len(weather_data_list) == 0:
-                print("警告：未收集到天气数据，无法进行极端场景测试")
+                self.logger.warning("No weather data collected; skipping extreme scenario testing.")
             else:
                 # 合并天气数据
                 weather_data = np.concatenate(weather_data_list, axis=0)
@@ -976,7 +924,9 @@ class Exp_PhysFormer:
                 B_pred, T, _ = preds.shape
 
                 if B_weather != B_pred:
-                    print(f"警告：天气数据批次大小({B_weather})与预测批次大小({B_pred})不匹配")
+                    self.logger.warning(
+                        f"Weather batch count ({B_weather}) does not match prediction batch count ({B_pred})."
+                    )
                     # 截断到最小批次
                     min_batch = min(B_weather, B_pred)
                     weather_data = weather_data[:min_batch]
@@ -1029,84 +979,15 @@ class Exp_PhysFormer:
                     # 保存原始天气数据以供后续分析
                     np.save(os.path.join(extreme_scenario_path, 'weather_data.npy'), weather_data)
 
-                    print(f"极端场景测试结果已保存至: {extreme_scenario_path}")
+                    self.logger.info(f"Extreme scenario results saved to: {extreme_scenario_path}")
 
                 except ImportError as e:
-                    print(f"导入极端场景测试模块失败: {e}")
-                    print("请确保 evaluation/extreme_scenarios.py 存在")
+                    self.logger.error(f"Failed to import extreme scenario tester: {e}")
+                    self.logger.error("Please ensure evaluation/extreme_scenarios.py exists.")
                 except Exception as e:
-                    print(f"极端场景测试执行失败: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    self.logger.exception(f"Extreme scenario testing failed: {e}")
 
         if return_preds:
             return preds, trues, metrics_result
         else:
             return preds, trues
-
-class EarlyStopping:
-    def __init__(self, patience=10, verbose=False, delta=0, logger=None):
-        self.patience = patience
-        self.verbose = verbose
-        self.counter = 0
-        self.best_score = None
-        self.early_stop = False
-        self.val_loss_min = float('inf')
-        self.delta = delta
-        self.logger = logger  # 传入 logger
-
-    def __call__(self, val_loss, model, path, optimizer=None, scheduler=None, scaler=None, epoch=None, global_step=None):
-        import numpy as np
-        # BUGFIX: 防止 val_loss 为 NaN 时短路比较逻辑强制保存损坏的模型
-        if not np.isfinite(val_loss):
-            if self.logger:
-                self.logger.warning(f'Warning: EarlyStopping encountered invalid val_loss: {val_loss}. Skipping save.')
-            elif self.verbose:
-                print(f'Warning: EarlyStopping encountered invalid val_loss: {val_loss}. Skipping save.')
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-            return
-
-        # 这里的 val_loss 实际上是 NRMSE，越小越好
-        score = -val_loss
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model, path, optimizer, scheduler, scaler, epoch, global_step)
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            if self.logger:
-                self.logger.info(
-                    f'EarlyStopping counter: {self.counter} out of {self.patience} (Best: {-self.best_score:.6f})')
-            elif self.verbose:
-                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
-
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model, path, optimizer, scheduler, scaler, epoch, global_step)
-            self.counter = 0
-
-    def save_checkpoint(self, val_loss, model, path, optimizer=None, scheduler=None, scaler=None, epoch=None, global_step=None):
-        if self.logger:
-            self.logger.info(
-                f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-        elif self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-
-        torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
-        if optimizer is not None:
-            state = {
-                'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict() if scheduler else None,
-                'scaler': scaler.state_dict() if scaler else None,
-                'epoch': epoch,
-                'global_step': global_step,
-                'best_score': self.best_score,
-                'val_loss_min': val_loss,
-                'counter': self.counter
-            }
-            torch.save(state, path + '/' + 'training_state.pth')
-            
-        self.val_loss_min = val_loss

@@ -24,7 +24,7 @@ data:
   target: null
   seq_len: 672
   pred_len: 96
-  freq: h
+  freq: t
 
 training:
   batch_size: 128
@@ -43,7 +43,16 @@ hardware:
 
 checkpoint:
   name: PhysFormer_full_seed2024
-  path: checkpoints/PhysFormer/
+  path: exp_results/PhysFormer/checkpoints/
+
+runtime:
+  seed: 2024
+  deterministic: false
+  benchmark: true
+
+output:
+  root: exp_results
+  save_gate_details: false
 
 ablation:
   no_phys_stream: false
