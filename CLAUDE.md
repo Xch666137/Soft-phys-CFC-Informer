@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Persistent Project Memory
+
+This repository also follows the persistent project rules in `memory.md`.
+Any environment, training, validation, testing, or experiment-running guidance must follow the environment and GPU constraints defined there.
+
 ## Project Overview
 
 PhysFormer — a physics-guided Transformer for Virtual Power Plant (VPP) multi-target load forecasting. Predicts Load, PV Power, and Wind Power 24 hours ahead (96 steps at 15-min resolution) from 7 days of history (672 steps). The core innovation is structurally embedding physical constraints (solar/wind bounds, ramp rates) into the architecture rather than using post-hoc clamping.
