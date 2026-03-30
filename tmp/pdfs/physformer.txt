@@ -1,0 +1,714 @@
+JOURNAL OF MODERN POWER SYSTEMS AND CLEAN ENERGY                                                                                           1
+
+
+
+
+   PhysFormer: A Bounded Residual Transformer
+     With Physics-Guided Causal Coupling for
+ Safety-Constrained Virtual Power Plant Forecasting
+                                                  Xingyu Liu * and Zhong Tang
+
+
+
+   Abstract—Virtual power plant (VPP) forecasting requires                Historically, early approaches to VPP forecasting relied on
+predictions that respect physical constraints, yet data-driven         statistical extrapolation. As distributed resources increased,
+deep learning models frequently generate physically impossible         recurrent neural networks dominated sequential modeling
+outputs such as negative power or nighttime solar generation.
+Post-hoc clipping can suppress violations but introduces non-          but struggled with long-range dependencies. Subsequently,
+differentiable dead zones that disrupt end-to-end optimization.        Transformer-based frameworks emerged as the dominant
+This paper proposes PhysFormer, a bounded residual Trans-              paradigm, capturing varied temporal dynamics across extended
+former that structurally enforces physical compliance. First, a        sequences [6]–[9]. Within the VPP domain, multivariable
+Bounded Physical Act-Residual (BPAR) architecture employs              Transformer adaptations have demonstrated competitive ac-
+differentiable Softplus lower-bound clamping combined with
+physics-derived activity masks to structurally prevent negative        curacy [3], [10]. Reliable dispatch decisions hinge not only
+predictions, achieving BVR=0.00% while preserving continuous           on minimizing raw statistical forecasting errors but also on
+gradient flow. Second, an orthogonal Physics-Guided Causal Cou-        ensuring that predictive models fundamentally comply with
+pling (PGCC) module imprints physical priors onto latent gating        the immutable physical laws governing these grids.
+variables via supervised regularization, yielding a strong Pearson
+correlation (r = 0.8306) that confers structural transparency
+without sacrificing predictive capacity. Additionally, a Physics-      B. Limitations of Existing Data-Driven Methods
+Constrained Curriculum Training strategy sequentially intro-
+duces physical constraints to avoid early-stage gradient conflicts.           Recent advancements in deep learning have introduced pow-
+Experiments on a real-world 3-year VPP dataset demonstrate                 erful time-series forecasting architectures, yet their application
+that PhysFormer achieves a superior accuracy-compliance Pareto             to VPP scheduling presents fundamental challenges across
+positioning, operating within 6% MSE of unconstrained baselines
+                                                                           three distinct dimensions [11], [12]:
+while maintaining zero boundary violations across standard and
+extreme weather conditions.                                                   1) Mathematical Black-Box Oblivion: While deep neural
+                                                                           networks excel at minimizing statistical error metrics, they
+    Index Terms—Physics-informed machine learning, Virtual
+Power Plants (VPPs), Transformer architectures, Causal inter- operate as black-box predictors that remain oblivious to the
+pretability, Physical compliance, Distributed energy resources underlying physical principles governing power systems. Con-
+forecasting.                                                               sequently, pure data-driven approaches optimize exclusively
+                                                                           for statistical error minimization, remaining unconstrained
+                                                                           by thermodynamic laws and frequently producing physically
+                           I. I NTRODUCTION
+                                                                           impossible predictions—such as non-zero solar power during
+A. Background and Motivation                                               the night or negative wind generation. These deficits severely
+    The integration of renewable energy sources into the power undermine operational safety and operator trust.
+grid has driven the development of Virtual Power Plants                       2) Fragility of Post-Hoc Physics Interventions: To address
+(VPPs) to aggregate and manage distributed energy resources. physical non-compliance, Physics-Informed Neural Networks
+Accurate forecasting of VPP dynamics—specifically elec- (PINNs) [13] incorporate physical differential equations as soft
+trical load, photovoltaic (PV) generation, and wind power constraints. However, VPPs operate in highly stochastic envi-
+generation—is critical for grid stability, economic dispatch, ronments where a device’s active status depends on volatile
+and operational risk management [1]–[5]. Unlike single- exogenous variables rather than on fixed deterministic rules
+variable forecasting, cooperative VPP management requires [14]. Fixed physical parameters and static penalty terms fail
+simultaneous, coherent predictions across these interrelated to adapt dynamically to transient wind or solar phenomena
+domains, where the physical constraints of each energy modal- [15]. Alternatively, applying heuristic post-processing—such
+ity must be rigorously respected. For instance, PV generation as hard zero-clipping at physical boundaries—can retroactively
+is intrinsically bound by solar irradiance and cannot produce suppress the violation rate to zero but strictly functions as a
+power during nighttime, while wind generation depends on a superficial patch. Heuristic clipping inherently disrupts end-to-
+non-linear turbine power curve driven by localized wind speed. end optimization by introducing non-differentiable dead zones,
+                                                                           severing the natural continuous manifold of the underlying pre-
+   The authors are with the Department of Electrical Engineering, Shanghai dictions without addressing the model’s structural ignorance.
+University of Electric Power, Shanghai, China.
+   * Corresponding author: X. Liu (e-mail: y24203228@mail.shiep.edu.cn).      3) Lack of Structural Traceability: As forecasting models
+   Z. Tang (e-mail: tangzhong64@163.com).                                  grow increasingly complex, structural interpretability repre-
+2                                                                                      JOURNAL OF MODERN POWER SYSTEMS AND CLEAN ENERGY
+
+
+
+sents a critical safety requirement [11]. Prior interpretability ef- efficiency and temperature coefficient; vci , vr , and vco are the
+forts relied on post-hoc attribution or internal attention weight wind turbine cut-in, rated, and cut-out speeds; apv and awind
+visualization, which do not provide deterministic physical are physics activity masks ∈ [0, 1]; gpv and gwind are PGCC
+causal attribution [16]. In operational contexts, grid operators gates; α is the curriculum factor; S = 672 and P = 96 are the
+require models that explicitly decode how specific, measurable sequence and prediction lengths; and D = 512 is the model
+environmental variables govern device activation bounds. A dimension.
+persistent gap remains in causal gating formulations capable of         In the context of Virtual Power Plant (VPP) forecasting, the
+dynamically linking network activations to observable physical objective is to predict the future power outputs of three distinct
+state transitions [17], [18].                                        sub-components: base load (Pload ), photovoltaic generation
+                                                                     (Ppv ), and wind generation (Pwind ). The overall net power
+C. Proposed Approach and Main Contributions                          demand of the VPP is defined as Pnet = Pload − Ppv −
+                                                                     Pwind . Let Xstat ∈ RB×S×3 denote the historical observation
+   Bridging the gap between the high predictive capacity of sequence for the three components over a look-back win-
+deep learning and the rigorous physical compliance required dow of length S, where B is the batch size. Concurrently,
+by coupled power systems remains a critical challenge. To this the corresponding historical weather conditions—comprising
+end, this paper proposes PhysFormer, a physics-guided causal temperature, irradiance, and wind speed—are represented by
+Transformer designed to natively integrate differentiable phys- X                       B×S×3
+                                                                       weather_hist ∈ R            . The model is also provided with future
+ical priors upstream of the forecasting output, anchoring the weather forecasts for the prediction horizon P , denoted by
+neural network to intrinsic structural compliance.                   Xweather_future ∈ RB×P ×3 . Given these inputs, the forecast-
+   The proposed architecture fundamentally breaks the di- ing model aims to generate point predictions for the output
+chotomy between predictive acuity and structural rigor. The Y ∈ RB×P ×3 , providing the respective future trajectories for
+primary contributions of this paper are twofold:                     the load, PV, and wind components.
+   1) A Bounded Physical Act-Residual (BPAR) architec-
+       ture is proposed. By fusing parallel Transformer and Ex-
+       plicitPhysicalMapping streams via Softplus lower-bound B. Overall Architecture
+       clamping and physics activity masks, this mechanism
+       intrinsically limits the neural residual search space. It
+       mathematically guarantees that forecasting output never
+       breaches normalized zero bounds, eradicating the bound-
+       ary violation rate (BVR=0.00%) without resorting to
+       heuristic post-processing.
+   2) An orthogonal Physics-Guided Causal Coupling
+       (PGCC) mechanism is introduced. By explicitly regu-
+       larizing the cross-attention irradiance threshold learning,
+       PGCC successfully imprints a highly correlated physical
+       relationship onto the temporal gating variable. This
+       structural alignment separates attribution transparency
+       from error minimization capacity, conferring quantifi-
+       able structural transparency and extreme resilience to
+       out-of-distribution (OOD) sensor noise.
+   To ensure optimal learning of these components, we ad-
+ditionally define a Physics-Constrained Curriculum Train-
+ing strategy that seamlessly optimizes numerical regression
+alongside rigid engineering bounds to ensure absolute multi-
+objective saturation. Furthermore, we redefine the Ramp
+Violation Metric (RVM) within a safety-first framework,
+demonstrating that PhysFormer successfully bounds minor
+structural corrections at boundary limits to physically negligi- Fig. 1. The overall architecture of the proposed PhysFormer. It features a dual-
+ble magnitudes, thereby prioritizing absolute safety over blind stream      design: a statistical stream encoded by a Transformer, and an explicit
+                                                                     physical mapping stream. These streams are causally fused via the Physics-
+continuity.                                                          Guided Causal Coupling (PGCC) module. Future weather conditions are
+                                                                          injected using a Gated Linear Unit (GLU) to provide explicit foresight. Finally,
+                                                                          theory-anchored residual heads refine the predictions under the constraint of
+         II. P ROPOSED P HYS F ORMER F RAMEWORK                           physics-derived activity gates, eliminating non-physical predictions.
+A. Mathematical Formulation                                                  The PhysFormer is constructed as a dual-stream Trans-
+  Throughout this paper, we adopt the following notation:                 former with PGCC and Theory-Anchored Activity Gating.
+Pload , Ppv , and Pwind denote load, PV, and wind power [MW];             The processing pipeline follows seven steps: (1) Historical
+G, T , and v represent irradiance [W/m2 ], temperature [◦ C],             observation Xstat and weather Xweather_hist are concatenated and
+and wind speed [m/s]; ηpv and βT are the PV conversion                    encoded by a Transformer encoder (dmodel = 512, dff =
+LIU et al.: PHYSFORMER                                                                                                                3
+
+
+
+1024, 8 heads, 3 layers). (2) Xweather_hist is processed through       awind = tanh(10 · softplus(v − vci ) · softplus(vco − v)). Within
+ExplicitPhysicalMapping for physical baselines. (3) PGCC               the BPAR framework, the residual mechanism automatically
+fuses statistical and physics representations. (4) FlattenHead         compensates for systematic dampening effects near thresholds.
+projects from historical dimension S to prediction horizon             The load takes an unconditional aload = 1. These physics-
+P . (5) Future weather Xweather_future is injected via a GLU           derived masks guarantee continuous gradient flow while bridg-
+with residual logic. (6) Separate output heads predict per-            ing active operating states and null-generation periods.
+component residual corrections. (7) Theory-Anchored Output
+applies physics activity masks to yield final predictions.
+                                                                       D. Physics-Guided Causal Coupling (PGCC)
+C. Explicit Physical Mapping                                              The Physics-Guided Causal Coupling (PGCC) module co-
+   The core of the physics injection lies in the ExplicitPhys-         ordinates the knowledge retrieval from the statistical stream
+icalMapping layer, which maps relevant weather variables to            against the physically encoded representations.
+theoretical power baselines via domain-specific equations.                1) Physics-Anchored Illumination Prior: We first establish
+   1) PV Model: The theoretical PV generation is driven by             a data-invariant hard prior to reject spurious correlations. The
+irradiance G and degraded by cell temperature, modeled as:             gating relies on a parameterized illumination sigmoid prior
+         Ppv = G · ηpv · clamp(1 − βT · (T − 25), 0, 1.5)       (1)    pprior
+                                                                         pv = σ(kirr ·(Gnorm −θirr )), with constraints dynamically kept
+                                                                       as θirr ∈ [−2.0, 0.5] and bounded slope kirr ∈ [1, 100]. This
+where T is the temperature, ηpv = 0.33·σ(θeff ) is the learnable
+                                                                       hard prior establishes an uncompromised distinction between
+conversion efficiency bounded by the Shockley-Queisser limit,
+                                                                       day and night intervals, rejecting noise artifacts in the data
+and βT = softplus(θtemp_coef ) × 0.01 ∈ [0.003, 0.005]/◦ C is
+                                                                       embeddings.
+the temperature coefficient.
+   2) Wind Model: Wind power limits depend heavily on                     2) Volatility-Aware Soft Gate: To dynamically scale net-
+operating thresholds: the cut-in speed vci , rated speed vr , and      work trust, the system embeds      sequence-level sample fluctua-
+                                                                       tions extracted as υ = C1 c Vart (Xweather,c ). These dynamics,
+                                                                                                 P
+cut-out speed vco . To preserve strict threshold ordering, we
+utilize a cumulative delta structure where vci = softplus(θci ),       combined with the statistical embeddings and attention outputs,
+vr = vci + softplus(θr_delta ), and vco = vr + softplus(θco_delta ).   are routed through a downsampling multi-layer perceptron
+The power output uses an idealized soft-curve approximation            yielding the unscaled soft condition maps. This volatility input
+modified by operational compliance:                                    is instrumental for the network to dynamically adapt its trust
+                                                                       ratio, discounting the physical components when conditions
+         Pwind = scalewind · σ(5 · (wnorm − 0.5)) · Irunning    (2)    are unstable.
+where wnorm is the normalized speed, scalewind is a learnable             3) Source-Differentiated Gate Bounds: The coupling imple-
+amplitude factor, and Irunning is 1 within [vci , vco ] and 0          ments separate activation ranges to accommodate generation
+otherwise. To maintain differentiability, PhysFormer replaces          source characteristics:
+Irunning with a continuous physics activity mask awind (detailed
+                                                                              gatepv = smooth pprior
+                                                                                                                        
+in Section II-C4):                                                                               pv · (0.5 + gsoft_pv ) ∈ [0, 1.5]   (5)
+        Pwind,actual = scalewind · σ(5 · (wnorm − 0.5)) · awind (3)                  gateload = smooth(gsoft_load ) ∈ [0, 1.0]       (6)
+This decoupling bridges rigid physical thresholds with end-            The asymmetric upper bound of 1.5 for gatepv provides
+to-end backpropagation without Straight-Through Estimators.            necessary engineering headroom for the neural residual within
+The cumulative delta structure ensures overlapping bounds              the BPAR additive structure. During meteorological transients
+never collapse during gradient updates.                                (e.g., Cloud Edge Effect with 1.2×–1.5× over-irradiance), this
+   3) Load Model: We abstract the power load variations                ceiling ensures sufficient dynamic range for the residual stream
+triggered by human cooling and heating activities through a            to recover transient peaks. Through explicit gate response regu-
+quadratic thermal comfort model:                                       larization, the learned gatepv achieves a deterministic Pearson
+              Pload = Pbase + softplus(γ) · (T − Tc )2          (4)    correlation of r = 0.8306 relative to exogenous irradiance
+                                                                       (Fig. 3), structurally isolated from predictive capacity and
+where Tc is an optimizable thermal comfort baseline initialized
+                                                                       resilient to OOD sensor drift (r > 0.81 under 50% noise).
+at 20◦ C. While the intrinsic self-attention mechanism of the
+                                                                          4) Physics-to-Data Curriculum Transition: We condition
+Transformer is fundamentally adept at extracting the rigid
+                                                                       the alignment phase via a curriculum factor α. As the fusion
+diurnal and weekly periodicities characterizing human social
+                                                                       queries retrieve features, the module integrates inputs dynam-
+activities, the Explicit Physical Mapping stream is deliber-
+                                                                       ically scaled as:
+ately restricted to isolating the non-linear, temperature-driven
+volatility of the electrical load. Therefore, we conceptualize                        q = α · Fphysics + (1 − α) · gsoft · Fstat     (7)
+the thermal-induced variance through this quadratic comfort            During the initial training phases (α → 1), the cross-attention
+model, explicitly decoupling meteorological sensitivity from           queries are strictly constrained to retrieve from the structured
+the statistically captured chronological baselines.                    physical representations, establishing an essential deterministic
+   4) Physics Activity Gating: To prevent non-physical arti-           basis. As training progresses (α → 0), the queries gradually
+facts, we propose an explicit Activity Gating scheme. For              transition to incorporate the data-learned residual states gated
+PV, night-time irrelevance: apv = tanh(10 · Ppv_theory ). For          by gsoft , balancing established physical priors with empirical
+wind, speed-dependent activity with differentiable soft limits:        statistical adaptations.
+4                                                                                                                                                                                                                                                                                                             JOURNAL OF MODERN POWER SYSTEMS AND CLEAN ENERGY
+
+
+
+                                                                                                                                  (a) PV Temperature Degradation                                                                                                          (b) Wind Turbine Power Curve                                               (c) Load Thermal Comfort Demand
+                                                                                                                                                                                                                                                                                                                                           6.0
+                                                                                                                                                                                    G = 0.2 (norm)                                               1.0
+                                                                                                                                                                                    G = 0.6 (norm)
+
+
+
+
+                                                                                                                                                                                                                  Power Generation Coefficient
+                                                                                                             1.0                                                                                                                                                                                                                           5.5
+
+
+                                                                                   Normalized Power Output
+                                                                                                                                                                                    G = 1.0 (norm)
+                                                                                                                                                                                                                                                           vci
+
+
+
+
+                                                                                                                                                                                                                                                                                                                       Power Demand (MW)
+                                                                                                                                                                                                                                                 0.8
+                                                                                                                                                                                                                                                                                                                                           5.0
+                                                                                                             0.8
+                                                                                                                                                                                                                                                 0.6
+                                                                                                                                                                                                                                                                                                         vco                               4.5
+                                                                                                             0.6
+                                                                                                                                                                                                                                                 0.4
+                                                                                                                                                                                                                                                                                                                                           4.0
+
+                                                                                                                                                                                                                                                                                    vr                                                                            Tc = 20.0 ∘ C
+                                                                                                             0.4                                                                                                                                 0.2                                                                                       3.5                    Base: 2.83 MW
+
+                                                                                                                                                                                                                                                 0.0                                                                                       3.0
+                                                                                                             0.2
+
+                                                                                                                        −10      0            10             20             30              40                                                         0              5        10        15    20        25      30                              0          10          20            30   40
+                                                                                                                                          Cell Temperature ( ∘ C)                                                                                                               Wind Speed (m/s)                                                         Ambient Temperature ( ∘ C)
+
+
+
+
+Fig. 2. Learned explicit physical mapping functions after convergence. (a) PV temperature degradation under varying irradiance levels (βT = 0.0041/◦ C).
+(b) Wind turbine power curve with smooth sigmoid transition. (c) Load thermal comfort demand (Tc ≈ 20◦ C). Parameters are listed in Table V.
+
+
+
+                                                                                                                ) L J X U H     , P S U L Q W H G  * D W H  , U U D G L D Q F H  & R U U H O D W L R Q  L Q  3 * & &                                                            F. Bounded Physical Act-Residual (BPAR) Mechanism
+                                                                          ) X O O  W H V W  V H W   1         
+                                                                             * O R E D O  3 H D U V R Q  U                                                                                                                                                                         To systematically mitigate non-physical anomalies while
+                                                                                                                                                                                                                                                                                         preserving the continuous gradient flow, we propose the
+                                                                      
+                                                                                                                                                                                                                                                                                         Bounded Physical Act-Residual (BPAR) mechanism. Let µx
+  3 9  7 H P S R U D O  * D W H  $ F W L Y D W L R Q   PV 
+
+
+
+
+                                                                                                                                                                                                                                                                                         and σx denote the global mean and standard deviation of
+                                                                      
+                                                                                                                                                                                                                                                                                         component x. We define the normalized physical zero-point
+                                                                                                                                                                                                                                                                                         as Px,zero = (0 − µx )/σx . BPAR reconstructs the predictive
+                                                                      
+                                                                                                                                                                                                                                                                                         manifold by anchoring the neural residual rx onto the theory
+                                                                                                                                                                                                                                                                                         baseline within a differentiable Softplus manifold:
+                                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                            P̂x,raw = Softplus (Px,theory + rx ) − Px,zero + Px,zero (8)
+                                                                      
+                                                                                                                                                                                                                                                                                         By the fundamental property of Softplus (Softplus(z) > 0, ∀z),
+                                                                                                                                                                                                                   7 H P S R U D O  * D W H  6 D P S O H V
+                                                                                                                                                                                                                                                                                         this ensures P̂x,raw > Px,zero in the normalized domain. Upon
+                                                                      
+                                                                                                                                                                                                                                                                                         anti-normalization, P̂phys = P̂x,raw · σx + µx > 0 MW for σx >
+                                                                                                                                                                                                                                                              
+                                                                                                                                          1 R U P D O L ] H G  6 R O D U  , U U D G L D Q F H  Gnorm                                                                                0. We maintain a numerical floor ϵ = 10−5 for degenerate
+                                                                                                                                                                                                                                                                                         variance states (e.g., night-time PV), preserving near-perfect
+Fig. 3. Imprinted Gate-Irradiance Correlation in PGCC. Top: time-series                                                                                                                                                                                                                  boundary compliance. Subsequently, the prediction is fused
+overlay of learned PV gate and solar irradiance over representative test                                                                                                                                                                                                                 with the physics activity mask ax ∈ [0, 1]:
+samples. Bottom: scatter regression on a visualization subset; the global
+Pearson correlation across the full test set is r = 0.8306 (p < 0.001).                                                                                                                                                                                                                                        P̂x,final = ax · P̂x,raw + (1 − ax ) · Px,zero                                   (9)
+                                                                 Whenever ax → 0 (driven by meteorological priors), BPAR
+   5) Temporal Smoothing: Due to internal frame dependen-
+                                                                 smoothly drives output toward the physical zero baseline,
+cies, local sequence discontinuities often plague raw gating
+                                                                 intrinsically shielding against boundary violations. While pure
+parameters. To counteract this, all temporal gating variables
+                                                                 data-driven models may exhibit lower high-frequency noise
+pass through a grouped one-dimensional depthwise convo-
+                                                                 by crossing zero-power thresholds, BPAR enforces a safety-
+lution (kernel size 3, groups=dmodel ). This filter structurally
+                                                                 first trade-off: absolute elimination of physical violations
+suppresses high-frequency chaotic fluctuation within the gate
+                                                                 (BVR=0.00%) over cosmetic temporal smoothness.
+assignment layer while preserving macro-level shift indicators.
+
+
+                                                                                                                                                                                                                                                                                         G. Physics-Constrained Curriculum Training
+E. Exogenous Weather Integration
+                                                                     Training deep neural networks with rigid physical con-
+   After the FlattenHead projects the fused representations into straints poses significant optimization challenges due to gradi-
+the explicit future context, the framework must systematically ent conflicts between data-driven and physics objectives. We
+integrate upcoming weather patterns at the given horizon. design a Physics-Constrained Curriculum Training strategy
+Because the prediction horizon’s meteorological conditions that decouples metric spaces, enforces dynamic amplitude bal-
+are unavailable in the historical context alone, providing ancing, and maps learning trajectories onto a phased schedule.
+this explicit foresight is essential. The future physical latent     1) Loss Function Design: The primary regression loss
+space Fweather_future is concatenated with the neural history (MSE) operates in normalized space for stable gradients, while
+Fhistory , and aggregated via a Gated Linear Unit (gate = all physics constraints (Lphys ) are evaluated after denormaliza-
+σ(linear(Fcat ))). The bounded residual output is produced as tion into the physical domain (MW). The physical objectives
+Ffuture = gate · proj(Fcat ) + Fhistory . This explicitly bounded comprise six penalties (Table I): soft constraints (Lnet , Lenergy ,
+forward visibility ensures the residual heads are properly Lderiv , Ldir ) guide structural topology, while hard constraints
+conditioned to react to impending deterministic disruptions, (Lbvr , Lrvr ) use aggressive quadratic formulations for safety-
+such as dawn transitions or sudden wind cut-outs.                 critical boundaries.
+LIU et al.: PHYSFORMER                                                                                                                      5
+
+
+
+                                  TABLE I                                     3) Layer-wise Learning Rates: To sustain learned feature
+               C OMPONENTS OF P HYSICS -G UIDED L OSS F UNCTION            fidelity without abruptly disrupting the theory-anchored base-
+Comp.          Wt.         Formula            Motivation                   lines pre-defined by human engineering inputs, we decouple
+                        P                                                  the backpropagation update amplitudes into three isolated
+Lnet (Soft)    1.0     | ŷcomp − ynet |      Ensures models sum to net
+                                              demand.                      AdamW groupings (Table II, bottom).
+Lenergy (Soft) 0.5      |Et [ŷ] − Et [y]|    Enforces macro energy           The baseline parameters proceed at a default learning rate
+                                              conservation.                of 1 × 10−4 . After their suspension ends in epoch 5, the
+Lderiv (Soft) 0.3         |∆ŷ − ∆y|          Captures ramp rate
+                                              magnitudes.                  core generation physics operators unfreeze at a drastically
+Ldir (Soft)    0.1       E[1−simcos ]         Preserves accurate trend     suppressed 1 × 10−5 (0.1× the baseline rate). This strict
+                                              switching.                   limitation permits minor optimization fine-calibration over
+Lbvr (Hard) 2.0      E[(max(0, −ŷreal ))2 ] Penalizes negative power      coefficients like optimal irradiance generation thresholds while
+                                              strictly.                    halting gross semantic reconstruction. Correspondingly, the
+Lrvr (Hard)                                 2
+               2.0 E[(max(0, |∆ŷ|−ρk )) ] Penalizes sudden jumps.
+                                                                           intermediate gating features proceed at 5 × 10−5 , which yields
+   We propose an adaptive amplitude balancing factor γema smooth adjustment profiles.
+that dynamically tracks the ratio between current forecasting                 4) Regularization and Early Stopping: Three regularization
+inaccuracy and physical compliance:                                       pathways reinforce generalizability. First, a Physics Prior
+                                               Lmae_phys
+                                                                          Regularizer evaluates learned physical properties against name-
+               γema ← 0.9 · γema + 0.1 ·                              (10) plate values via MSE (weight 0.1). Second, a Gate Response
+                                               Lphys_ref
+where Lphys_ref is the total unweighted physical loss in MW. Regularization anchors the temporal PV gating variable to
+This yields a dimensionless multiplier, defaulting to 1.0 for the external irradiance (weight 0.05), with dynamic masking      2
+                                                                                                                                       that
+                                                                                                                                        −3
+first 50 batches, halting updates when curriculum activation shuts down penalization when prior variance σprior < 10
+< 0.05, and clamped to [0.1, 10.0]. The combined objective                 (bypassing   night-time noise).
+becomes:                                                                      Orthogonality Rationale: The architectural orthogonality
+                                                                           of BPAR ensures that forcing gatepv to mirror irradiance
+   Ltotal = Lmse (normalized) + γema · Lphys_weighted (MW) (11)
+                                                                           (r = 0.8306) does not collapse predictive capacity. The final
+   Note: while BPAR provides a structural output floor, Lbvr
+                                                                           prediction P̂x = Softplus(Ptheory + rx ) structurally decouples
+remains essential during training to provide gradient signals
+                                                                           gating alignment from residual error minimization, allowing
+that prevent latent representations from drifting into non-
+                                                                           the PGCC to provide operational transparency while uncon-
+physical regimes.
+                                                                           strained residual heads focus purely on error minimization.
+   2) Four-Phase Curriculum: To bridge the parameter con-
+                                                                              Gradient clipping uses a dynamic bound of 0.5 during
+vergence gap between the arbitrary Gaussian distributions at
+                                                                           critical curriculum transitions (0.1 < wcurr_net < 0.9), releas-
+neural initialization and the highly structured physical reality,
+                                                                           ing to 1.0 otherwise. Early stopping uses channel-equalizing
+we inject a Four-Phase constraint schedule, summarized in
+                                                                           N RM SEavg with patience of 15 epochs.
+Table II.
+                                TABLE II
+    F OUR -P HASE P HYSICS C URRICULUM AND L AYER - WISE L EARNING                III. C ASE S TUDY AND P ERFORMANCE E VALUATION
+                                 R ATES
+                                                                               A. Dataset and Experimental Setup
+Phase                   Ep.         Active Const.      Notes                      To validate the proposed PhysFormer architecture, we con-
+I (Init.)               0–4         None               Physics frozen; base    duct extensive experiments on a high-fidelity Virtual Power
+                                                       mapping.                Plant (VPP) dataset composed of aggregated regional mea-
+II (Safety)            5–14         Lnet , Lbvr ,      Safety bounds ramped.
+                                    Lrvr , Ldir                                surements from a distributed energy cluster in Germany. The
+III (Integ.)           15–29        Phase II +         Macro conservation.     dataset captures detailed 15-minute resolution trajectories of
+                                    Lenergy , Lderiv                           solar PV generation, wind power generation, and commercial
+IV (Satur.)            30–99        All                Full regularized
+                                                       training.               electrical load over a continuous 3-year span (2012–2014),
+                                                                               totaling 105,120 sampling intervals. The data is chronologi-
+Layer-wise Learning Rates
+                                                                               cally partitioned into training (70%), validation (10%), and
+Physics (ExplicitPhysicalMapping) 10−5                 Preserves priors.       testing (20%) sets. To maintain numerical stability while
+Gating (PGCC)                     5×10−5               Stable alignment.
+Statistical (all other)           10−4                 Fast convergence.       preserving physical bounds, all input features are standardized
+                                                                               using global Z-score parameters (µ, σ), which are explicitly
+   This curriculum guarantees sequential physical compliance                   logged for physical re-projection in the BPAR layer. The
+scaling. Phase I isolates statistical representations with frozen              model hyperparameters are configured to match the complexity
+physics parameters. Phase II prioritizes safety boundaries.                    of modern baselines: hidden dimension dmodel = 512, feed-
+Phase III introduces macroscopic features, and Phase IV                        forward dimension dff = 1024, nheads = 8 attention heads,
+secures uniform saturation. Each constraint intensity is tran-                 and elayers = 3 layers. To evaluate computational efficiency,
+sitioned via a bounded sigmoid ramp σ(12 · (progress − 0.5)).                  we benchmark PhysFormer against Informer at an equiva-
+The PGCC alignment coefficient follows α = 1.0 − wcurr_net ,                   lent hidden dimension dmodel = 512. PhysFormer comprises
+coupling internal attention fusion with external physical veri-                11.4M parameters, significantly more compact than Informer’s
+fication.                                                                      17.9M parameters, validating the inductive efficiency of its
+6                                                                                                                       JOURNAL OF MODERN POWER SYSTEMS AND CLEAN ENERGY
+
+
+
+dual-stream architecture. The reported inference latency of           "smoothness" in unconstrained models is often achieved at the
+2.10 ms/sample was measured on an NVIDIA RTX 3090 GPU                 expense of physical validity; they maintain continuous trajec-
+with a batch size of 1, simulating a real-time sliding window         tories precisely because they are oblivious to physical zero-
+update for VPP dispatch.                                              bounds. PhysFormer’s 0.198% RVR-S represents structural
+   We compare PhysFormer against eight competitive base-              corrections at physical boundaries necessitated by its BPAR
+lines: standard recurrent networks (LSTM, GRU), a Physics-            mechanism to ensure absolute safety (BVR=0.00%). Crucially,
+Informed Neural Network (PINN) [13], and advanced time-               the absolute magnitude of these corrections (RVM-Mag) re-
+series Transformer architectures including Informer [6], Aut-         mains in the order of 2.6 × 10−5 MW, demonstrating that
+oformer [7], PatchTST [8], DLinear [9], and the state-of-the-         PhysFormer successfully resolves the trade-off by prioritizing
+art iTransformer [19]. To guarantee an absolutely equitable           absolute physical safety over cosmetic smoothness.
+evaluation, identically structured future weather covariates             Interestingly, channel-independent models such as
+(Xweather_future ∈ RB×P ×3 ) were universally provided to all         PatchTST and DLinear exhibit a channel-independent failure
+comparative baseline models. For Transformer baselines, these         in this specific VPP setting, underperforming compared to
+exogenous variables were strictly concatenated into their stan-       their strongly multivariate counterparts. This underlines the
+dard decoder embedding structures, and equivalently supplied          necessity of modeling the dense cross-channel dependencies
+as dynamic covariates to the recurrent models. Consequently,          inherent in multi-source energy systems. Meanwhile, the
+the predictive advantages demonstrated by PhysFormer stem             structural benefit of the PINN is evident; its physical inductive
+fundamentally from its mechanistic physics-guided architec-           bias helps it outperform standard unconstrained recurrent
+ture (e.g., the specific Future GLU injection pathway evaluated       networks like LSTM and GRU, though it still falls behind
+in ablation studies), rather than an asymmetric accession of          the specialized attention mechanisms of the Informer.
+future atmospheric data.                                                 In the broader context, PhysFormer establishes a new three-
+   To comprehensively evaluate the forecasting performance,           dimensional Pareto positioning for energy forecasting. Stan-
+we employ six distinct metrics. The standard accuracy metrics         dard models force practitioners to choose between predictive
+include Mean Squared Error (MSE), Mean Absolute Error                 accuracy, physical compliance, and interpretability. By operat-
+(MAE), and Root Mean Squared Error (RMSE). Beyond stan-               ing within a 6% MSE margin of the most accurate uncon-
+dard accuracy, we formally define three physical compliance           strained models, PhysFormer achieves a superior accuracy-
+metrics: Boundary Violation Rate (BVR), Mean Violation                compliance Pareto positioning, proving that high interpretabil-
+Severity (MVS), and Ramp Violation Metric (RVM). BVR                  ity and strict boundary compliance can be achieved simul-
+measures the percentage of predictions that violate known             taneously without fundamentally compromising the accuracy
+physical limits (e.g., negative generation power). To quantify        expected from modern deep learning solutions, as illustrated
+the severity of these breaches, MVS is formally defined as            in Fig. 4.
+the average absolute magnitude of predictions falling outside
+                                                                                                               20.0                                                                           PhysFormer (Ours)
+feasible physical boundaries. Beyond static boundaries, we                                                             Informer                                                               Physics-Informed (PINN)
+                                                                                                                                                                                              Transformer Variants
+evaluate temporal consistency via the Ramp Violation Metric                                                    17.5
+                                                                                                                                                                                              RNN Variants
+
+(RVM) and its occurrence frequency, the Ramp Violation Rate
+                                                                          Boundary Violation Rate (BVR \%) ↓
+
+
+
+
+                                                                                                               15.0
+                                                                                                                                                                                                              PatchTST
+(RVR). Finally, the Net Mean Absolute Error (NET MAE) is                                                                                                               LSTM
+                                                                                                               12.5                                     GRU
+formally defined as the average absolute imbalance between
+the predicted aggregated
+                  P         components and the ground-truth net                                                10.0                                    PINN
+
+
+demand, mean(| c ŷc −ynet |). The ramp threshold ρk for each                                                   7.5
+
+channel is empirically determined as the 99.9-th percentile of
+                                                                                                                5.0
+the training set differences, while a strict threshold (RVR-S)
+is set at the 99.5-th percentile with no safety factor to capture                                               2.5
+                                                                                                                              PhysFormer
+high-frequency artifacts.                                                                                       0.0
+                                                                                                                         Bubble Size ∝ Mean Violation Severity (MVS)
+
+
+                                                                                                                      0.012                0.014          0.016               0.018   0.020           0.022
+                                                                                                                                                         Mean Squared Error (MSE) ↓
+
+B. Forecasting Performance Analysis
+   The main forecasting results on the global test set are Fig.       4. Accuracy–compliance Pareto frontier. PhysFormer uniquely occupies
+                                                                 the lower-left corner (near-best accuracy with zero boundary violations).
+summarized in Table III. Within the competitive tier of models,
+PhysFormer achieves an MSE of 0.0128, placing it within a
+6% margin of the unconstrained SOTA baselines (Informer C. Verification of Physical Compliance and Safety
+at 0.0121 and iTransformer at 0.0122). While these models           1) Limitations of Heuristic Post-Processing: Furthermore,
+prioritize statistical curve-fitting through complex attention as evidenced in Table III, applying heuristic hard zero-clipping
+mechanisms, they suffer from severe physical compliance post-processing to the generic Transformer baseline (Informer-
+deficits, with iTransformer reaching a peak Boundary Vio- Post) forces BVR to zero without any statistical accuracy gain.
+lation Rate (BVR) of 16.26%. Furthermore, we highlight This highlights that standard attention mechanisms allocate sig-
+a critical safety-first trade-off regarding temporal continuity. nificant representational errors to boundary-adjacent regions.
+Under strict thresholds, iTransformer exhibits an RVR-S of Heuristic clipping is fundamentally non-differentiable and
+0.028%, whereas PhysFormer records 0.198%. However, this creates zero-gradient dead zones, preventing the model from
+LIU et al.: PHYSFORMER                                                                                                                                                                                                                                                                                  7
+
+
+
+                                                                                            0 X O W L  0 R G H O  ) R U H F D V W L Q J  & R P S D U L V R Q    3 9  & K D Q Q H O
+                                                                                                                                                                                         * U R X Q G  7 U X W K                           3 K \ V ) R U P H U   0 6 (         
+                                                                                                                                                                                            ' / L Q H D U   0 6 (                    , Q I R U P H U   0 6 (         
+                                     
+
+                                     
+            3 R Z H U   0 : 
+
+
+
+                                     
+
+                                     
+
+                                     
+
+                                     
+
+                                     
+                                                                                                                                                                                                                                 
+                                                                                                                          7 L P H  6 W H S V      P L Q 
+
+Fig. 5. Multi-model forecasting comparison on the PV generation channel over a 96-step horizon.
+
+
+
+                            TABLE III                                                                                                                                            TABLE IV
+        F ORECASTING P ERFORMANCE ON THE G LOBAL T EST S ET                                                                                                E XTREME W EATHER P ERFORMANCE (T OP 10% VOLATILITY )
+
+Model                                      MSE        BVR (%)   MVS (MW)         RVR-S (%)           NET MAE                              Model                               MSE               BVR (%)                          MVS (MW)                     RVR-S (%)                       NET MAE
+LSTM                                 0.0168           11.25%     0.0093            0.01%                  0.1760                          LSTM                              0.0192                 13.43%                             0.0086                       0.000%                      0.1941
+GRU                                  0.0163           11.15%     0.0103            0.01%                  0.1740                          GRU                               0.0182                 13.79%                             0.0097                       0.000%                      0.1864
+PINN                                 0.0157           10.94%     0.0097            0.02%                  0.1702                          PINN                              0.0177                 13.29%                             0.0082                       0.000%                      0.1807
+Informer                             0.0121           19.53%     0.0036            0.05%                  0.1471                          Informer                          0.0146                 21.38%                             0.0017                       0.070%                      0.1632
+Informer-Post                        0.0121            0.00%     0.0000            0.05%                  0.1471                          iTransformer                      0.0143                 19.79%                             0.0053                       0.046%                      0.1639
+iTransformer                         0.0122           16.26%     0.0054           0.028%                  0.1482                          PatchTST                          0.0261                 12.22%                             0.0132                       0.000%                      0.2240
+Autoformer                           0.1253           12.67%     0.0737           0.00%                   0.4846                          PhysFormer                        0.0150                 0.00%                              0.0000                       0.294%                      0.1715
+DLinear                              0.1015            7.03%     0.0295           0.00%                   0.4279
+PatchTST                             0.0230           12.63%     0.0207           0.00%                   0.2052
+PhysFormer                           0.0128           0.00%      0.0000           0.198%                  0.1527                          catastrophic MSE degradation while PhysFormer maintains
+                                                                                                                                          near-zero BVR.
+learning physical boundary density during backpropagation.
+Conversely, the BPAR mechanism within PhysFormer dynam-                                                                                   D. Model Interpretability and Efficiency
+ically regulates gradient pathways via a differentiable Softplus                                                                            1) Evaluation of Physical Interpretability: A key opera-
+manifold, ensuring predictions reside within physically feasi-                                                                           tional advantage of PhysFormer lies in its explicit physical
+ble search spaces. By maintaining continuous differentiability                                                                           parameter calibration. As shown in Table V, the extracted
+across all prediction regimes, PhysFormer inherently bridges                                                                             parameters are strongly consistent with domain literature [14],
+the transition between active generation and dormancy without                                                                            [15]. The temperature coefficient βT undergoes a marginal
+structurally blinding the neural network.                                                                                                fine-tuning of +2.5% to 0.0041/◦ C, and the mechanical
+   2) Robustness Under Extreme Conditions: To evaluate                                                                                   wind thresholds remained anchored at theoretical priors (≈ 0
+model stability under rigorous distribution shifts, we isolate                                                                           relative change).
+the top 10% highest volatility samples representing extreme                                                                                 Our strongest quantitative evidence of operational trans-
+weather conditions, detailed in Table IV.                                                                                                parency is the deterministic alignment between the network’s
+   Under these strenuous conditions, channel-independent ar-                                                                             gating and physical mechanisms. Through PGCC, the net-
+chitectures like Autoformer and DLinear experience a catas-                                                                              work structurally maps solar irradiance onto the temporal
+trophic failure. In contrast, the competitive tier of models                                                                             PV gating variable, achieving a global Pearson correlation of
+maintains impressive stability. PhysFormer seamlessly sustains                                                                           r = 0.8306 (p < 0.001). For the day-time subset (irradiance
+its physical compliance, recording an exceptional BVR of                                                                                 > 0.1), the correlation remains significant at r = 0.4058 (p <
+0.00% while adapting well to volatile conditions. Furthermore,                                                                           10−57 ), confirming that alignment extends beyond a trivial
+we uniquely evaluated BPAR robustness under seasonal distri-                                                                             binary day-night switch.
+bution shifts and degenerate variance conditions (σx < 10−3 ).                                                                              This structurally aligned responsiveness represents an ex-
+Our analysis confirms that for any aggregated VPP window                                                                                 plicitly imprinted physical correlation rather than a fragile
+(seq_len=672), degenerate variance is empirically non-existent                                                                           statistical artifact. Under Out-Of-Distribution (OOD) sensor
+(0% frequency), and the BPAR floor correctly adapts to                                                                                   noise tests, even with 20% white noise injected into irradiance,
+stay at 0.00% BVR due to its structural coupling with the                                                                                the correlation remained at r = 0.8377. Under extreme 50%
+normalization parameters.                                                                                                                noise amplitude, the correlation held at r > 0.81.
+   The visual comparison further emphasizes the stark contrast:                                                                             2) Distinction Between Supervised Alignment and Emergent
+under extreme volatility, channel-independent models suffer                                                                              Causality: It is crucial to structurally delineate the boundaries
+8                                                                             JOURNAL OF MODERN POWER SYSTEMS AND CLEAN ENERGY
+
+
+
+of causality within PGCC. The high correlation (r = 0.8306)        stage conflicts between theory-anchored baselines and uncon-
+does not represent emergent meteorological causality discov-       strained network heads. (4) Future GLU removal degrades
+ered ab initio from raw data. Rather, the Gate Response            precision (∆MSE = +1.6%) while maintaining BVR at
+Regularization is a deterministic engineering transparency         0.00%, as forward visibility improves dawn/dusk anticipation.
+mechanism—a supervised fitting objective that imprints a
+                                                                                                  TABLE VII
+known physical prior onto the latent space.                                             A BLATION S TUDY ON R EAL DATA
+                             TABLE V                               Variant                   MSE       BVR (%)       RVM     r(gatepv )
+            P HYSICAL PARAMETER C ONVERGENCE T RACKING
+                                                                   Full PhysFormer          0.0128       0.00       0.0000    0.8306
+Parameter            Initial    Converged    Lit. Range     ∆      w/o Physics Stream       0.0134       0.00       0.0000     N/A
+                                                                   w/o PGCC                 0.0128       0.00       0.0000     N/A
+pv_temp_coef         0.0040    0.0041/◦ C   0.003–0.005   +2.5%
+                                                                   w/o Future GLU           0.0130       0.00       0.0000    0.8024
+wind_cut_in         3.50 m/s    3.458 m/s     3–5 m/s     −1.2%
+                                                                   w/o Curriculum           0.0139       0.00       0.0000    0.7866
+wind_rated            12.00    11.970 m/s    10–15 m/s    −0.2%
+wind_cut_out          25.00    24.968 m/s    20–25 m/s    −0.1%
+load_base          2.832 MW    2.823 MW       ≈ mean      −0.3%       An additional variant ("w/ PGCC but w/o Gate Response
+temp_comfort         20.0◦ C    19.992◦ C     18–22◦ C     ≈0      Regularization") maintains competitive MSE (0.0128) but fails
+                                                                   to achieve deterministic physical alignment (r < 0.12), con-
+   3) Computational Complexity Analysis: To strictly eval-         firming that explicit regularization is the fundamental mecha-
+uate the computational burden, we benchmarked parameter            nism bridging the transparency gap.
+magnitudes and inference latencies under identical hardware
+configurations. As detailed in Table VI, PhysFormer adopts
+dmodel = 512 but maintains only 11.4M parameters, signifi-                                   IV. C ONCLUSION
+cantly more compact than Informer’s 17.9M.
+                                                                     This paper introduced PhysFormer, a physics-guided inter-
+   This architectural efficiency is formally attributed to the    pretable Transformer designed to reconcile the fundamental
+inductive efficacy of the Physics-Guided Causal Coupling          tradeoff between predictive accuracy, structural interpretability,
+mechanism. By explicitly embedding deterministic, mecha-          and physical compliance in VPP forecasting. By fusing an
+nistic prior knowledge directly into the forward propagation      ExplicitPhysicalMapping stream with a neural Transformer via
+path, PhysFormer intrinsically constrains the empirical hy-       the Bounded Physical Act-Residual (BPAR) mechanism, Phys-
+pothesis space, enabling a competitive parameter profile that     Former structurally constrains the neural residual search space.
+is approximately 1.5× more compact than Informer while            This approach effectively eliminates non-physical anoma-
+delivering superior physical compliance. Empirical forward-       lies without employing non-differentiable heuristic clipping,
+pass profiling validates that PhysFormer executes sequential      achieving absolute boundary compliance (BVR=0.00%) and
+sample inference at strict real-time speeds (∼ 2.10 ms/sample     maintaining temporal ramp integrity by bounding necessary
+on RTX 3090), closely mirroring the execution latencies of        structural boundary corrections to physically negligible mag-
+unconstrained models (Table VI).                                  nitudes (2.6 × 10−5 MW).
+                             TABLE VI                                Crucially, rather than sacrificing accuracy for safety, Phys-
+            M ODEL C OMPLEXITY AND I NFERENCE OVERHEAD            Former introduces an architecturally orthogonal Physics-
+Model                            Params (M)          Latency (ms)
+                                                                  Guided Causal Coupling (PGCC) module. Through explicit
+                                                                  gate response regularization, the PGCC successfully aligns
+LSTM / GRU                       5.42 / 4.10          1.20 / 2.19
+PINN / DLinear                   2.74 / 0.13        <0.10 / <0.10 a highly correlated physical relationship onto the temporal
+Informer / Autoformer           17.90 / 17.88         1.96 / 4.28 gating variable. This structural alignment yields an exceptional
+PatchTST / iTransformer          1.62 / 9.85          0.10 / 1.81 global correlation (r = 0.8306) and, crucially, maintains
+PhysFormer                           11.4                2.10
+                                                                  a robust entanglement during active daytime generation pe-
+                                                                  riods (r = 0.4058). Furthermore, this correlation remains
+                                                                  structurally resilient (r > 0.81) even under massive 50%
+E. Ablation Study                                                 out-of-distribution sensor noise. Exhaustive ablation studies
+   To rigorously attribute the performance contributions of the confirm that this structural transparency is achieved without
+proposed model components, we conduct an ablation study cannibalizing the predictive capacity of the deep unconstrained
+utilizing real data (Table VII).                                  residual tracking (MSE unchanged at 0.0128).
+   1) Component-wise Ablation Analysis: Table VII presents           Consequently, PhysFormer establishes a dominant multi-
+four component-wise ablation variants. The results reveal: dimensional Pareto positioning. It fundamentally overcomes
+(1) Removing the Physics Stream yields ∆MSE = +4.7%, the structural compliance deficit plaguing pure data-driven
+proving its functional value in establishing theory baselines. pipelines, securing forecasting performance functionally equiv-
+(2) PGCC ablation shows its contribution is orthogonal to error alent to the strongest unconstrained baselines while mathemat-
+minimization (∆MSE = 0.0%), while providing an imprinted ically guaranteeing absolute operational safety and transparent
+physical correlation (r = 0.8306) as a structural transparency physical traceability.
+mechanism robust to OOD sensor drift. (3) Curriculum Train-          Future work will expand the BPAR architecture to encom-
+ing is the single strongest component (∆MSE = +8.7%), pass multi-year degradation trajectories of distributed energy
+demonstrating that structured gradient exposure prevents early- assets and explore inserting these mechanically compliant
+LIU et al.: PHYSFORMER                                                                                                                                          9
+
+
+
+prediction manifolds directly into downstream reinforcement-                      [16] A. Lovo, A. Lancelin, C. Herbert, and F. Bouchet, “Tackling the
+learning-based VPP dispatch and trading algorithms [1], [12].                          accuracy–interpretability trade-off in a hierarchy of machine learning
+                                                                                       models for the prediction of extreme heatwaves,” Artificial Intelligence
+                                                                                       for the Earth Systems, vol. 4, no. 3, Jul. 2025. [Online]. Available:
+                                                                                       http://dx.doi.org/10.1175/AIES-D-24-0094.1
+                              R EFERENCES                                         [17] W. Song, S. Ren, and B. Hu, “Interpretable learning method based
+                                                                                       on causal interactive attention,” IEEE Access, vol. 13, pp. 114 117–
+ [1] T. Ma, R. Fu, T. Li, Z. Liu, Z. Wang, and K. Zhou, “A multi-time scale            114 127, 2025. [Online]. Available: http://dx.doi.org/10.1109/ACCESS.
+     scheduling strategy for virtual power plants considering source-load              2025.3583583
+     uncertainty and demand response,” IEEE Access, vol. 13, pp. 207 873–         [18] G. Chen, J. Yuan, Y. Zhang, H. Zhu, R. Huang, F. Wang, and
+     207 892, 2025. [Online]. Available: http://dx.doi.org/10.1109/ACCESS.             W. Li, “Enhancing reliability through interpretability: A comprehensive
+     2025.3641586                                                                      survey of interpretable intelligent fault diagnosis in rotating machinery,”
+ [2] W. Cao, J. Yu, and M. Xu, “Optimization scheduling of virtual power               IEEE Access, vol. 12, pp. 103 348–103 379, 2024. [Online]. Available:
+     plants considering source-load coordinated operation and wind–solar               http://dx.doi.org/10.1109/ACCESS.2024.3430010
+     uncertainty,” Processes, vol. 12, no. 1, p. 11, Dec. 2023. [Online].         [19] Y. Liu, T. Hu, H. Zhang, H. Wu, S. Wang, L. Ma, and
+     Available: http://dx.doi.org/10.3390/pr12010011                                   M. Long, “itransformer: Inverted transformers are effective for
+ [3] Z. Qiu, Y. Tian, Y. Luo, T. Gu, and H. Liu, “Wind and photovoltaic                time series forecasting,” in International Conference on Learning
+     power generation forecasting for virtual power plants based on the                Representations, 2024. [Online]. Available: https://openreview.net/
+     fusion of improved k-means cluster analysis and deep learning,”                   forum?id=JeHZHGWrmd
+     Sustainability, vol. 16, no. 23, p. 10740, Dec. 2024. [Online]. Available:
+     http://dx.doi.org/10.3390/su162310740
+ [4] G. Moreno, P. Martin, C. Santos, F. J. Rodriguez, and E. Santiso,
+     “A day-ahead irradiance forecasting strategy for the integration of
+     photovoltaic systems in virtual power plants,” IEEE Access, vol. 8, pp.
+     204 226–204 240, 2020. [Online]. Available: http://dx.doi.org/10.1109/
+     ACCESS.2020.3036140
+ [5] Y. Wu, R. Chen, Y. Chen, X. Chen, J. Yuan, H. Mao, and J. Wang,
+     “A joint electricity-reserve trading model for virtual power plants to
+     mitigate naked selling,” Journal of Modern Power Systems and Clean
+     Energy, vol. 13, no. 5, pp. 1813–1822, 2024. [Online]. Available:
+     http://dx.doi.org/10.35833/MPCE.2024.000211
+ [6] H. Zhou, S. Zhang, J. Peng, S. Zhang, J. Li, H. Xiong, and W. Zhang,
+     “Informer: Beyond efficient transformer for long sequence time-series
+     forecasting,” in Proceedings of the AAAI Conference on Artificial
+     Intelligence, vol. 35, no. 12, 2021, pp. 11 106–11 115.
+ [7] H. Wu, J. Xu, J. Wang, and M. Long, “Autoformer: Decomposition
+     transformers with auto-correlation for long-term series forecasting,” in
+     Advances in Neural Information Processing Systems, vol. 34. Curran
+     Associates, Inc., 2021, pp. 22 419–22 430.
+ [8] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam, “A time
+     series is worth 64 words: Long-term forecasting with transformers,” in
+     International Conference on Learning Representations, 2023. [Online].
+     Available: https://openreview.net/forum?id=Jbdc0vTOcol
+ [9] A. Zeng, M. Chen, L. Zhang, and Q. Xu, “Are transformers effective
+     for time series forecasting?” Proceedings of the AAAI Conference on
+     Artificial Intelligence, vol. 37, no. 9, pp. 11 121–11 128, Jun. 2023.
+     [Online]. Available: http://dx.doi.org/10.1609/aaai.v37i9.26317
+[10] O. Ashraf, L. Bononi, U. Adeel, C. Gambetti, and G. Monti, “Advanced
+     techniques for joint weather and electricity demand prediction survey,”
+     IEEE Access, vol. 13, pp. 196 479–196 496, 2025. [Online]. Available:
+     http://dx.doi.org/10.1109/ACCESS.2025.3629613
+[11] O. Våle, S. Zhang, S. Maharjan, and G. Klæboe, “Exploring the
+     interpretability of forecasting models for energy balancing market,”
+     Artificial Intelligence Science and Engineering, vol. 1, no. 4, pp.
+     295–306, Dec. 2025. [Online]. Available: http://dx.doi.org/10.23919/
+     aise.2025.000020
+[12] V. Arabzadeh and R. Frank, “A four-dimensional analysis of explainable
+     ai in energy forecasting: A domain-specific systematic review,” Machine
+     Learning and Knowledge Extraction, vol. 7, no. 4, p. 153, Nov. 2025.
+     [Online]. Available: http://dx.doi.org/10.3390/make7040153
+[13] M. Raissi, P. Perdikaris, and G. Karniadakis, “Physics-informed neural
+     networks: A deep learning framework for solving forward and inverse
+     problems involving nonlinear partial differential equations,” Journal of
+     Computational Physics, vol. 378, pp. 686–707, Feb. 2019. [Online].
+     Available: http://dx.doi.org/10.1016/j.jcp.2018.10.045
+[14] C. Li, L. Sheng, X. Xi, and M. Zhong, “Physics-informed
+     adaptive-weight nbeatsx for short-term wind power forecasting,” IEEE
+     Transactions on Industrial Informatics, vol. 22, no. 2, pp. 1129–
+     1140, Feb. 2026. [Online]. Available: http://dx.doi.org/10.1109/TII.2025.
+     3623559
+[15] J. Asinyo, O. Ceylan, and A. Polycarpou, “Enhancing solar irradiance
+     prediction: A physics-informed machine learning approach with
+     temporally focused training windows,” in 2025 16th International
+     Conference on Electrical and Electronics Engineering (ELECO).
+     IEEE, Nov. 2025, pp. 1–6. [Online]. Available: http://dx.doi.org/10.
+     1109/ELECO69582.2025.11329346
+

@@ -1,93 +1,64 @@
-\documentclass[journal,twoside]{IEEEtran}
+\documentclass[preprint,review,12pt]{elsarticle}
 
-% ─── 核心宏包 ─────────────────────────────────────
-\usepackage{amsmath}             % 数学环境
-\usepackage{amssymb}             % 数学符号
-\usepackage{bm}                  % 粗体数学符号 \bm{}
+\usepackage[T1]{fontenc}
+\usepackage[protrusion=true,expansion=false,final]{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage[table]{xcolor}
+\usepackage{algorithmic}
+\usepackage[hidelinks]{hyperref}
 
-% ─── 排版优化 ─────────────────────────────────────
-\usepackage[T1]{fontenc}         % 输出字体编码，改善断词和连字
-\usepackage[protrusion=true,expansion=false,final]{microtype} % 微排版（IEEEtran 兼容模式）
-\usepackage{siunitx}             % 物理单位与数字规范排版 (MW, °C, %)
-\sisetup{
-  detect-all,                    % 适配周围字体
-  per-mode      = symbol,        % 单位分隔使用 / 而非负指数
-  range-phrase  = {--},          % 范围连接符
-  range-units   = single,        % 范围只显示一次单位
-}
-
-% ─── 图表与颜色 ───────────────────────────────────
-\usepackage{graphicx}            % 插图
 \graphicspath{{Visualization_output/}}
-\usepackage{booktabs}            % 三线表（\toprule 等）
-\usepackage{multirow}            % 合并行
-\usepackage{tabularx}            % 自适应列宽表格
-\usepackage[table]{xcolor}       % 颜色支持（含表格底纹）
 
-% ─── 算法 ─────────────────────────────────────────
-\usepackage{algorithmic}         % 算法环境
-
-% ─── 引用与交叉引用 ───────────────────────────────
-\usepackage{cite}                % IEEE 样式文献引用排序
-\usepackage[hidelinks]{hyperref} % 超链接（隐藏边框）
-
-% --- Layout Compression for MPCE 9-page limit ---
-\setlength{\textfloatsep}{6pt plus 1.0pt minus 2.0pt}
-\setlength{\floatsep}{4pt plus 1.0pt minus 1.0pt}
-\setlength{\intextsep}{4pt plus 1.0pt minus 1.0pt}
-\setlength{\abovedisplayskip}{2pt plus 1pt minus 1pt}
-\setlength{\belowdisplayskip}{2pt plus 1pt minus 1pt}
-\setlength{\abovecaptionskip}{4pt}
-\setlength{\belowcaptionskip}{2pt}
+\sisetup{
+  detect-all,
+  per-mode    = symbol,
+  range-phrase = {--},
+  range-units = single,
+}
 
 \renewcommand{\algorithmicrequire}{\textbf{Input:}}
 
-% ─── 浮动体控制 ───────────────────────────────────
-% 减少表格/图片大量堆积在文末
-\setcounter{topnumber}{4}
-\setcounter{bottomnumber}{2}
-\setcounter{totalnumber}{6}
-\renewcommand{\topfraction}{0.85}
-\renewcommand{\bottomfraction}{0.5}
-\renewcommand{\textfraction}{0.10}
-\renewcommand{\floatpagefraction}{0.85}
+\journal{Electric Power Systems Research}
 
-% ─── 论文信息 ────────────────────────────────────
-\title{PhysFormer: A Bounded Residual Transformer With Physics-Guided Causal Coupling for Safety-Constrained Virtual Power Plant Forecasting}
-
-\author{Xingyu Liu\,\textsuperscript{*} and Zhong Tang%
-  \thanks{The authors are with the Department of Electrical Engineering,
-  Shanghai University of Electric Power, Shanghai, China.}
-  \thanks{\textsuperscript{*}Corresponding author: X.~Liu
-  (e-mail: y24203228@mail.shiep.edu.cn).}
-  \thanks{Z.~Tang (e-mail: tangzhong64@163.com).}
-}
-
-\markboth{Journal of Modern Power Systems and Clean Energy}%
-         {Liu \MakeLowercase{\textit{et al.}}: PhysFormer}
-
-% ════════════════════════════════════════════════
 \begin{document}
 
-\maketitle
+\begin{frontmatter}
 
-% ─── Abstract ───────────────────────────────────
+\title{PhysFormer: A Physics-Guided Transformer for Physically Consistent Virtual Power Plant Forecasting}
+
+\author[inst1]{Xingyu Liu\corref{cor1}}
+\ead{y24203228@mail.shiep.edu.cn}
+
+\author[inst1]{Zhong Tang}
+\ead{tangzhong64@163.com}
+
+\cortext[cor1]{Corresponding author.}
+\affiliation[inst1]{organization={Shanghai University of Electric Power},
+            addressline={Department of Electrical Engineering},
+            city={Shanghai},
+            postcode={200090},
+            country={China}}
+
 \input{sections/sec0_abstract}
 
-% ─── Index Terms ─────────────────────────────────
+\begin{keyword}
 \input{sections/sec0_keywords}
+\end{keyword}
 
-% ─── Nomenclature (removed for MPCE 9-page limit) ─
-% \input{sections/sec0_nomenclature}
+\end{frontmatter}
 
-% ─── 正文 ────────────────────────────────────────
 \input{sections/sec1_intro}
 \input{sections/sec3_method}
 \input{sections/sec5_exp}
 \input{sections/sec6_conclusion}
 
-% ─── 参考文献 ─────────────────────────────────────
-\bibliographystyle{IEEEtran}
+\bibliographystyle{elsarticle-num}
 \bibliography{references}
 
 \end{document}
