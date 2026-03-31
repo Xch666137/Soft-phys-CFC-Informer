@@ -9,6 +9,8 @@ numpy>=2.2.0
 pandas>=2.3.0
 scipy>=1.15.0
 pyarrow>=10.0.0
+xarray>=2024.7.0
+netCDF4>=1.7.0
 
 # Machine learning
 scikit-learn>=1.7.0
@@ -25,6 +27,8 @@ pandapower>=2.14.0
 simbench>=1.6.0
 
 # Utilities
+requests>=2.32.0
+cdsapi>=0.7.0
 tqdm>=4.67.0
 rich>=12.0.0
 joblib>=1.5.0
