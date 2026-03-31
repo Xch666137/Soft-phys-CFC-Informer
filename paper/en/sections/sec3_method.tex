@@ -4,21 +4,21 @@
 \subsection{Mathematical Formulation}
 Throughout this paper, we adopt the following notation: $P_{\text{load}}$, $P_{\text{pv}}$, and $P_{\text{wind}}$ denote load, PV, and wind power [MW]; $G$, $T$, and $v$ represent irradiance [W/m$^2$], temperature [$^\circ$C], and wind speed [m/s]; $\eta_{\text{pv}}$ and $\beta_T$ are the PV conversion efficiency and temperature coefficient; $v_{\text{ci}}$, $v_r$, and $v_{\text{co}}$ are the wind turbine cut-in, rated, and cut-out speeds; $a_{\text{pv}}$ and $a_{\text{wind}}$ are physics activity masks $\in[0,1]$; $g_{\text{pv}}$ and $g_{\text{wind}}$ are PGCC gates; $\alpha$ is the curriculum factor; $S=672$ and $P=96$ are the sequence and prediction lengths; and $D=512$ is the model dimension.
 
-In the context of Virtual Power Plant (VPP) forecasting, the objective is to predict the future power outputs of three distinct sub-components: base load ($P_{\text{load}}$), photovoltaic generation ($P_{\text{pv}}$), and wind generation ($P_{\text{wind}}$). The overall net power demand of the VPP is defined as $P_{\text{net}} = P_{\text{load}} - P_{\text{pv}} - P_{\text{wind}}$. Let $\mathcal{X}_{\text{stat}} \in \mathbb{R}^{B \times S \times 3}$ denote the historical observation sequence for the three components over a look-back window of length $S$, where $B$ is the batch size. Concurrently, the corresponding historical weather conditions---comprising temperature, irradiance, and wind speed---are represented by $\mathcal{X}_{\text{weather\_hist}} \in \mathbb{R}^{B \times S \times 3}$. The model is also provided with future weather forecasts for the prediction horizon $P$, denoted by $\mathcal{X}_{\text{weather\_future}} \in \mathbb{R}^{B \times P \times 3}$. Given these inputs, the forecasting model aims to generate point predictions for the output $Y \in \mathbb{R}^{B \times P \times 3}$, providing the respective future trajectories for the load, PV, and wind components.
+The forecasting target contains three VPP components: load ($P_{\text{load}}$), PV generation ($P_{\text{pv}}$), and wind generation ($P_{\text{wind}}$). Their net demand is $P_{\text{net}} = P_{\text{load}} - P_{\text{pv}} - P_{\text{wind}}$. We denote the historical component sequence by $\mathcal{X}_{\text{stat}} \in \mathbb{R}^{B \times S \times 3}$, the historical weather sequence by $\mathcal{X}_{\text{weather\_hist}} \in \mathbb{R}^{B \times S \times 3}$, and the future weather forecasts by $\mathcal{X}_{\text{weather\_future}} \in \mathbb{R}^{B \times P \times 3}$. The model outputs $Y \in \mathbb{R}^{B \times P \times 3}$, which contains the future trajectories of load, PV, and wind.
 
 \subsection{Overall Architecture}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{IEEE_Fig1_Architecture.png}
-\caption{The overall architecture of the proposed PhysFormer. It features a dual-stream design: a statistical stream encoded by a Transformer and an explicit physical mapping stream. These streams are fused through the Physics-Guided Gating and Alignment (PGCC) module. Future weather conditions are injected using a Gated Linear Unit (GLU) to provide explicit foresight. Finally, theory-anchored residual heads refine the predictions under physics-derived activity gates to reduce non-physical outputs.}
+\includegraphics[width=0.98\columnwidth]{EPSR_Fig1_Architecture.pdf}
+\caption{Overview of PhysFormer. Historical records and weather are processed by the statistical and explicit physical streams, fused by PGCC, conditioned on future weather, and converted into bounded component forecasts through BPAR with activity gating.}
 \label{fig:overall_architecture}
 \end{figure}
 
-The PhysFormer is constructed as a dual-stream Transformer with PGCC and theory-anchored activity gating. The processing pipeline follows seven steps: (1) Historical observation $\mathcal{X}_{\text{stat}}$ and weather $\mathcal{X}_{\text{weather\_hist}}$ are concatenated and encoded by a Transformer encoder ($d_{\text{model}}=512$, $d_{\text{ff}}=1024$, $8$ heads, $3$ layers). (2) $\mathcal{X}_{\text{weather\_hist}}$ is processed through ExplicitPhysicalMapping for physical baselines. (3) PGCC fuses statistical and physics representations. (4) FlattenHead projects from historical dimension $S$ to prediction horizon $P$. (5) Future weather $\mathcal{X}_{\text{weather\_future}}$ is injected via a GLU with residual logic. (6) Separate output heads predict per-component residual corrections. (7) Theory-Anchored Output applies physics activity masks to yield final predictions.
+PhysFormer follows a compact dual-stream design. As shown in Fig.~\ref{fig:overall_architecture}, historical operational records and weather are processed by a statistical stream and an explicit physical stream, fused in PGCC, conditioned on future weather through a GLU block, and mapped to bounded component forecasts by BPAR with activity gating. The statistical stream is implemented with a Transformer encoder ($d_{\text{model}}=512$, $d_{\text{ff}}=1024$, $8$ heads, $3$ layers), while the physical stream produces theory-based baselines from weather variables before fusion.
 
 \subsection{Explicit Physical Mapping}
-The core of the physics injection lies in the ExplicitPhysicalMapping layer, which maps relevant weather variables to theoretical power baselines via domain-specific equations.
+The ExplicitPhysicalMapping layer injects physics by mapping weather variables to theory-based power baselines.
 
 \subsubsection{PV Model}
 The theoretical PV generation is driven by irradiance $G$ and degraded by cell temperature, modeled as:
@@ -26,10 +26,10 @@ The theoretical PV generation is driven by irradiance $G$ and degraded by cell t
     P_{\text{pv}} = G \cdot \eta_{\text{pv}} \cdot \text{clamp}(1 - \beta_T \cdot (T - 25), 0, 1.5)
 \label{eq:pv_model}
 \end{equation}
-where $T$ is the temperature, $\eta_{\text{pv}} = 0.33 \cdot \sigma(\theta_{\text{eff}})$ is the learnable conversion efficiency bounded by the Shockley-Queisser limit, and $\beta_T = \text{softplus}(\theta_{\text{temp\_coef}}) \times 0.01 \in [0.003, 0.005]/^\circ\text{C}$ is the temperature coefficient.
+where $T$ is the temperature. The learnable conversion efficiency is $\eta_{\text{pv}} = 0.33 \cdot \sigma(\theta_{\text{eff}})$, and the temperature coefficient is $\beta_T = \text{softplus}(\theta_{\text{temp\_coef}}) \times 0.01 \in [0.003, 0.005]/^\circ\text{C}$.
 
 \subsubsection{Wind Model}
-Wind power limits depend heavily on operating thresholds: the cut-in speed $v_{\text{ci}}$, rated speed $v_{\text{r}}$, and cut-out speed $v_{\text{co}}$. To preserve strict threshold ordering, we utilize a cumulative delta structure where $v_{\text{ci}} = \text{softplus}(\theta_{\text{ci}})$, $v_{\text{r}} = v_{\text{ci}} + \text{softplus}(\theta_{\text{r\_delta}})$, and $v_{\text{co}} = v_{\text{r}} + \text{softplus}(\theta_{\text{co\_delta}})$. The power output uses an idealized soft-curve approximation modified by operational compliance:
+Wind power is largely determined by three operating thresholds: the cut-in speed $v_{\text{ci}}$, rated speed $v_{\text{r}}$, and cut-out speed $v_{\text{co}}$. To preserve their order during training, we use a cumulative delta form: $v_{\text{ci}} = \text{softplus}(\theta_{\text{ci}})$, $v_{\text{r}} = v_{\text{ci}} + \text{softplus}(\theta_{\text{r\_delta}})$, and $v_{\text{co}} = v_{\text{r}} + \text{softplus}(\theta_{\text{co\_delta}})$. The power output then follows an idealized soft curve:
 \begin{equation}
     P_{\text{wind}} = \text{scale}_{\text{wind}} \cdot \sigma(5 \cdot (w_{\text{norm}} - 0.5)) \cdot I_{\text{running}}
 \label{eq:wind_ideal}
@@ -39,7 +39,7 @@ where $w_{\text{norm}}$ is the normalized speed, $scale_{\text{wind}}$ is a lear
     P_{\text{wind,actual}} = \text{scale}_{\text{wind}} \cdot \sigma(5 \cdot (w_{\text{norm}} - 0.5)) \cdot a_{\text{wind}}
 \label{eq:wind_actual}
 \end{equation}
-This decoupling bridges rigid physical thresholds with end-to-end backpropagation without Straight-Through Estimators. The cumulative delta structure ensures overlapping bounds never collapse during gradient updates.
+This design keeps the threshold structure differentiable and avoids Straight-Through Estimators. The cumulative delta form also preserves the ordering of the operating limits during training.
 
 \subsubsection{Load Model}
 We abstract the power load variations triggered by human cooling and heating activities through a quadratic thermal comfort model:
@@ -47,27 +47,30 @@ We abstract the power load variations triggered by human cooling and heating act
     P_{\text{load}} = P_{\text{base}} + \text{softplus}(\gamma) \cdot (T - T_c)^2
 \label{eq:load_model}
 \end{equation}
-where $T_c$ is an optimizable thermal comfort baseline initialized at $20^\circ\text{C}$. While the self-attention mechanism of the Transformer is well suited to extracting the diurnal and weekly periodicities that characterize human social activities, the Explicit Physical Mapping stream is deliberately restricted to isolating the non-linear, temperature-driven volatility of the electrical load. Therefore, we conceptualize the thermal-induced variance through this quadratic comfort model, explicitly decoupling meteorological sensitivity from the statistically captured chronological baselines.
+where $T_c$ is an optimizable thermal comfort baseline initialized at $20^\circ\text{C}$. In our design, the Transformer captures the main temporal patterns of load, while the physical mapping stream captures the temperature-driven deviation around that baseline.
 
-\begin{figure*}[t]
+\noindent
+The mappings that most directly determine physical activation boundaries are shown in Fig.~\ref{fig:physical_mapping}. We visualize PV and wind explicitly because they are the channels where boundary handling is most critical, while the learned load comfort parameters are reported in Table~\ref{tab:physical_params}.
+
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{IEEE_Fig2_PhysicalMapping.pdf}
-\caption{Learned explicit physical mapping functions after convergence. (a) PV temperature degradation under varying irradiance levels ($\beta_T = 0.0041/^\circ$C). (b) Wind turbine power curve with smooth sigmoid transition. (c) Load thermal comfort demand ($T_c \approx 20^\circ$C). Parameters are listed in Table~\ref{tab:physical_params}.}
+\includegraphics[width=0.98\columnwidth]{EPSR_Fig2_PhysicalMapping.pdf}
+\caption{The learned PV and wind mappings preserve physically meaningful monotonicity and operating thresholds. The PV branch maintains smooth temperature degradation, while the wind branch retains the cut-in, rated, and cut-out structure reported in Table~\ref{tab:physical_params}.}
 \label{fig:physical_mapping}
-\end{figure*}
+\end{figure}
 
 \subsubsection{Physics Activity Gating}
 \label{subsec:activity_gating}
-To prevent non-physical artifacts, we propose an explicit Activity Gating scheme. For PV, night-time irrelevance: $a_{\text{pv}} = \tanh(10 \cdot P_{\text{pv\_theory}})$. For wind, speed-dependent activity with differentiable soft limits: $a_{\text{wind}} = \tanh(10 \cdot \text{softplus}(v - v_{\text{ci}}) \cdot \text{softplus}(v_{\text{co}} - v))$. Within the BPAR framework, the residual mechanism automatically compensates for systematic dampening effects near thresholds. The load takes an unconditional $a_{\text{load}} = 1$. These physics-derived masks maintain continuous gradient flow while bridging active operating states and null-generation periods.
+To reduce non-physical artifacts, we introduce an explicit activity gate. For PV, $a_{\text{pv}} = \tanh(10 \cdot P_{\text{pv\_theory}})$. For wind, $a_{\text{wind}} = \tanh(10 \cdot \text{softplus}(v - v_{\text{ci}}) \cdot \text{softplus}(v_{\text{co}} - v))$. The load uses $a_{\text{load}} = 1$. These masks keep the model differentiable and connect active operating states to null-generation periods.
 
 \subsection{Physics-Guided Gating and Alignment (PGCC)}
 The Physics-Guided Gating and Alignment (PGCC) module coordinates the interaction between the statistical stream and the physically encoded representations. In this work, PGCC is used to guide weather-response behavior and improve alignment with known physical cues rather than to infer causality from data alone.
 
 \subsubsection{Physics-Anchored Illumination Prior}
-We first establish a data-guided illumination prior to suppress spurious activation patterns. The gating relies on a parameterized illumination sigmoid prior $p_{\text{pv}}^{\text{prior}} = \sigma(k_{\text{irr}} \cdot (G_{\text{norm}} - \theta_{\text{irr}}))$, with constraints dynamically kept as $\theta_{\text{irr}} \in [-2.0, 0.5]$ and bounded slope $k_{\text{irr}} \in [1, 100]$. This prior helps distinguish day and night intervals and reduces the influence of noisy activations in the data embeddings.
+We first build an illumination prior to suppress spurious activation. The prior is defined as $p_{\text{pv}}^{\text{prior}} = \sigma(k_{\text{irr}} \cdot (G_{\text{norm}} - \theta_{\text{irr}}))$, with $\theta_{\text{irr}} \in [-2.0, 0.5]$ and slope $k_{\text{irr}} \in [1, 100]$. This term separates day from night and reduces the impact of noisy activations in the data embeddings.
 
 \subsubsection{Volatility-Aware Soft Gate}
-To dynamically scale network trust, the system embeds sequence-level sample fluctuations extracted as $\upsilon = \frac{1}{C}\sum_{c}\text{Var}_{t}(\mathcal{X}_{\text{weather},c})$. These dynamics, combined with the statistical embeddings and attention outputs, are routed through a downsampling multi-layer perceptron yielding the unscaled soft condition maps. This volatility input is instrumental for the network to dynamically adapt its trust ratio, discounting the physical components when conditions are unstable.
+To adapt the trust placed in the physical stream, we compute a sequence-level volatility term $\upsilon = \frac{1}{C}\sum_{c}\text{Var}_{t}(\mathcal{X}_{\text{weather},c})$. This term, together with the statistical embeddings and attention outputs, is fed to a downsampling multilayer perceptron that produces the soft gate maps.
 
 \subsubsection{Source-Differentiated Gate Bounds}
 The coupling implements separate activation ranges to accommodate generation source characteristics:
@@ -75,14 +78,7 @@ The coupling implements separate activation ranges to accommodate generation sou
     \text{gate}_{\text{pv}} = \text{smooth} \left( p_{\text{pv}}^{\text{prior}} \cdot (0.5 + g_{\text{soft\_pv}}) \right) \in [0, 1.5] \label{eq:gate_pv} \\
     \text{gate}_{\text{load}} = \text{smooth}(g_{\text{soft\_load}}) \in [0, 1.0] \label{eq:gate_load}
 \end{gather}
-The asymmetric upper bound of $1.5$ for $\text{gate}_{\text{pv}}$ provides \textit{engineering headroom} for the neural residual within the BPAR additive structure. During meteorological transients (e.g., Cloud Edge Effect with $1.2\times$--$1.5\times$ over-irradiance), this ceiling preserves sufficient dynamic range for the residual stream to recover transient peaks. Through explicit gate response regularization, the learned $\text{gate}_{\text{pv}}$ reaches a Pearson correlation of $r=0.8306$ with exogenous irradiance (Fig.~\ref{fig:causal_gate}), indicating that the gate remains aligned with the corresponding weather cue while retaining predictive flexibility.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\columnwidth]{IEEE_Fig3_CausalGate.pdf}
-\caption{Gate-irradiance alignment in PGCC. Top: time-series overlay of learned PV gate and solar irradiance over representative test samples. Bottom: scatter regression on a visualization subset; the global Pearson correlation across the full test set is $r=0.8306$ ($p < 0.001$).}
-\label{fig:causal_gate}
-\end{figure}
+The upper bound of $1.5$ for $\text{gate}_{\text{pv}}$ leaves headroom for the residual stream. This is useful during transient conditions such as short over-irradiance events. With gate-response regularization, the learned $\text{gate}_{\text{pv}}$ reaches a Pearson correlation of $r=0.8306$ with irradiance. Fig.~\ref{fig:gate_alignment} shows this alignment.
 
 \subsubsection{Physics-to-Data Curriculum Transition}
 We condition the alignment phase via a curriculum factor $\alpha$. As the fusion queries retrieve features, the module integrates inputs dynamically scaled as:
@@ -90,35 +86,56 @@ We condition the alignment phase via a curriculum factor $\alpha$. As the fusion
     q = \alpha \cdot F_{\text{physics}} + (1 - \alpha) \cdot g_{\text{soft}} \cdot F_{\text{stat}}
 \label{eq:curriculum_query}
 \end{equation}
-During the initial training phases ($\alpha \to 1$), the cross-attention queries rely more heavily on the structured physical representations. As training progresses ($\alpha \to 0$), the queries gradually transition toward the data-learned residual states gated by $g_{\text{soft}}$, balancing physics-guided initialization with empirical statistical adaptation.
+At the start of training ($\alpha \to 1$), the queries rely more on the physical representations. As training proceeds ($\alpha \to 0$), the model gradually shifts toward the data-driven residual states gated by $g_{\text{soft}}$.
 
 \subsubsection{Temporal Smoothing}
-Due to internal frame dependencies, local sequence discontinuities often plague raw gating parameters. To counteract this, all temporal gating variables pass through a grouped one-dimensional depthwise convolution (kernel size $3$, groups=$d_{\text{model}}$). This filter structurally suppresses high-frequency chaotic fluctuation within the gate assignment layer while preserving macro-level shift indicators.
+Raw gate values can be locally discontinuous. We therefore smooth all temporal gating variables with a grouped one-dimensional depthwise convolution (kernel size $3$, groups=$d_{\text{model}}$).
 
 \subsection{Exogenous Weather Integration}
-After the FlattenHead projects the fused representations into the explicit future context, the framework must systematically integrate upcoming weather patterns at the given horizon. Because the prediction horizon's meteorological conditions are unavailable in the historical context alone, providing this explicit foresight is essential. The future physical latent space $F_{\text{weather\_future}}$ is concatenated with the neural history $F_{\text{history}}$, and aggregated via a Gated Linear Unit ($\text{gate} = \sigma(\text{linear}(F_{\text{cat}}))$). The bounded residual output is produced as $F_{\text{future}} = \text{gate} \cdot \text{proj}(F_{\text{cat}}) + F_{\text{history}}$. This explicitly bounded forward visibility ensures the residual heads are properly conditioned to react to impending deterministic disruptions, such as dawn transitions or sudden wind cut-outs.
+After horizon projection, the model incorporates future weather information that is not available in the history sequence alone. We concatenate the future physical latent space $F_{\text{weather\_future}}$ with the history representation $F_{\text{history}}$ and fuse them with a Gated Linear Unit:
+\begin{equation}
+    F_{\text{future}} = \text{gate} \cdot \text{proj}(F_{\text{cat}}) + F_{\text{history}}
+\end{equation}
+This step conditions the residual heads on upcoming weather changes such as dawn transitions or wind cut-outs.
 
 \subsection{Bounded Physical Act-Residual (BPAR) Mechanism} \label{subsec:bpar}
-To systematically mitigate non-physical anomalies while preserving the continuous gradient flow, we propose the Bounded Physical Act-Residual (BPAR) mechanism. Let $\mu_x$ and $\sigma_x$ denote the global mean and standard deviation of component $x$. We define the normalized physical zero-point as $P_{x,\text{zero}} = (0 - \mu_x) / \sigma_x$. BPAR reconstructs the predictive manifold by anchoring the neural residual $r_x$ onto the theory baseline within a differentiable Softplus manifold:
+To reduce non-physical anomalies while preserving gradient flow, we propose the Bounded Physical Act-Residual (BPAR) mechanism. Let $\mu_x$ and $\sigma_x$ denote the global mean and standard deviation of component $x$. We define the normalized physical zero-point as $P_{x,\text{zero}} = (0 - \mu_x) / \sigma_x$. BPAR combines the theory baseline and the neural residual through a differentiable Softplus form:
 \begin{equation}
     \hat{P}_{x,\text{raw}} = \text{Softplus}\Big((P_{x,\text{theory}} + r_x) - P_{x,\text{zero}}\Big) + P_{x,\text{zero}}
 \label{eq:bpar}
 \end{equation}
-By the fundamental property of Softplus ($\text{Softplus}(z) > 0, \forall z$), this parameterization keeps $\hat{P}_{x,\text{raw}} > P_{x,\text{zero}}$ in the normalized domain. Under the adopted normalization and anti-normalization setting, $\hat{P}_{\text{phys}} = \hat{P}_{x,\text{raw}} \cdot \sigma_x + \mu_x > 0$~MW for $\sigma_x > 0$, which gives the model a structurally non-negative output form. We maintain a numerical floor $\epsilon=10^{-5}$ for degenerate variance states (e.g., night-time PV), supporting consistent boundary compliance in practice.
+Because $\text{Softplus}(z) > 0$ for all $z$, this form keeps $\hat{P}_{x,\text{raw}} > P_{x,\text{zero}}$ in the normalized domain. Under the adopted normalization and anti-normalization setting, the output therefore remains structurally non-negative for $\sigma_x > 0$. We further use a small numerical floor $\epsilon=10^{-5}$ for degenerate variance cases such as night-time PV.
 Subsequently, the prediction is fused with the physics activity mask $a_x \in [0, 1]$:
 \begin{equation}
     \hat{P}_{x,\text{final}} = a_x \cdot \hat{P}_{x,\text{raw}} + (1 - a_x) \cdot P_{x,\text{zero}}
 \label{eq:activity_mask}
 \end{equation}
-Whenever $a_x \to 0$ (driven by meteorological priors), BPAR smoothly drives output toward the physical zero baseline and reduces boundary violations. Compared with unconstrained predictors that may cross the zero-power boundary, BPAR favors physically consistent outputs at the cost of small local corrections near the boundary.
+When $a_x \to 0$, BPAR smoothly pulls the output toward the physical zero baseline. Compared with unconstrained predictors, it reduces boundary violations at the cost of small local corrections near the boundary.
+
+\noindent
+Because the main benefit of BPAR appears near the zero boundary, Fig.~\ref{fig:bpar_mechanism} visualizes the output manifold and the role of activity gating around shutdown transitions.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\columnwidth]{EPSR_Fig3_BPARMechanism.pdf}
+\caption{BPAR removes the hard dead zone of post-clipping and, together with activity gating, smoothly pulls the forecast back toward the physical zero boundary. Panel (b) is an illustrative mechanism plot under the adopted normalization setting.}
+\label{fig:bpar_mechanism}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\columnwidth]{EPSR_Fig4_GateAlignment.pdf}
+\caption{PGCC keeps the learned PV gate aligned with irradiance over both representative windows and the saved visualization subset. The full-test Pearson correlation reported in the text remains $r=0.8306$.}
+\label{fig:gate_alignment}
+\end{figure}
 
 \subsection{Physics-Constrained Curriculum Training}
 \label{subsec:training}
 
-Training deep neural networks with rigid physical constraints poses significant optimization challenges due to gradient conflicts between data-driven and physics objectives. We design a Physics-Constrained Curriculum Training strategy that decouples metric spaces, enforces dynamic amplitude balancing, and maps learning trajectories onto a phased schedule.
+Training with physical constraints introduces conflicts between the forecasting loss and the physics losses. We therefore use a Physics-Constrained Curriculum Training strategy. It separates metric spaces, balances amplitudes dynamically, and activates constraints in phases.
 
 \subsubsection{Loss Function Design}
-The primary regression loss (MSE) operates in normalized space for stable gradients, while all physics constraints ($L_{\text{phys}}$) are evaluated after denormalization into the physical domain (MW). The physical objectives comprise six penalties (Table~\ref{tab:losses}): soft constraints ($L_{\text{net}}$, $L_{\text{energy}}$, $L_{\text{deriv}}$, $L_{\text{dir}}$) guide structural topology, while hard constraints ($L_{\text{bvr}}$, $L_{\text{rvr}}$) use aggressive quadratic formulations for safety-critical boundaries.
+The regression loss (MSE) is computed in normalized space for stable optimization. All physics constraints ($L_{\text{phys}}$) are computed after denormalization in MW. We use six penalties (Table~\ref{tab:losses}): four soft constraints for structure and two hard constraints for safety-critical violations.
 
 \begin{table}[htbp]
 \caption{Components of Physics-Guided Loss Function}
@@ -138,7 +155,7 @@ $L_{\text{rvr}}$ (Hard) & 2.0 & $\mathbb{E} [(\max(0, |\Delta\hat{y}| {-} \rho_k
 \end{tabularx}
 \end{table}
 
-We propose an adaptive amplitude balancing factor $\gamma_{\text{ema}}$ that dynamically tracks the ratio between current forecasting inaccuracy and physical compliance:
+We use an adaptive amplitude balancing factor $\gamma_{\text{ema}}$ to track the ratio between forecast error and physical loss:
 \begin{equation}
     \gamma_{\text{ema}} \leftarrow 0.9 \cdot \gamma_{\text{ema}} + 0.1 \cdot \left( \frac{L_{\text{mae\_phys}}}{L_{\text{phys\_ref}}} \right)
 \label{eq:gamma_ema}
@@ -152,13 +169,13 @@ where $L_{\text{phys\_ref}}$ is the total unweighted physical loss in MW. This y
 Note: while BPAR provides a structural output floor, $L_{\text{bvr}}$ remains essential during training to provide gradient signals that prevent latent representations from drifting into non-physical regimes.
 
 \subsubsection{Four-Phase Curriculum}
-To bridge the parameter convergence gap between the arbitrary Gaussian distributions at neural initialization and the highly structured physical reality, we inject a Four-Phase constraint schedule, summarized in Table~\ref{tab:curriculum}.
+To stabilize optimization, we use the four-phase constraint schedule listed in Table~\ref{tab:curriculum}.
 
 \begin{table}[htbp]
 \caption{Four-Phase Physics Curriculum and Layer-wise Learning Rates}
 \label{tab:curriculum}
 \centering
-\footnotesize
+\scriptsize
 \setlength{\tabcolsep}{2pt}
 \begin{tabularx}{\columnwidth}{@{}lc>{\raggedright\arraybackslash}p{1.8cm}>{\raggedright\arraybackslash}X@{}}
 \toprule
@@ -175,16 +192,14 @@ IV (Satur.) & 30--99 & All & Full regularized training. \\ \midrule
 \end{tabularx}
 \end{table}
 
-This curriculum progressively introduces physical-compliance objectives. Phase I isolates statistical representations with frozen physics parameters. Phase II prioritizes safety boundaries. Phase III introduces macroscopic features, and Phase IV activates the full regularized objective. Each constraint intensity is transitioned via a bounded sigmoid ramp $\sigma(12 \cdot (\text{progress} - 0.5))$. The PGCC alignment coefficient follows $\alpha = 1.0 - w_{\text{curr\_net}}$, coupling the internal attention fusion with the external physical guidance term.
+The curriculum introduces the constraints progressively. Phase I learns the statistical backbone with frozen physics parameters. Phase II focuses on safety boundaries. Phase III adds macro-level structure. Phase IV activates the full objective. Each constraint weight is ramped with a bounded sigmoid, and the PGCC alignment coefficient follows $\alpha = 1.0 - w_{\text{curr\_net}}$.
 
 \subsubsection{Layer-wise Learning Rates}
-To sustain learned feature fidelity without abruptly disrupting the theory-anchored baselines pre-defined by human engineering inputs, we decouple the backpropagation update amplitudes into three isolated AdamW groupings (Table~\ref{tab:curriculum}, bottom).
-
-The baseline parameters proceed at a default learning rate of $1 \times 10^{-4}$. After their suspension ends in epoch 5, the core generation physics operators unfreeze at a drastically suppressed $1 \times 10^{-5}$ ($0.1\times$ the baseline rate). This strict limitation permits minor optimization fine-calibration over coefficients like optimal irradiance generation thresholds while halting gross semantic reconstruction. Correspondingly, the intermediate gating features proceed at $5 \times 10^{-5}$, which yields smooth adjustment profiles.
+We further separate the optimizer into three AdamW parameter groups (Table~\ref{tab:curriculum}, bottom). The statistical backbone uses a learning rate of $1 \times 10^{-4}$. After epoch 5, the physical parameters are unfrozen at $1 \times 10^{-5}$, and the PGCC parameters use $5 \times 10^{-5}$.
 
 \subsubsection{Regularization and Early Stopping}
-Three regularization pathways reinforce generalizability. First, a Physics Prior Regularizer evaluates learned physical properties against nameplate values via MSE (weight 0.1). Second, a Gate Response Regularization anchors the temporal PV gating variable to external irradiance (weight 0.05), with dynamic masking that shuts down penalization when prior variance $\sigma^2_{\text{prior}} < 10^{-3}$ (bypassing night-time noise).
+We use three regularization paths. First, a Physics Prior Regularizer compares the learned physical parameters with nameplate values by MSE (weight 0.1). Second, a Gate Response Regularization anchors the temporal PV gate to irradiance (weight 0.05), with dynamic masking when the prior variance $\sigma^2_{\text{prior}} < 10^{-3}$ to avoid night-time noise.
 
-\textbf{Role of PGCC:} In the present framework, PGCC mainly improves gate alignment and interpretability rather than raw forecasting accuracy. Because the final prediction $\hat{P}_x = \text{Softplus}(P_{\text{theory}} + r_x)$ is still produced through the residual pathway, the supervised alignment term can shape weather-response behavior without preventing the residual heads from minimizing prediction error.
+\textbf{Role of PGCC:} In this framework, PGCC mainly improves gate alignment and interpretability rather than raw forecasting accuracy. The final prediction is still produced by the residual pathway, so the alignment term can shape weather-response behavior without dominating the forecasting loss.
 
 Gradient clipping uses a dynamic bound of $0.5$ during critical curriculum transitions ($0.1 < w_{\text{curr\_net}} < 0.9$), releasing to $1.0$ otherwise. Early stopping uses channel-equalizing $NRMSE_{\text{avg}}$ with patience of 15 epochs.

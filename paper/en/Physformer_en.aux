@@ -9,108 +9,112 @@
 \citation{Ma2025,Cao2023,Qiu2024,Moreno2020,Wu2024}
 \citation{Zhou2021informer,Wu2021autoformer,Nie2023patchtst,Zeng2023}
 \citation{Qiu2024,Ashraf2025,Du2025,Li2025MetaInformer}
+\citation{Vle2025,Arabzadeh2025}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{2}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Background and Motivation}{2}{subsection.1.1}\protected@file@percent }
-\citation{Vle2025,Arabzadeh2025}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Challenges of Data-Driven VPP Forecasting}{2}{subsection.1.2}\protected@file@percent }
 \citation{Raissi2019,Li2026,Asinyo2025}
 \citation{Vle2025,Lovo2025,Arabzadeh2025}
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Challenges of Data-Driven VPP Forecasting}{3}{subsection.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Overview of This Work}{4}{subsection.1.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Proposed PhysFormer Framework}{5}{section.2}\protected@file@percent }
-\newlabel{sec:method}{{2}{5}{Proposed PhysFormer Framework}{section.2}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Mathematical Formulation}{5}{subsection.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Overall Architecture}{6}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Overview of This Work}{3}{subsection.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Proposed PhysFormer Framework}{4}{section.2}\protected@file@percent }
+\newlabel{sec:method}{{2}{4}{Proposed PhysFormer Framework}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Mathematical Formulation}{4}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Overall Architecture}{5}{subsection.2.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Overview of PhysFormer. Historical records and weather are processed by the statistical and explicit physical streams, fused by PGCC, conditioned on future weather, and converted into bounded component forecasts through BPAR with activity gating.}}{5}{figure.1}\protected@file@percent }
+\newlabel{fig:overall_architecture}{{1}{5}{Overview of PhysFormer. Historical records and weather are processed by the statistical and explicit physical streams, fused by PGCC, conditioned on future weather, and converted into bounded component forecasts through BPAR with activity gating}{figure.1}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Explicit Physical Mapping}{6}{subsection.2.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}PV Model}{6}{subsubsection.2.3.1}\protected@file@percent }
 \newlabel{eq:pv_model}{{1}{6}{PV Model}{equation.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces The overall architecture of the proposed PhysFormer. It features a dual-stream design: a statistical stream encoded by a Transformer and an explicit physical mapping stream. These streams are fused through the Physics-Guided Gating and Alignment (PGCC) module. Future weather conditions are injected using a Gated Linear Unit (GLU) to provide explicit foresight. Finally, theory-anchored residual heads refine the predictions under physics-derived activity gates to reduce non-physical outputs.}}{7}{figure.1}\protected@file@percent }
-\newlabel{fig:overall_architecture}{{1}{7}{The overall architecture of the proposed PhysFormer. It features a dual-stream design: a statistical stream encoded by a Transformer and an explicit physical mapping stream. These streams are fused through the Physics-Guided Gating and Alignment (PGCC) module. Future weather conditions are injected using a Gated Linear Unit (GLU) to provide explicit foresight. Finally, theory-anchored residual heads refine the predictions under physics-derived activity gates to reduce non-physical outputs}{figure.1}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}Wind Model}{8}{subsubsection.2.3.2}\protected@file@percent }
-\newlabel{eq:wind_ideal}{{2}{8}{Wind Model}{equation.2}{}}
-\newlabel{eq:wind_actual}{{3}{8}{Wind Model}{equation.3}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.3}Load Model}{8}{subsubsection.2.3.3}\protected@file@percent }
-\newlabel{eq:load_model}{{4}{8}{Load Model}{equation.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Learned explicit physical mapping functions after convergence. (a) PV temperature degradation under varying irradiance levels ($\beta _T = 0.0041/^\circ $C). (b) Wind turbine power curve with smooth sigmoid transition. (c) Load thermal comfort demand ($T_c \approx 20^\circ $C). Parameters are listed in Table~\ref {tab:physical_params}.}}{9}{figure.2}\protected@file@percent }
-\newlabel{fig:physical_mapping}{{2}{9}{Learned explicit physical mapping functions after convergence. (a) PV temperature degradation under varying irradiance levels ($\beta _T = 0.0041/^\circ $C). (b) Wind turbine power curve with smooth sigmoid transition. (c) Load thermal comfort demand ($T_c \approx 20^\circ $C). Parameters are listed in Table~\ref {tab:physical_params}}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}Wind Model}{6}{subsubsection.2.3.2}\protected@file@percent }
+\newlabel{eq:wind_ideal}{{2}{7}{Wind Model}{equation.2}{}}
+\newlabel{eq:wind_actual}{{3}{7}{Wind Model}{equation.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.3}Load Model}{7}{subsubsection.2.3.3}\protected@file@percent }
+\newlabel{eq:load_model}{{4}{7}{Load Model}{equation.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces The learned PV and wind mappings preserve physically meaningful monotonicity and operating thresholds. The PV branch maintains smooth temperature degradation, while the wind branch retains the cut-in, rated, and cut-out structure reported in Table~\ref {tab:physical_params}.}}{8}{figure.2}\protected@file@percent }
+\newlabel{fig:physical_mapping}{{2}{8}{The learned PV and wind mappings preserve physically meaningful monotonicity and operating thresholds. The PV branch maintains smooth temperature degradation, while the wind branch retains the cut-in, rated, and cut-out structure reported in Table~\ref {tab:physical_params}}{figure.2}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.4}Physics Activity Gating}{9}{subsubsection.2.3.4}\protected@file@percent }
 \newlabel{subsec:activity_gating}{{2.3.4}{9}{Physics Activity Gating}{subsubsection.2.3.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Physics-Guided Gating and Alignment (PGCC)}{10}{subsection.2.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.1}Physics-Anchored Illumination Prior}{10}{subsubsection.2.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.2}Volatility-Aware Soft Gate}{10}{subsubsection.2.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.3}Source-Differentiated Gate Bounds}{11}{subsubsection.2.4.3}\protected@file@percent }
-\newlabel{eq:gate_pv}{{5}{11}{Source-Differentiated Gate Bounds}{equation.5}{}}
-\newlabel{eq:gate_load}{{6}{11}{Source-Differentiated Gate Bounds}{equation.6}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.4}Physics-to-Data Curriculum Transition}{11}{subsubsection.2.4.4}\protected@file@percent }
-\newlabel{eq:curriculum_query}{{7}{11}{Physics-to-Data Curriculum Transition}{equation.7}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Gate-irradiance alignment in PGCC. Top: time-series overlay of learned PV gate and solar irradiance over representative test samples. Bottom: scatter regression on a visualization subset; the global Pearson correlation across the full test set is $r=0.8306$ ($p < 0.001$).}}{12}{figure.3}\protected@file@percent }
-\newlabel{fig:causal_gate}{{3}{12}{Gate-irradiance alignment in PGCC. Top: time-series overlay of learned PV gate and solar irradiance over representative test samples. Bottom: scatter regression on a visualization subset; the global Pearson correlation across the full test set is $r=0.8306$ ($p < 0.001$)}{figure.3}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.5}Temporal Smoothing}{13}{subsubsection.2.4.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Exogenous Weather Integration}{13}{subsection.2.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Bounded Physical Act-Residual (BPAR) Mechanism}{13}{subsection.2.6}\protected@file@percent }
-\newlabel{subsec:bpar}{{2.6}{13}{Bounded Physical Act-Residual (BPAR) Mechanism}{subsection.2.6}{}}
-\newlabel{eq:bpar}{{8}{14}{Bounded Physical Act-Residual (BPAR) Mechanism}{equation.8}{}}
-\newlabel{eq:activity_mask}{{9}{14}{Bounded Physical Act-Residual (BPAR) Mechanism}{equation.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Physics-Guided Gating and Alignment (PGCC)}{9}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.1}Physics-Anchored Illumination Prior}{9}{subsubsection.2.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.2}Volatility-Aware Soft Gate}{9}{subsubsection.2.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.3}Source-Differentiated Gate Bounds}{10}{subsubsection.2.4.3}\protected@file@percent }
+\newlabel{eq:gate_pv}{{5}{10}{Source-Differentiated Gate Bounds}{equation.5}{}}
+\newlabel{eq:gate_load}{{6}{10}{Source-Differentiated Gate Bounds}{equation.6}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.4}Physics-to-Data Curriculum Transition}{10}{subsubsection.2.4.4}\protected@file@percent }
+\newlabel{eq:curriculum_query}{{7}{10}{Physics-to-Data Curriculum Transition}{equation.7}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.5}Temporal Smoothing}{10}{subsubsection.2.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Exogenous Weather Integration}{10}{subsection.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Bounded Physical Act-Residual (BPAR) Mechanism}{11}{subsection.2.6}\protected@file@percent }
+\newlabel{subsec:bpar}{{2.6}{11}{Bounded Physical Act-Residual (BPAR) Mechanism}{subsection.2.6}{}}
+\newlabel{eq:bpar}{{9}{11}{Bounded Physical Act-Residual (BPAR) Mechanism}{equation.9}{}}
+\newlabel{eq:activity_mask}{{10}{11}{Bounded Physical Act-Residual (BPAR) Mechanism}{equation.10}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces BPAR removes the hard dead zone of post-clipping and, together with activity gating, smoothly pulls the forecast back toward the physical zero boundary. Panel (b) is an illustrative mechanism plot under the adopted normalization setting.}}{12}{figure.3}\protected@file@percent }
+\newlabel{fig:bpar_mechanism}{{3}{12}{BPAR removes the hard dead zone of post-clipping and, together with activity gating, smoothly pulls the forecast back toward the physical zero boundary. Panel (b) is an illustrative mechanism plot under the adopted normalization setting}{figure.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces PGCC keeps the learned PV gate aligned with irradiance over both representative windows and the saved visualization subset. The full-test Pearson correlation reported in the text remains $r=0.8306$.}}{13}{figure.4}\protected@file@percent }
+\newlabel{fig:gate_alignment}{{4}{13}{PGCC keeps the learned PV gate aligned with irradiance over both representative windows and the saved visualization subset. The full-test Pearson correlation reported in the text remains $r=0.8306$}{figure.4}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Physics-Constrained Curriculum Training}{14}{subsection.2.7}\protected@file@percent }
 \newlabel{subsec:training}{{2.7}{14}{Physics-Constrained Curriculum Training}{subsection.2.7}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.1}Loss Function Design}{15}{subsubsection.2.7.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Components of Physics-Guided Loss Function}}{15}{table.1}\protected@file@percent }
-\newlabel{tab:losses}{{1}{15}{Components of Physics-Guided Loss Function}{table.1}{}}
-\newlabel{eq:gamma_ema}{{10}{15}{Loss Function Design}{equation.10}{}}
-\newlabel{eq:total_loss}{{11}{15}{Loss Function Design}{equation.11}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.2}Four-Phase Curriculum}{16}{subsubsection.2.7.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Four-Phase Physics Curriculum and Layer-wise Learning Rates}}{16}{table.2}\protected@file@percent }
-\newlabel{tab:curriculum}{{2}{16}{Four-Phase Physics Curriculum and Layer-wise Learning Rates}{table.2}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.3}Layer-wise Learning Rates}{17}{subsubsection.2.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.4}Regularization and Early Stopping}{17}{subsubsection.2.7.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Case Study and Performance Evaluation}{18}{section.3}\protected@file@percent }
-\newlabel{sec:experiments}{{3}{18}{Case Study and Performance Evaluation}{section.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Dataset and Experimental Setup}{18}{subsection.3.1}\protected@file@percent }
-\newlabel{subsec:exp_setup}{{3.1}{18}{Dataset and Experimental Setup}{subsection.3.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.1}Loss Function Design}{14}{subsubsection.2.7.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Components of Physics-Guided Loss Function}}{14}{table.1}\protected@file@percent }
+\newlabel{tab:losses}{{1}{14}{Components of Physics-Guided Loss Function}{table.1}{}}
+\newlabel{eq:gamma_ema}{{11}{14}{Loss Function Design}{equation.11}{}}
+\newlabel{eq:total_loss}{{12}{15}{Loss Function Design}{equation.12}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.2}Four-Phase Curriculum}{15}{subsubsection.2.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Four-Phase Physics Curriculum and Layer-wise Learning Rates}}{15}{table.2}\protected@file@percent }
+\newlabel{tab:curriculum}{{2}{15}{Four-Phase Physics Curriculum and Layer-wise Learning Rates}{table.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.3}Layer-wise Learning Rates}{16}{subsubsection.2.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.4}Regularization and Early Stopping}{16}{subsubsection.2.7.4}\protected@file@percent }
 \citation{Raissi2019}
 \citation{Zhou2021informer}
 \citation{Wu2021autoformer}
 \citation{Nie2023patchtst}
 \citation{Zeng2023}
 \citation{Liu2023itransformer}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Forecasting Performance Analysis}{20}{subsection.3.2}\protected@file@percent }
-\newlabel{subsec:performance}{{3.2}{20}{Forecasting Performance Analysis}{subsection.3.2}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Accuracy--compliance trade-off across the evaluated models. PhysFormer combines zero boundary violations with accuracy close to the strongest unconstrained baselines.}}{21}{figure.4}\protected@file@percent }
-\newlabel{fig:pareto}{{4}{21}{Accuracy--compliance trade-off across the evaluated models. PhysFormer combines zero boundary violations with accuracy close to the strongest unconstrained baselines}{figure.4}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Forecasting Performance on the Global Test Set}}{22}{table.3}\protected@file@percent }
-\newlabel{tab:main_results}{{3}{22}{Forecasting Performance on the Global Test Set}{table.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Verification of Physical Compliance and Safety}{22}{subsection.3.3}\protected@file@percent }
-\newlabel{subsec:safety}{{3.3}{22}{Verification of Physical Compliance and Safety}{subsection.3.3}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Limitations of Heuristic Post-Processing}{22}{subsubsection.3.3.1}\protected@file@percent }
-\newlabel{subsubsec:compliance}{{3.3.1}{22}{Limitations of Heuristic Post-Processing}{subsubsection.3.3.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Case Study and Performance Evaluation}{17}{section.3}\protected@file@percent }
+\newlabel{sec:experiments}{{3}{17}{Case Study and Performance Evaluation}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Dataset and Experimental Setup}{17}{subsection.3.1}\protected@file@percent }
+\newlabel{subsec:exp_setup}{{3.1}{17}{Dataset and Experimental Setup}{subsection.3.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Forecasting Performance Analysis}{18}{subsection.3.2}\protected@file@percent }
+\newlabel{subsec:performance}{{3.2}{18}{Forecasting Performance Analysis}{subsection.3.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces PhysFormer combines zero boundary violations with accuracy close to the strongest unconstrained baselines. High-error outliers with MSE $> 0.03$ are omitted.}}{19}{figure.5}\protected@file@percent }
+\newlabel{fig:pareto}{{5}{19}{PhysFormer combines zero boundary violations with accuracy close to the strongest unconstrained baselines. High-error outliers with MSE $> 0.03$ are omitted}{figure.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Forecasting Performance on the Global Test Set}}{20}{table.3}\protected@file@percent }
+\newlabel{tab:main_results}{{3}{20}{Forecasting Performance on the Global Test Set}{table.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces PhysFormer tracks the PV shutdown transition without crossing the zero boundary. The inset highlights the dusk window.}}{20}{figure.6}\protected@file@percent }
+\newlabel{fig:forecast_comparison}{{6}{20}{PhysFormer tracks the PV shutdown transition without crossing the zero boundary. The inset highlights the dusk window}{figure.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Verification of Physical Compliance and Safety}{21}{subsection.3.3}\protected@file@percent }
+\newlabel{subsec:safety}{{3.3}{21}{Verification of Physical Compliance and Safety}{subsection.3.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Limitations of Heuristic Post-Processing}{21}{subsubsection.3.3.1}\protected@file@percent }
+\newlabel{subsubsec:compliance}{{3.3.1}{21}{Limitations of Heuristic Post-Processing}{subsubsection.3.3.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Robustness Under Extreme Conditions}{21}{subsubsection.3.3.2}\protected@file@percent }
+\newlabel{subsubsec:extreme_weather}{{3.3.2}{21}{Robustness Under Extreme Conditions}{subsubsection.3.3.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Extreme Weather Performance (Top 10\% Volatility)}}{22}{table.4}\protected@file@percent }
+\newlabel{tab:extreme_results}{{4}{22}{Extreme Weather Performance (Top 10\% Volatility)}{table.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces On the extreme-weather subset, PhysFormer stays near the best MSE tier and is the only model with zero boundary violations.}}{22}{figure.7}\protected@file@percent }
+\newlabel{fig:extreme_weather}{{7}{22}{On the extreme-weather subset, PhysFormer stays near the best MSE tier and is the only model with zero boundary violations}{figure.7}{}}
 \citation{Li2026,Asinyo2025}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Multi-model forecasting comparison on the PV generation channel over a 96-step horizon.}}{23}{figure.5}\protected@file@percent }
-\newlabel{fig:forecast_comparison}{{5}{23}{Multi-model forecasting comparison on the PV generation channel over a 96-step horizon}{figure.5}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Robustness Under Extreme Conditions}{23}{subsubsection.3.3.2}\protected@file@percent }
-\newlabel{subsubsec:extreme_weather}{{3.3.2}{23}{Robustness Under Extreme Conditions}{subsubsection.3.3.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Extreme Weather Performance (Top 10\% Volatility)}}{24}{table.4}\protected@file@percent }
-\newlabel{tab:extreme_results}{{4}{24}{Extreme Weather Performance (Top 10\% Volatility)}{table.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Model Interpretability and Efficiency}{24}{subsection.3.4}\protected@file@percent }
-\newlabel{subsec:mechanism}{{3.4}{24}{Model Interpretability and Efficiency}{subsection.3.4}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.1}Evaluation of Physical Interpretability}{24}{subsubsection.3.4.1}\protected@file@percent }
-\newlabel{subsubsec:interpretability}{{3.4.1}{24}{Evaluation of Physical Interpretability}{subsubsection.3.4.1}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.2}Distinction Between Supervised Alignment and Emergent Causality}{25}{subsubsection.3.4.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Physical Parameter Convergence Tracking}}{25}{table.5}\protected@file@percent }
-\newlabel{tab:physical_params}{{5}{25}{Physical Parameter Convergence Tracking}{table.5}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.3}Computational Complexity Analysis}{25}{subsubsection.3.4.3}\protected@file@percent }
-\newlabel{subsubsec:overhead}{{3.4.3}{25}{Computational Complexity Analysis}{subsubsection.3.4.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Model Complexity and Inference Overhead}}{26}{table.6}\protected@file@percent }
-\newlabel{tab:overhead}{{6}{26}{Model Complexity and Inference Overhead}{table.6}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Ablation Study}{26}{subsection.3.5}\protected@file@percent }
-\newlabel{subsec:ablation}{{3.5}{26}{Ablation Study}{subsection.3.5}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.5.1}Component-wise Ablation Analysis}{26}{subsubsection.3.5.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Ablation Study on Real Data}}{27}{table.7}\protected@file@percent }
-\newlabel{tab:ablation}{{7}{27}{Ablation Study on Real Data}{table.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Model Interpretability and Efficiency}{23}{subsection.3.4}\protected@file@percent }
+\newlabel{subsec:mechanism}{{3.4}{23}{Model Interpretability and Efficiency}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.1}Evaluation of Physical Interpretability}{23}{subsubsection.3.4.1}\protected@file@percent }
+\newlabel{subsubsec:interpretability}{{3.4.1}{23}{Evaluation of Physical Interpretability}{subsubsection.3.4.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.2}Distinction Between Supervised Alignment and Emergent Causality}{23}{subsubsection.3.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.3}Computational Complexity Analysis}{23}{subsubsection.3.4.3}\protected@file@percent }
+\newlabel{subsubsec:overhead}{{3.4.3}{23}{Computational Complexity Analysis}{subsubsection.3.4.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Physical Parameter Convergence Tracking}}{24}{table.5}\protected@file@percent }
+\newlabel{tab:physical_params}{{5}{24}{Physical Parameter Convergence Tracking}{table.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Model Complexity and Inference Overhead}}{24}{table.6}\protected@file@percent }
+\newlabel{tab:overhead}{{6}{24}{Model Complexity and Inference Overhead}{table.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Ablation Study}{24}{subsection.3.5}\protected@file@percent }
+\newlabel{subsec:ablation}{{3.5}{24}{Ablation Study}{subsection.3.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.5.1}Component-wise Ablation Analysis}{24}{subsubsection.3.5.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Ablation Study on Real Data}}{25}{table.7}\protected@file@percent }
+\newlabel{tab:ablation}{{7}{25}{Ablation Study on Real Data}{table.7}{}}
 \citation{Ma2025,Arabzadeh2025,Du2025}
-\@writefile{toc}{\contentsline {section}{\numberline {4}Conclusion}{28}{section.4}\protected@file@percent }
-\newlabel{sec:conclusion}{{4}{28}{Conclusion}{section.4}{}}
 \bibstyle{elsarticle-num}
 \bibdata{references}
 \bibcite{Ma2025}{{1}{}{{}}{{}}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Conclusion}{26}{section.4}\protected@file@percent }
+\newlabel{sec:conclusion}{{4}{26}{Conclusion}{section.4}{}}
 \bibcite{Cao2023}{{2}{}{{}}{{}}}
 \bibcite{Qiu2024}{{3}{}{{}}{{}}}
 \bibcite{Moreno2020}{{4}{}{{}}{{}}}
@@ -130,4 +134,4 @@
 \bibcite{Lovo2025}{{18}{}{{}}{{}}}
 \bibcite{Liu2023itransformer}{{19}{}{{}}{{}}}
 \providecommand\NAT@force@numbers{}\NAT@force@numbers
-\gdef \@abspage@last{33}
+\gdef \@abspage@last{30}

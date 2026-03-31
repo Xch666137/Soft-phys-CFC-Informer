@@ -1,30 +1,32 @@
 \section{Introduction}
 
 \subsection{Background and Motivation}
-The integration of renewable energy sources into the power grid has driven the development of Virtual Power Plants (VPPs) to aggregate and manage distributed energy resources. Accurate forecasting of VPP dynamics---specifically electrical load, photovoltaic (PV) generation, and wind power generation---is critical for grid stability, economic dispatch, and operational risk management \cite{Ma2025,Cao2023,Qiu2024,Moreno2020,Wu2024}. Unlike single-variable forecasting, cooperative VPP management requires simultaneous, coherent predictions across these interrelated domains, where the physical constraints of each energy modality must be rigorously respected. For instance, PV generation is intrinsically bound by solar irradiance and cannot produce power during nighttime, while wind generation depends on a non-linear turbine power curve driven by localized wind speed. 
+Virtual power plants (VPPs) aggregate distributed resources and coordinate them as a single operating entity. Their performance depends on accurate forecasts of load, photovoltaic (PV) generation, and wind power \cite{Ma2025,Cao2023,Qiu2024,Moreno2020,Wu2024}. In practice, these forecasts must be both accurate and physically plausible. PV output should vanish at night, and wind output should respect basic turbine operating limits.
 
-Historically, early approaches to VPP forecasting relied on statistical extrapolation. As distributed resources increased, recurrent neural networks and Transformer-based frameworks became widely used for sequential modeling, especially when long-range temporal dependencies and multi-source interactions must be captured \cite{Zhou2021informer,Wu2021autoformer,Nie2023patchtst,Zeng2023}. Recent application-oriented studies have continued to adapt these architectures to load forecasting and VPP scheduling scenarios \cite{Qiu2024,Ashraf2025,Du2025,Li2025MetaInformer}. In these settings, low statistical error is important, but so is maintaining predictions that remain consistent with basic physical operating conditions.
+Early VPP forecasting methods were mainly statistical. More recently, recurrent models and Transformers have become standard tools for multivariate time-series prediction \cite{Zhou2021informer,Wu2021autoformer,Nie2023patchtst,Zeng2023}. Recent studies have also adapted these models to load forecasting and VPP scheduling \cite{Qiu2024,Ashraf2025,Du2025,Li2025MetaInformer}. These models can reduce forecast error, but low error alone is not sufficient for VPP operation. The predictions should also remain consistent with basic operating conditions.
 
 \subsection{Challenges of Data-Driven VPP Forecasting}
 Recent advances in deep learning have improved time-series forecasting accuracy, yet their application to VPP prediction still involves several practical challenges \cite{Vle2025,Arabzadeh2025}:
 
-\textbf{1) Output feasibility and activation consistency:} Purely data-driven predictors can achieve competitive error metrics while still producing physically inconsistent outputs, such as non-zero solar generation at night or negative renewable power. In VPP applications, these violations may be small in magnitude, but they complicate downstream interpretation and operational use.
+\textbf{1) Output feasibility and activation consistency:} Purely data-driven models can achieve low error while still producing non-physical outputs, such as non-zero PV generation at night or negative renewable power. These violations may be small, but they reduce the value of the forecast for downstream operation.
 
-\textbf{2) Limits of post-processing and static penalties:} Post-hoc clipping is a practical remedy for deployment, but it does not guide the model during training. Conversely, physics-informed penalties can regularize optimization, yet fixed constraints may not be sufficient to reflect weather-driven activation changes in PV and wind generation \cite{Raissi2019,Li2026,Asinyo2025}. A useful forecasting architecture should therefore balance train-time guidance with flexible residual modeling.
+\textbf{2) Limits of post-processing and static penalties:} Post-hoc clipping is useful at deployment, but it does not shape the model during training. Physics-informed penalties help, but fixed penalties alone may not capture weather-driven activation changes in PV and wind generation \cite{Raissi2019,Li2026,Asinyo2025}. A practical model should therefore combine train-time guidance with flexible residual prediction.
 
-\textbf{3) Need for interpretable weather-response behavior:} For deployment-oriented forecasting, it is helpful to understand whether activation patterns in the model remain aligned with observable weather cues. Existing interpretability tools are informative, but they do not necessarily encode these relationships into the model structure itself \cite{Vle2025,Lovo2025,Arabzadeh2025}.
+\textbf{3) Need for interpretable weather-response behavior:} In deployment, it is useful to know whether the model reacts to weather in a reasonable way. Existing interpretability tools can reveal such patterns after training, but they do not necessarily encode them into the model itself \cite{Vle2025,Lovo2025,Arabzadeh2025}.
 
 \subsection{Overview of This Work}
-To address these issues, this paper presents \textbf{PhysFormer}, a physics-guided Transformer for physically consistent VPP forecasting. The proposed framework combines an explicit physical mapping stream, a bounded residual output parameterization, a physics-guided gating and alignment module (PGCC), and curriculum-based constraint training. In this work, PGCC is used as a guidance and alignment mechanism rather than as a causal discovery tool.
+To address these issues, we propose \textbf{PhysFormer}. It is a physics-guided Transformer for physically consistent VPP forecasting. The model combines an explicit physical mapping stream, a bounded residual output mechanism, a physics-guided gating and alignment module (PGCC), and curriculum-based constraint training. In this work, PGCC is used for guidance and alignment rather than causal discovery.
 
 The main contributions of this paper are as follows:
 
 \begin{enumerate}
-    \item We propose a \textbf{Bounded Physical Act-Residual (BPAR)} output mechanism that combines theory-based baselines with data-driven residual corrections, reducing non-physical predictions while preserving differentiable training dynamics.
-    
-    \item We introduce a \textbf{Physics-Guided Gating and Alignment} module (PGCC) that injects weather-dependent priors into PV and wind activation, improving the interpretability of the model's weather-response behavior through supervised alignment.
+    \item We propose a \textbf{Bounded Physical Act-Residual (BPAR)} mechanism that combines theory-based baselines with residual corrections. Under the adopted normalization, it preserves differentiability while maintaining a structurally non-negative output form.
+
+    \item We introduce a \textbf{Physics-Guided Gating and Alignment} module (PGCC) that injects weather-dependent priors into PV and wind activation. Its main role is to improve alignment and interpretability.
+
+    \item We adopt a \textbf{Physics-Constrained Curriculum Training} strategy to stabilize optimization, and we evaluate the full framework on a real 3-year VPP dataset.
 \end{enumerate}
 
-In addition, we adopt a \textbf{Physics-Constrained Curriculum Training} strategy to stabilize multi-objective optimization. Experiments on a real 3-year VPP dataset show that PhysFormer reaches zero boundary violations while remaining close in MSE to strong Transformer baselines, illustrating a practical trade-off between forecasting accuracy, physical consistency, and engineering interpretability.
+Experiments show that PhysFormer eliminates boundary violations while remaining competitive with strong Transformer baselines in MSE. The results indicate a useful balance among accuracy, physical consistency, and engineering interpretability.
 
 
