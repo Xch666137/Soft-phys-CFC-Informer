@@ -20,6 +20,10 @@ seaborn>=0.13.0
 # Configuration
 PyYAML>=6.0.0
 
+# Network validation
+pandapower>=2.14.0
+simbench>=1.6.0
+
 # Utilities
 tqdm>=4.67.0
 rich>=12.0.0

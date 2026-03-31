@@ -1,0 +1,4 @@
+portfolio_id,simbench_case,target_bus_or_asset_group,allocation_weight
+residential_dominant_01,1-MV-rural--2-sw,10,0.40
+residential_dominant_01,1-MV-rural--2-sw,15,0.35
+residential_dominant_01,1-MV-rural--2-sw,20,0.25

@@ -1,0 +1,20 @@
+ablation:
+  jobs:
+    - name: physformer_full
+      run_name: physformer_full
+      config: configs/physformer_default.yaml
+    - name: physformer_ablation_v1
+      run_name: physformer_ablation_v1
+      config: configs/physformer_ablation_v1.yaml
+    - name: physformer_ablation_v2
+      run_name: physformer_ablation_v2
+      config: configs/physformer_ablation_v2.yaml
+    - name: physformer_ablation_v3
+      run_name: physformer_ablation_v3
+      config: configs/physformer_ablation_v3.yaml
+    - name: physformer_ablation_v4
+      run_name: physformer_ablation_v4
+      config: configs/physformer_ablation_v4.yaml
+    - name: physformer_ablation_v5
+      run_name: physformer_ablation_v5
+      config: configs/physformer_ablation_v5.yaml

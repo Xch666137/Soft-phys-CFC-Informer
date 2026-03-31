@@ -1,0 +1,2 @@
+date,portfolio_id,region_id,p_vpp_mw,temperature,irradiance,wind_speed,p_load_mw,p_pv_mw,p_wind_mw
+2034-01-01 00:00:00,residential_dominant_01,region_a,1.250,-2.1,0.0,6.8,1.950,0.000,0.700

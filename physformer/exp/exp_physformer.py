@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
+from .base import EarlyStopping, ForecastExperiment
 from ..data.data_factory import PhysFormerDataset
 from ..models import PhysFormer
 from ..utils.losses import PhysAwareBaseLoss, PhysLoss
@@ -22,11 +23,9 @@ from ..utils.metrics import metric, NRMSE_Channel_Avg, PhysicsComplianceMetrics
 warnings.filterwarnings('ignore')
 torch.backends.cudnn.benchmark = True
 
-class Exp_PhysFormer:
+class Exp_PhysFormer(ForecastExperiment):
     def __init__(self, args):
-        self.args = args
-        self._init_logger()
-        self.device = self._acquire_device()
+        super().__init__(args)
         self.model = self._build_model().to(self.device)
 
         self.gate_history = {
@@ -36,7 +35,7 @@ class Exp_PhysFormer:
 
         # 初始化 TensorBoard Writer
         # 日志保存在 checkpoints/你的实验名/tensorboard 目录下
-        tb_dir = os.path.join(self.args.checkpoints, self.args.checkpoint_name, 'tensorboard')
+        tb_dir = self.run_dir / 'tensorboard'
         self.writer = SummaryWriter(log_dir=tb_dir)
         print(f">>> TensorBoard logging to: {tb_dir}")
 
@@ -190,7 +189,13 @@ class Exp_PhysFormer:
             features=self.args.features,
             scale=True,
             target=self.args.target,
-            noise_level=noise_level
+            noise_level=noise_level,
+            time_col=getattr(self.args, 'time_col', 'date'),
+            id_col=getattr(self.args, 'id_col', None),
+            region_col=getattr(self.args, 'region_col', None),
+            target_cols=getattr(self.args, 'target_cols', None),
+            covariate_cols=getattr(self.args, 'covariate_cols', None),
+            task_mode=getattr(self.args, 'task_mode', 'component_multitask')
         )
 
         # 3. 构造 DataLoader
@@ -505,7 +510,7 @@ class Exp_PhysFormer:
         train_data, train_loader = self._get_data(flag='train')
         val_data, val_loader = self._get_data(flag='val')
 
-        path = os.path.join(self.args.checkpoints, self.args.checkpoint_name)
+        path = str(self.run_dir)
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -812,12 +817,11 @@ class Exp_PhysFormer:
         # 返回 avg_nrmse 作为早停依据
         return avg_loss, avg_nrmse, avg_gates
 
-    def test(self, setting, load=True, return_preds=False, extreme_scenario_test=False):
+    def test(self, setting=None, load=True, return_preds=False, extreme_scenario_test=False):
         test_data, test_loader = self._get_data(flag='test')
 
         if load:
-            path = os.path.join(self.args.checkpoints, setting)
-            best_model_path = path + '/' + 'checkpoint.pth'
+            best_model_path = str(self.checkpoint_path())
             self.model.load_state_dict(torch.load(best_model_path, weights_only=False))
 
         # 检查criterion是否存在
@@ -937,8 +941,9 @@ class Exp_PhysFormer:
         
         print("=" * 60 + "\n")
 
-        path = os.path.join(self.args.checkpoints, setting)
-        if not os.path.exists(path): os.makedirs(path)
+        path = str(self.run_dir)
+        if not os.path.exists(path):
+            os.makedirs(path)
         folder_path = path + '/'
 
         # 仅当收集到门控可视化数据时才保存（消融变体 w/o PGCC 和 w/o Physics 不生成）

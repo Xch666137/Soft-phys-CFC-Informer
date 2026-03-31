@@ -7,3 +7,4 @@
 - For GPU-dependent work, the user is responsible for running commands in a remote cloud environment over SSH; the assistant is responsible for preparing commands, configs, execution order, troubleshooting guidance, and result interpretation.
 - When discussing experiments, split the workflow into two parts: local preparation the assistant can do here, and remote GPU steps the user must execute.
 - Do not store SSH hosts, usernames, keys, passwords, or tokens in this file. If such details are needed later, use them only in the active conversation and do not persist them in project memory.
+- 只要与Python有关的内容请使用conda环境，名称为 `Soft-phys-CFC-Informer`。

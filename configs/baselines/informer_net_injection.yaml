@@ -1,0 +1,18 @@
+_base_: informer.yaml
+
+model:
+  enc_in: 4
+  dec_in: 4
+  c_out: 1
+
+data:
+  data_path: data/portfolio_net_injection.csv
+  time_col: date
+  id_col: portfolio_id
+  region_col: region_id
+  task_mode: net_injection
+  target_cols: [p_vpp_mw]
+  covariate_cols: [temperature, irradiance, wind_speed]
+
+checkpoint:
+  path: checkpoints/Baselines/

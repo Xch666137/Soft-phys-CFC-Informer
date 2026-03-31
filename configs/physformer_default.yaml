@@ -22,6 +22,12 @@ data:
   data_path: data/vpp_dataset_3years.csv
   features: M
   target: null
+  time_col: date
+  id_col: null
+  region_col: null
+  task_mode: component_multitask
+  target_cols: [load_mw, pv_mw, wind_mw]
+  covariate_cols: [temperature, irradiance, wind_speed]
   seq_len: 672
   pred_len: 96
   freq: h
