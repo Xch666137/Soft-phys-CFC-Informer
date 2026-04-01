@@ -1,0 +1,5 @@
+- Physics-guided Transformer for joint VPP load, PV, and wind forecasting
+- Bounded residual output reduces non-physical predictions during training
+- Weather-guided gating aligns renewable activation with exogenous cues
+- Zero boundary violations are achieved on a 3-year real-world VPP dataset
+- Accuracy remains close to strong Transformer forecasting baselines

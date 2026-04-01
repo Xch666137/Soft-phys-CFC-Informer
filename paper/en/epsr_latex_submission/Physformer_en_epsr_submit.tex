@@ -1,0 +1,64 @@
+\documentclass[preprint,review,12pt]{elsarticle}
+
+\usepackage[T1]{fontenc}
+\usepackage[protrusion=true,expansion=false,final]{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage[table]{xcolor}
+\usepackage{algorithmic}
+\usepackage{float}
+\usepackage[section]{placeins}
+\usepackage[hidelinks]{hyperref}
+
+\sisetup{
+  detect-all,
+  per-mode    = symbol,
+  range-phrase = {--},
+  range-units = single,
+}
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+
+\journal{Electric Power Systems Research}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{PhysFormer: A Physics-Guided Transformer for Physically Consistent Virtual Power Plant Forecasting}
+
+\author[inst1]{Xingyu Liu\corref{cor1}}
+\ead{y24203228@mail.shiep.edu.cn}
+
+\author[inst1]{Zhong Tang}
+\ead{tangzhong64@163.com}
+
+\cortext[cor1]{Corresponding author.}
+\affiliation[inst1]{organization={Shanghai University of Electric Power},
+            addressline={Department of Electrical Engineering},
+            city={Shanghai},
+            postcode={200090},
+            country={China}}
+
+\input{sec0_abstract}
+
+\begin{keyword}
+\input{sec0_keywords}
+\end{keyword}
+
+\end{frontmatter}
+
+\input{sec1_intro}
+\input{sec3_method}
+\input{sec5_exp}
+\input{sec6_conclusion}
+
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+
+\end{document}
