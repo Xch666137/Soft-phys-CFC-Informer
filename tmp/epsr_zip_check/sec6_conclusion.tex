@@ -1,0 +1,8 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper presents PhysFormer, a physics-guided Transformer for physically consistent VPP forecasting. The model combines an explicit physical mapping stream, a bounded residual output mechanism, a physics-guided gating and alignment module, and curriculum-based constraint training.
+
+On the 3-year VPP dataset used in this study, PhysFormer achieves a boundary violation rate of 0.00\% and remains competitive with strong unconstrained Transformer baselines in mean squared error. The results suggest that the proposed design offers a useful balance between forecasting accuracy, physical consistency, and interpretable weather-response behavior. PGCC mainly improves alignment and interpretability, while BPAR is responsible for the consistent non-negative output behavior.
+
+This study is limited to one regional dataset, one prediction setting, and component-level forecasting without explicit storage, state-of-charge, or dispatch feedback. The interpretability results should also be understood as supervised alignment to known physical cues rather than causal discovery. Future work will extend the framework to additional datasets and forecasting horizons. It will also examine how physically consistent forecasts can support downstream VPP scheduling and control \cite{Ma2025,Arabzadeh2025,Du2025}.

@@ -8,5 +8,8 @@ This research did not receive any specific grant from funding agencies in the pu
 Declaration of competing interest
 The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
 
+Data availability statement
+The data that support the findings of this study are not publicly available because they contain third-party operational measurements subject to confidentiality and access restrictions.
+
 Declaration of generative AI and AI-assisted technologies in the manuscript preparation process
 During the preparation of this work, the authors used OpenAI Codex to assist with language editing, manuscript restructuring, and formatting adjustments. After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article.

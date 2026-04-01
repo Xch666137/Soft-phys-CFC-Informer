@@ -1,0 +1,51 @@
+EPSR Editorial Manager Fields
+
+Title
+PhysFormer: A Physics-Guided Transformer for Physically Consistent Virtual Power Plant Forecasting
+
+Authors
+1. Xingyu Liu
+   Department of Electrical Engineering, Shanghai University of Electric Power, Shanghai 200090, China
+   Email: y24203228@mail.shiep.edu.cn
+2. Zhong Tang
+   Department of Electrical Engineering, Shanghai University of Electric Power, Shanghai 200090, China
+   Email: tangzhong64@163.com
+
+Corresponding author
+Xingyu Liu
+Department of Electrical Engineering, Shanghai University of Electric Power, Shanghai 200090, China
+Email: y24203228@mail.shiep.edu.cn
+
+Abstract
+Virtual power plant (VPP) forecasting requires joint prediction of load, photovoltaic (PV), and wind power while avoiding non-physical outputs such as negative generation or nighttime PV power. Simple post-processing can remove some violations at deployment, but it does not shape training or explain how weather priors affect model behavior. We therefore propose PhysFormer, a physics-guided Transformer for physically consistent VPP forecasting. The model combines an explicit physical mapping stream, a bounded residual output mechanism, a physics-guided gating and alignment module, and curriculum-based constraint training. The bounded residual design yields structurally non-negative outputs under the adopted normalization, and the gating module aligns PV and wind activation with exogenous weather cues. Experiments on a real 3-year VPP dataset show that PhysFormer achieves a boundary violation rate of 0.00% and remains competitive with strong Transformer baselines in mean squared error (MSE), reaching 0.0128 versus 0.0121 for Informer and 0.0122 for iTransformer. These results indicate that PhysFormer offers a practical balance between forecasting accuracy, physical consistency, and interpretable weather-response behavior.
+
+Keywords
+Virtual power plant
+Forecasting
+Physics-guided learning
+Physical consistency
+Transformer
+Renewable power
+
+Highlights
+- Physics-guided Transformer for joint VPP load, PV, and wind forecasting
+- Bounded residual output reduces non-physical predictions during training
+- Weather-guided gating aligns renewable activation with exogenous cues
+- Zero boundary violations are achieved on a 3-year real-world VPP dataset
+- Accuracy remains close to strong Transformer forecasting baselines
+
+Funding statement
+This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors.
+
+Data availability statement
+The data that support the findings of this study are not publicly available because they contain third-party operational measurements subject to confidentiality and access restrictions.
+
+Author contributions (CRediT)
+Xingyu Liu: Conceptualization, Methodology, Software, Validation, Formal analysis, Data curation, Writing - original draft.
+Zhong Tang: Supervision, Methodology, Validation, Writing - review & editing.
+
+Conflicts of interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+Generative AI declaration
+During the preparation of this work, the authors used OpenAI Codex to assist with language editing, manuscript restructuring, and formatting adjustments. After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article.

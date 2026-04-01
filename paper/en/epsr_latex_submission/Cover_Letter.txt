@@ -4,7 +4,7 @@ We are pleased to submit our manuscript entitled "PhysFormer: A Physics-Guided T
 
 This manuscript presents an application-oriented forecasting method for improving physical consistency in joint VPP component prediction. PhysFormer combines an explicit physical mapping stream, a bounded residual output mechanism, a physics-guided gating and alignment module, and curriculum-based constraint training. The method is designed for the joint prediction of load, PV, and wind power under weather covariates, with emphasis on reducing non-physical outputs while retaining competitive forecast accuracy.
 
-On a real 3-year VPP dataset, PhysFormer achieves a boundary violation rate of 0.00\% and an MSE of 0.0128. The method remains competitive with strong Transformer baselines while providing interpretable weather-response behavior. We believe the manuscript fits EPSR because it addresses forecasting for power-system operation with renewable integration and emphasizes physically consistent machine learning.
+On a real 3-year VPP dataset, PhysFormer achieves a boundary violation rate of 0.00% and an MSE of 0.0128. The method remains competitive with strong Transformer baselines while providing interpretable weather-response behavior. We believe the manuscript fits EPSR because it addresses forecasting for power-system operation with renewable integration and emphasizes physically consistent machine learning.
 
 This manuscript has not been published or submitted elsewhere. All authors have read and approved the final manuscript.
 
