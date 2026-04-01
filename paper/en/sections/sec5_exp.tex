@@ -23,7 +23,7 @@ PatchTST and DLinear perform worse in this VPP setting than the stronger multiva
 
 Overall, PhysFormer stays close to the accuracy-compliance trade-off frontier. It gives up a small amount of MSE relative to the strongest unconstrained baselines. In return, it maintains zero-bound compliance and weather-aligned gating behavior, as shown in Fig.~\ref{fig:pareto}.
 
-\begin{figure}[H]
+\begin{figure}[tbp]
 \centering
 \includegraphics[width=0.98\columnwidth]{EPSR_Fig5_Pareto.pdf}
 \caption{PhysFormer combines zero boundary violations with accuracy close to the strongest unconstrained baselines. High-error outliers with MSE $> 0.03$ are omitted.}
@@ -56,12 +56,14 @@ PhysFormer & 0.0128 & \textbf{0.00\%} & \textbf{0.0000} & 0.198\% & 0.1527 \\
 
 To make the trade-off concrete, Fig.~\ref{fig:forecast_comparison} focuses on a representative PV forecast window where the shutdown transition is visible within the 96-step horizon. The PV channel is shown here because boundary handling is most transparent in the zero-generation intervals.
 
-\begin{figure}[H]
+\begin{figure}[tbp]
 \centering
-\includegraphics[width=0.98\columnwidth]{EPSR_Fig6_PVCaseStudy.pdf}
-\caption{PhysFormer tracks the PV shutdown transition without crossing the zero boundary. The inset highlights the dusk window.}
+\includegraphics[width=0.94\columnwidth]{EPSR_Fig6_PVCaseStudy.pdf}
+\caption{PhysFormer tracks the PV shutdown transition without crossing the zero boundary. Panel (a) shows the full forecast horizon, and panel (b) zooms into the dusk shutdown window.}
 \label{fig:forecast_comparison}
 \end{figure}
+
+\FloatBarrier
 
 \subsection{Verification of Physical Compliance and Safety}
 \label{subsec:safety}
@@ -101,9 +103,9 @@ PhysFormer & 0.0150 & \textbf{0.00\%} & \textbf{0.0000} & 0.294\% & 0.1715 \\
 
 Fig.~\ref{fig:extreme_weather} shows the same pattern: PhysFormer remains close to the best MSE tier while keeping zero BVR.
 
-\begin{figure}[H]
+\begin{figure}[tbp]
 \centering
-\includegraphics[width=0.88\columnwidth]{EPSR_Fig7_ExtremeWeather.pdf}
+\includegraphics[width=0.84\columnwidth]{EPSR_Fig7_ExtremeWeather.pdf}
 \caption{On the extreme-weather subset, PhysFormer stays near the best MSE tier and is the only model with zero boundary violations.}
 \label{fig:extreme_weather}
 \end{figure}
@@ -123,11 +125,11 @@ This behavior should be understood as supervised alignment rather than emergent 
 \subsubsection{Distinction Between Supervised Alignment and Emergent Causality}
 It is important to state the limits of this result clearly. The high correlation ($r=0.8306$) does not indicate emergent meteorological causality discovered \textit{ab initio} from raw data. Instead, Gate Response Regularization provides supervised alignment to a known physical prior.
 
-\begin{table}[htbp]
+\begin{table}[tbp]
 \centering
 \caption{Physical Parameter Convergence Tracking}
 \label{tab:physical_params}
-\footnotesize
+\scriptsize
 \setlength{\tabcolsep}{3pt}
 \begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcccc@{}}
 \toprule
@@ -148,11 +150,11 @@ Parameter & Initial & Converged & Lit. Range & $\Delta$ \\
 
 To evaluate computational cost, we compare parameter counts and inference latency under the same hardware setting. As shown in Table~\ref{tab:overhead}, PhysFormer uses $d_\text{model}=512$ but has 11.4M parameters, compared with Informer's 17.9M. The measured latency is about $2.10$ ms/sample on an RTX 3090 GPU.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \caption{Model Complexity and Inference Overhead}
 \label{tab:overhead}
-\footnotesize
+\scriptsize
 \setlength{\tabcolsep}{2pt}
 \begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcc@{}}
 \toprule
@@ -166,6 +168,8 @@ PatchTST / iTransformer & 1.62 / 9.85 & 0.10 / 1.81 \\
 \bottomrule
 \end{tabular*}
 \end{table}
+
+\FloatBarrier
 
 \subsection{Ablation Study}
 \label{subsec:ablation}

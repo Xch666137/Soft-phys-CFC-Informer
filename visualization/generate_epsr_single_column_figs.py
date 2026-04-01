@@ -6,7 +6,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from scipy.stats import pearsonr
 
 
@@ -44,7 +43,7 @@ def set_style() -> None:
             "axes.linewidth": 0.9,
             "xtick.labelsize": 9,
             "ytick.labelsize": 9,
-            "legend.fontsize": 8.5,
+            "legend.fontsize": 8.2,
             "lines.linewidth": 2.0,
             "figure.dpi": 200,
             "savefig.dpi": 300,
@@ -66,6 +65,9 @@ def save(fig: plt.Figure, stem: str) -> None:
     fig.savefig(OUTPUT_DIR / f"{stem}.pdf")
     fig.savefig(OUTPUT_DIR / f"{stem}.png")
     plt.close(fig)
+
+
+NOTE_BBOX = dict(boxstyle="round,pad=0.22", facecolor="white", edgecolor="#d0d7df", alpha=0.95)
 
 
 def add_box(ax, xy, wh, text, fc, ec="#334", fontsize=10.5, weight="bold"):
@@ -124,8 +126,8 @@ def generate_architecture() -> None:
     # Main pathway
     add_box(ax, (0.23, 0.47), (0.54, 0.11), "PGCC fusion", "#f7ebca", fontsize=11.4)
     add_box(ax, (0.17, 0.63), (0.66, 0.12), "Horizon projection\n+ future-weather GLU", COLORS["gray_light"], fontsize=10.8)
-    add_box(ax, (0.15, 0.79), (0.70, 0.12), "BPAR + activity gating", COLORS["phys_light"], fontsize=11.5)
-    add_box(ax, (0.30, 0.928), (0.40, 0.055), "Load / PV / wind forecasts", "#f7f7f7", fontsize=10.0, weight="normal")
+    add_box(ax, (0.15, 0.785), (0.70, 0.125), "BPAR + activity gating", COLORS["phys_light"], fontsize=11.3)
+    add_box(ax, (0.29, 0.928), (0.42, 0.058), "Load / PV / wind forecasts", "#f7f7f7", fontsize=9.8, weight="normal")
 
     # Input connections
     add_arrow(ax, (0.20, 0.17), (0.245, 0.27), color=COLORS["blue"], lw=1.8)
@@ -146,20 +148,31 @@ def generate_architecture() -> None:
 
 
 def generate_mapping() -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(6.0, 6.7))
+    fig, axes = plt.subplots(2, 1, figsize=(6.0, 6.95))
 
     temps = np.linspace(-10, 45, 220)
     beta = 0.0041
+    pv_handles = []
+    pv_labels = []
     for G, label, color in [(0.25, "Low irradiance", "#4c78a8"), (0.60, "Medium irradiance", "#f28e2b"), (1.00, "High irradiance", "#59a14f")]:
         pv = G * np.clip(1 - beta * (temps - 25), 0, 1.5)
-        axes[0].plot(temps, pv, color=color, label=label)
+        line, = axes[0].plot(temps, pv, color=color, label=label)
+        pv_handles.append(line)
+        pv_labels.append(label)
     axes[0].axvline(25, color=COLORS["gray"], linestyle="--", linewidth=1.0)
-    axes[0].text(26.2, 0.98, r"$\beta_T = 0.0041 /^\circ$C", fontsize=9, color=COLORS["gray"])
+    axes[0].annotate(
+        r"$\beta_T = 0.0041\ /\!^\circ\mathrm{C}$",
+        xy=(25, 1.00),
+        xytext=(31.5, 1.07),
+        fontsize=8.8,
+        color=COLORS["gray"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="-", color=COLORS["gray"], linewidth=0.9),
+    )
     axes[0].set_ylabel("Normalized PV output")
     axes[0].set_xlabel("Cell temperature ($^\circ$C)")
-    axes[0].set_title("(a) PV output decreases smoothly as temperature rises")
+    axes[0].set_title("(a) PV output decreases smoothly as temperature rises", pad=12)
     axes[0].grid(True)
-    axes[0].legend(frameon=False, loc="upper right")
 
     speeds = np.linspace(0, 30, 400)
     v_ci, v_r, v_co = 3.458, 11.970, 24.968
@@ -169,22 +182,65 @@ def generate_mapping() -> None:
     wind[mask_ramp] = 1 / (1 + np.exp(-5 * (((speeds[mask_ramp] - v_ci) / (v_r - v_ci)) - 0.5)))
     wind[mask_flat] = 1.0
     axes[1].plot(speeds, wind, color=COLORS["green"], linewidth=2.3)
-    axes[1].fill_between(speeds, 0, wind, where=((speeds >= v_ci) & (speeds <= v_co)), color=COLORS["green_light"], alpha=0.9)
+    axes[1].fill_between(speeds, 0, wind, where=((speeds >= v_ci) & (speeds <= v_co)), color=COLORS["green_light"], alpha=0.72)
     for x, lbl in [(v_ci, r"$v_{ci}$"), (v_r, r"$v_r$"), (v_co, r"$v_{co}$")]:
         axes[1].axvline(x, color=COLORS["gray"], linestyle="--", linewidth=1.0)
-        axes[1].text(x, 1.06 if x != v_r else 0.16, lbl, ha="center", va="center", color=COLORS["gray"])
+    axes[1].annotate(
+        r"$v_{ci}$",
+        xy=(v_ci, 0.12),
+        xytext=(v_ci - 0.15, 1.05),
+        ha="center",
+        fontsize=8.8,
+        color=COLORS["gray"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="-", color=COLORS["gray"], linewidth=0.9),
+    )
+    axes[1].annotate(
+        r"$v_r$",
+        xy=(v_r, 0.90),
+        xytext=(v_r + 0.1, 0.14),
+        ha="center",
+        fontsize=8.8,
+        color=COLORS["gray"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="-", color=COLORS["gray"], linewidth=0.9),
+    )
+    axes[1].annotate(
+        r"$v_{co}$",
+        xy=(v_co, 1.0),
+        xytext=(v_co - 0.05, 1.05),
+        ha="center",
+        fontsize=8.8,
+        color=COLORS["gray"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="-", color=COLORS["gray"], linewidth=0.9),
+    )
     axes[1].set_ylim(-0.03, 1.12)
     axes[1].set_ylabel("Wind power coefficient")
     axes[1].set_xlabel("Wind speed (m/s)")
-    axes[1].set_title("(b) Learned wind thresholds preserve the operating region")
+    axes[1].set_title("(b) Learned wind thresholds preserve the operating region", pad=10)
     axes[1].grid(True)
 
-    fig.tight_layout(h_pad=1.6)
+    fig.legend(
+        pv_handles,
+        pv_labels,
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.992),
+        ncol=3,
+        columnspacing=1.0,
+        handlelength=1.8,
+    )
+    fig.tight_layout(h_pad=1.9, rect=(0.0, 0.0, 1.0, 0.965))
     save(fig, "EPSR_Fig2_PhysicalMapping")
 
 
 def generate_bpar_mechanism() -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(6.0, 6.5))
+    fig = plt.figure(figsize=(6.0, 7.25))
+    gs = fig.add_gridspec(3, 1, height_ratios=[1.0, 1.0, 0.16], hspace=0.54)
+    axes = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
+    legend_ax = fig.add_subplot(gs[2])
+    legend_ax.axis("off")
 
     x = np.linspace(-2.5, 3.0, 400)
     axes[0].plot(x, x, linestyle="--", color=COLORS["gray"], label="Unconstrained residual head")
@@ -195,16 +251,17 @@ def generate_bpar_mechanism() -> None:
     axes[0].annotate(
         "Smooth positive floor\nwith non-zero gradient",
         xy=(0.2, np.log1p(np.exp(0.2))),
-        xytext=(1.05, 0.8),
+        xytext=(1.15, 1.45),
         arrowprops=dict(arrowstyle="->", color=COLORS["phys"], linewidth=1.2),
         color=COLORS["phys"],
-        fontsize=9,
+        fontsize=8.8,
+        bbox=NOTE_BBOX,
     )
-    axes[0].set_xlabel(r"Pre-activation relative to physical zero, $(P_{theory}+r)-P_{zero}$")
+    axes[0].set_xlabel("Pre-activation relative to physical zero")
     axes[0].set_ylabel(r"Output above $P_{zero}$")
-    axes[0].set_title("(a) BPAR keeps the output non-negative without a dead zone")
+    axes[0].set_title("(a) BPAR keeps the output non-negative without a dead zone", pad=10)
     axes[0].grid(True)
-    axes[0].legend(frameon=False, loc="upper left")
+    axes[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0.0, 0.98))
 
     t = np.arange(96)
     raw = 0.72 * np.exp(-((t - 46) / 25) ** 2) + 0.05
@@ -217,7 +274,7 @@ def generate_bpar_mechanism() -> None:
     ax2.fill_between(t, 0, final, color=COLORS["phys_light"], alpha=0.85)
     ax2.set_ylabel("Illustrative output")
     ax2.set_xlabel("Transition interval")
-    ax2.set_title("(b) Activity gating drives the bounded output back to zero smoothly")
+    ax2.set_title("(b) Activity gating drives the bounded output back to zero smoothly", pad=12)
     ax2.grid(True)
     ax2b = ax2.twinx()
     ax2b.plot(t, gate, color=COLORS["blue"], linewidth=1.6, label=r"Activity gate $a_x$")
@@ -226,9 +283,16 @@ def generate_bpar_mechanism() -> None:
     ax2b.tick_params(axis="y", labelcolor=COLORS["blue"])
     lines1, labels1 = ax2.get_legend_handles_labels()
     lines2, labels2 = ax2b.get_legend_handles_labels()
-    ax2.legend(lines1 + lines2, labels1 + labels2, frameon=False, loc="upper right")
+    legend_ax.legend(
+        lines1 + lines2,
+        labels1 + labels2,
+        frameon=False,
+        loc="center",
+        ncol=2,
+        columnspacing=1.1,
+        handlelength=1.8,
+    )
 
-    fig.tight_layout(h_pad=1.4)
     save(fig, "EPSR_Fig3_BPARMechanism")
 
 
@@ -261,7 +325,7 @@ def generate_gate_alignment() -> None:
     ax1.fill_between(t, 0, irr_seq, color=COLORS["gold"], alpha=0.35, label="Normalized irradiance")
     ax1.set_ylabel("Irradiance")
     ax1.grid(True)
-    ax1.set_title("(a) The learned PV gate follows irradiance on representative test windows", pad=26)
+    ax1.set_title("(a) The learned PV gate follows irradiance on representative test windows", pad=18)
     ax1b = ax1.twinx()
     ax1b.plot(t, gate_seq, color=COLORS["phys"], linewidth=2.2, label="PV gate")
     ax1b.set_ylabel("Gate activation", color=COLORS["phys"])
@@ -274,7 +338,7 @@ def generate_gate_alignment() -> None:
         lb1 + lb2,
         frameon=False,
         loc="lower center",
-        bbox_to_anchor=(0.5, 1.01),
+        bbox_to_anchor=(0.5, 1.00),
         ncol=2,
         columnspacing=1.0,
         handlelength=1.8,
@@ -283,20 +347,20 @@ def generate_gate_alignment() -> None:
     ax2.scatter(irr_sub, gate_sub, s=13, alpha=0.22, color=COLORS["blue"], edgecolors="none")
     ax2.plot(x_line, fit[0] * x_line + fit[1], color=COLORS["phys"], linewidth=2.0, linestyle="--")
     ax2.text(
-        0.04,
-        0.95,
+        0.05,
+        0.83,
         f"Visualization subset: N={len(flat_gate):,}, r={subset_r:.3f}\nReported full-test Pearson correlation: r=0.8306",
         transform=ax2.transAxes,
         va="top",
         fontsize=8.6,
-        bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#d0d7df", alpha=0.95),
+        bbox=NOTE_BBOX,
     )
     ax2.set_xlabel("Normalized irradiance")
     ax2.set_ylabel("PV gate activation")
     ax2.set_title("(b) The alignment persists over the visualization subset")
     ax2.grid(True)
 
-    fig.subplots_adjust(top=0.92)
+    fig.subplots_adjust(top=0.95)
     save(fig, "EPSR_Fig4_GateAlignment")
 
 
@@ -312,17 +376,19 @@ def generate_pareto() -> None:
         ("PhysFormer", 0.0128, 0.00, 0.0000),
     ]
 
-    fig, ax = plt.subplots(figsize=(5.9, 4.4))
+    fig, ax = plt.subplots(figsize=(5.95, 4.55))
     bubble_scale = 42000
     offsets = {
-        "Informer": (-0.00015, -1.2),
-        "Informer-Post": (-0.00015, 0.95),
-        "PhysFormer": (0.00038, 0.95),
-        "iTransformer": (0.00025, -1.0),
-        "PINN": (0.0002, -1.0),
-        "GRU": (-0.00035, 0.7),
-        "LSTM": (0.0003, 1.0),
-        "PatchTST": (0.0002, 1.1),
+        "Informer": (-8, -12),
+        "iTransformer": (6, -10),
+        "PINN": (6, -10),
+        "GRU": (-18, 8),
+        "LSTM": (10, 10),
+        "PatchTST": (5, 10),
+    }
+    anchored_labels = {
+        "Informer-Post": dict(x=0.01192, y=1.15, ha="left"),
+        "PhysFormer": dict(x=0.01338, y=1.15, ha="left"),
     }
 
     for name, mse, bvr, mvs in data:
@@ -351,8 +417,32 @@ def generate_pareto() -> None:
         ax.scatter(mse, bvr, s=size, color=color, edgecolors=edge, linewidth=1.2, alpha=alpha, zorder=4 if name == "PhysFormer" else 3)
         if name == "PhysFormer":
             ax.scatter(mse, bvr, s=size * 3.0, color=COLORS["phys"], alpha=0.10, zorder=2)
-        dx, dy = offsets[name]
-        ax.text(mse + dx, bvr + dy, name, fontsize=9, fontweight="bold" if name == "PhysFormer" else "normal")
+        if name in anchored_labels:
+            spec = anchored_labels[name]
+            ax.annotate(
+                name,
+                xy=(mse, bvr),
+                xytext=(spec["x"], spec["y"]),
+                textcoords="data",
+                fontsize=8.8,
+                fontweight="bold" if name == "PhysFormer" else "normal",
+                bbox=NOTE_BBOX,
+                arrowprops=dict(arrowstyle="-", color="#b0b7bf", linewidth=0.8),
+                ha=spec["ha"],
+                va="center",
+            )
+        else:
+            dx, dy = offsets[name]
+            ax.annotate(
+                name,
+                xy=(mse, bvr),
+                xytext=(dx, dy),
+                textcoords="offset points",
+                fontsize=8.9,
+                fontweight="bold" if name == "PhysFormer" else "normal",
+                ha="left",
+                va="center",
+            )
 
     ax.plot([0.0121, 0.0128], [19.53, 0.0], linestyle="--", color="#b0b7bf", linewidth=1.4)
     ax.set_xlim(0.0116, 0.0238)
@@ -361,15 +451,15 @@ def generate_pareto() -> None:
     ax.set_ylabel("Boundary violation rate (BVR %)")
     ax.grid(True)
     ax.text(
-        0.58,
-        0.10,
+        0.60,
+        0.08,
         "Bubble size is proportional to MVS.\nOutliers with MSE > 0.03 are omitted.",
         transform=ax.transAxes,
-        fontsize=8.1,
+        fontsize=7.9,
         color=COLORS["gray"],
         va="bottom",
         ha="left",
-        bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#d0d7df", alpha=0.92),
+        bbox=NOTE_BBOX,
     )
 
     save(fig, "EPSR_Fig5_Pareto")
@@ -393,42 +483,83 @@ def generate_case_study() -> None:
     dlinear_seq = dlinear[sample_idx]
     dawn_idx, dusk_idx = _transition_windows(true_seq)
 
-    fig, ax = plt.subplots(figsize=(6.0, 4.05))
     t = np.arange(len(true_seq))
-    ax.axhspan(-0.18, 0, color="#f1f1f1", alpha=1.0)
-    ax.axhline(0, color=COLORS["dark"], linewidth=1.0, linestyle="--")
-    ax.axvspan(max(dawn_idx - 3, 0), min(dawn_idx + 4, 95), color=COLORS["gold_light"], alpha=0.8)
-    ax.axvspan(max(dusk_idx - 3, 0), min(dusk_idx + 4, 95), color=COLORS["phys_light"], alpha=0.8)
-
-    ax.plot(t, true_seq, color="black", linewidth=2.3, label="Ground truth")
-    ax.plot(t, phys_seq, color=COLORS["phys"], linewidth=2.2, label="PhysFormer")
-    ax.plot(t, inf_seq, color=COLORS["informer"], linewidth=1.8, linestyle="--", label="Informer")
-    ax.plot(t, dlinear_seq, color=COLORS["dlinear"], linewidth=1.8, linestyle="-.", label="DLinear")
-
-    ax.set_xlim(0, 95)
-    ax.set_ylim(-0.16, max(true_seq.max(), dlinear_seq.max()) * 1.12)
-    ax.set_xlabel("Prediction horizon (15 min)")
-    ax.set_ylabel("PV power (MW)")
-    ax.grid(True)
-    ax.legend(frameon=False, loc="upper center", ncol=4, bbox_to_anchor=(0.53, 1.02))
-    ax.text(dawn_idx - 1.2, ax.get_ylim()[1] * 0.94, "Dawn", color=COLORS["gold"], fontsize=8.2)
-    ax.text(dusk_idx - 1.2, ax.get_ylim()[1] * 0.94, "Dusk", color=COLORS["phys"], fontsize=8.2)
-
-    axins = inset_axes(ax, width="34%", height="31%", loc="upper left", borderpad=0.9)
     x1 = max(dusk_idx - 6, 0)
     x2 = min(dusk_idx + 10, 95)
-    axins.plot(t, true_seq, color="black", linewidth=1.6)
-    axins.plot(t, phys_seq, color=COLORS["phys"], linewidth=1.5)
-    axins.plot(t, inf_seq, color=COLORS["informer"], linewidth=1.35, linestyle="--")
-    axins.plot(t, dlinear_seq, color=COLORS["dlinear"], linewidth=1.35, linestyle="-.")
-    axins.axhline(0, color=COLORS["dark"], linewidth=0.8, linestyle="--")
-    axins.set_xlim(x1, x2)
+    y_upper = max(true_seq.max(), dlinear_seq.max()) * 1.12
+    fig, axes = plt.subplots(
+        2,
+        1,
+        figsize=(6.0, 5.55),
+        sharex=False,
+        gridspec_kw={"height_ratios": [1.68, 1.0], "hspace": 0.24},
+    )
+    ax_top, ax_zoom = axes
+
+    for ax in axes:
+        ax.axhspan(-0.18, 0, color="#f1f1f1", alpha=1.0, zorder=0)
+        ax.axhline(0, color=COLORS["dark"], linewidth=1.0, linestyle="--", zorder=1)
+        ax.plot(t, true_seq, color="black", linewidth=2.2, label="Ground truth", zorder=4)
+        ax.plot(t, phys_seq, color=COLORS["phys"], linewidth=2.1, label="PhysFormer", zorder=5)
+        ax.plot(t, inf_seq, color=COLORS["informer"], linewidth=1.7, linestyle="--", label="Informer", zorder=3)
+        ax.plot(t, dlinear_seq, color=COLORS["dlinear"], linewidth=1.7, linestyle="-.", label="DLinear", zorder=2)
+        ax.grid(True)
+
+    ax_top.axvspan(max(dawn_idx - 3, 0), min(dawn_idx + 4, 95), color=COLORS["gold_light"], alpha=0.75)
+    ax_top.axvspan(max(dusk_idx - 3, 0), min(dusk_idx + 4, 95), color=COLORS["phys_light"], alpha=0.75)
+    ax_top.set_xlim(0, 95)
+    ax_top.set_ylim(-0.16, y_upper)
+    ax_top.set_ylabel("PV power (MW)")
+    ax_top.set_title("(a) Full PV forecast horizon with boundary-sensitive transition windows", pad=10)
+    ax_top.annotate(
+        "Dawn window",
+        xy=(dawn_idx, y_upper * 0.82),
+        xytext=(dawn_idx - 11, y_upper * 0.93),
+        fontsize=8.3,
+        color=COLORS["gold"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="-", color=COLORS["gold"], linewidth=0.9),
+    )
+    ax_top.annotate(
+        "Dusk window",
+        xy=(dusk_idx, y_upper * 0.80),
+        xytext=(dusk_idx + 5, y_upper * 0.93),
+        fontsize=8.3,
+        color=COLORS["phys"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="-", color=COLORS["phys"], linewidth=0.9),
+    )
+
+    ax_zoom.axvspan(x1, x2, color=COLORS["phys_light"], alpha=0.42)
+    ax_zoom.set_xlim(x1, x2)
     y_local = np.concatenate([true_seq[x1:x2], phys_seq[x1:x2], inf_seq[x1:x2], dlinear_seq[x1:x2]])
-    axins.set_ylim(min(-0.06, y_local.min() - 0.015), max(0.17, y_local.max() + 0.03))
-    axins.set_xticks([x1, dusk_idx, x2])
-    axins.set_yticks([0.0, round(float(max(y_local)), 1)])
-    axins.grid(True)
-    mark_inset(ax, axins, loc1=2, loc2=3, fc="none", ec="#7a7f86", linewidth=0.7)
+    ax_zoom.set_ylim(min(-0.06, y_local.min() - 0.02), max(0.17, y_local.max() + 0.035))
+    ax_zoom.set_xlabel("Prediction horizon (15 min)")
+    ax_zoom.set_ylabel("PV power (MW)")
+    ax_zoom.set_title("(b) Zoomed dusk transition", pad=8)
+    ax_zoom.set_xticks([x1, dusk_idx, x2])
+    ax_zoom.annotate(
+        "PhysFormer remains above the zero boundary\nthrough the shutdown transition",
+        xy=(dusk_idx + 1, max(phys_seq[x1:x2]) * 0.55),
+        xytext=(x1 + 0.7, ax_zoom.get_ylim()[1] * 0.78),
+        fontsize=8.0,
+        color=COLORS["phys"],
+        bbox=NOTE_BBOX,
+        arrowprops=dict(arrowstyle="->", color=COLORS["phys"], linewidth=0.9),
+    )
+
+    handles, labels = ax_top.get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.997),
+        ncol=4,
+        columnspacing=1.1,
+        handlelength=1.9,
+    )
+    fig.subplots_adjust(top=0.91)
 
     save(fig, "EPSR_Fig6_PVCaseStudy")
 
@@ -455,8 +586,8 @@ def generate_extreme_weather() -> None:
         ax.set_yticks(y, models)
         ax.spines["left"].set_visible(False)
         ax.tick_params(axis="y", length=0)
-    axes[0].text(0.0, 1.03, "(a) Extreme-weather MSE", transform=axes[0].transAxes, fontsize=9.5, fontweight="bold")
-    axes[1].text(0.0, 1.03, "(b) Extreme-weather BVR", transform=axes[1].transAxes, fontsize=9.5, fontweight="bold")
+    axes[0].text(0.0, 1.04, "(a) Extreme-weather MSE", transform=axes[0].transAxes, fontsize=9.5, fontweight="bold")
+    axes[1].text(0.0, 1.04, "(b) Extreme-weather BVR", transform=axes[1].transAxes, fontsize=9.5, fontweight="bold")
     for yi, val in enumerate(mse):
         axes[0].text(val + 0.00028, yi, f"{val:.4f}", va="center", fontsize=8.0)
     for yi, val in enumerate(bvr):

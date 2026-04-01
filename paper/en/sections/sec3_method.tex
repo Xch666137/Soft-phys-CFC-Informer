@@ -116,19 +116,21 @@ When $a_x \to 0$, BPAR smoothly pulls the output toward the physical zero baseli
 \noindent
 Because the main benefit of BPAR appears near the zero boundary, Fig.~\ref{fig:bpar_mechanism} visualizes the output manifold and the role of activity gating around shutdown transitions.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.98\columnwidth]{EPSR_Fig3_BPARMechanism.pdf}
+\includegraphics[width=0.92\columnwidth]{EPSR_Fig3_BPARMechanism.pdf}
 \caption{BPAR removes the hard dead zone of post-clipping and, together with activity gating, smoothly pulls the forecast back toward the physical zero boundary. Panel (b) is an illustrative mechanism plot under the adopted normalization setting.}
 \label{fig:bpar_mechanism}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[tbp]
 \centering
-\includegraphics[width=0.98\columnwidth]{EPSR_Fig4_GateAlignment.pdf}
+\includegraphics[width=0.94\columnwidth]{EPSR_Fig4_GateAlignment.pdf}
 \caption{PGCC keeps the learned PV gate aligned with irradiance over both representative windows and the saved visualization subset. The full-test Pearson correlation reported in the text remains $r=0.8306$.}
 \label{fig:gate_alignment}
 \end{figure}
+
+\FloatBarrier
 
 \subsection{Physics-Constrained Curriculum Training}
 \label{subsec:training}
