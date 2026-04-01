@@ -82,8 +82,8 @@ ACT weather:
 ```bash
 python tools/fetch_era5.py \
   --site-key act_canberra \
-  --start-date 2020-01-01 \
-  --end-date 2020-12-31 \
+  --start-date 2018-01-01 \
+  --end-date 2018-12-31 \
   --output-csv data_raw/era5/act_canberra_hourly.csv
 ```
 
@@ -126,8 +126,10 @@ scripts\build_semisynthetic_vpp_dataset.bat
 Useful Windows overrides:
 
 ```bat
-set START_DATE=2020-01-01
-set END_DATE=2020-12-31
+set ACT_START_DATE=2018-01-01
+set ACT_END_DATE=2018-12-31
+set RYE_START_DATE=2020-01-01
+set RYE_END_DATE=2020-12-31
 set WIND_PENETRATION_TARGET=0.15
 scripts\build_semisynthetic_vpp_dataset.bat
 ```

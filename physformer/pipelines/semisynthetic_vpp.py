@@ -302,11 +302,126 @@ def fetch_era5_cds(
     return output_csv
 
 
+def _round_to_grid(value: float, step: float = 0.25) -> float:
+    return float(np.round(value / step) * step)
+
+
+def fetch_era5_cloud_cover_cds(
+    output_csv: str | Path,
+    start_date: str,
+    end_date: str,
+    site_key: str,
+    raw_download_dir: str | Path | None = None,
+):
+    try:
+        import cdsapi
+        import xarray as xr
+    except Exception as exc:
+        raise RuntimeError(
+            "ERA5 cloud-cover fetching requires cdsapi and xarray. Install the project requirements first."
+        ) from exc
+
+    if site_key not in SITE_REGISTRY:
+        raise ValueError(f"Unknown site_key '{site_key}'. Available: {sorted(SITE_REGISTRY)}")
+
+    site = SITE_REGISTRY[site_key]
+    output_csv = Path(output_csv)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    raw_dir = Path(raw_download_dir) if raw_download_dir else output_csv.parent / "_cloud_cover_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    start = pd.Timestamp(start_date).normalize()
+    end = pd.Timestamp(end_date).normalize()
+    client = cdsapi.Client()
+
+    grid_lat = _round_to_grid(site.lat, 0.25)
+    grid_lon = _round_to_grid(site.lon, 0.25)
+    epsilon = 0.01
+    area = [grid_lat + epsilon, grid_lon - epsilon, grid_lat - epsilon, grid_lon + epsilon]
+
+    monthly_frames = []
+    month_starts = pd.period_range(start=start, end=end, freq="M")
+    for month_period in month_starts:
+        month_start = max(start, month_period.start_time.normalize())
+        month_end = min(end, month_period.end_time.normalize())
+        days = [f"{d.day:02d}" for d in pd.date_range(month_start, month_end, freq="D")]
+        raw_path = raw_dir / f"{site_key}_cloud_cover_{month_period.strftime('%Y%m')}.nc"
+
+        request = {
+            "product_type": "reanalysis",
+            "variable": ["total_cloud_cover"],
+            "year": [f"{month_period.year:04d}"],
+            "month": [f"{month_period.month:02d}"],
+            "day": days,
+            "time": [f"{h:02d}:00" for h in range(24)],
+            "area": area,
+            "data_format": "netcdf",
+            "download_format": "unarchived",
+        }
+
+        client.retrieve("reanalysis-era5-single-levels", request, str(raw_path))
+
+        dataset = xr.open_dataset(raw_path)
+        if "latitude" in dataset.dims:
+            dataset = dataset.isel(latitude=0)
+        if "longitude" in dataset.dims:
+            dataset = dataset.isel(longitude=0)
+
+        time_index = pd.to_datetime(
+            dataset["valid_time"].values if "valid_time" in dataset else dataset["time"].values,
+            utc=True,
+        )
+        tcc_values = np.asarray(dataset["tcc"].values, dtype=np.float64)
+        monthly_frames.append(pd.DataFrame({
+            "date": time_index,
+            "cloud_cover": np.clip(tcc_values, 0.0, 1.0),
+        }))
+        dataset.close()
+
+    cloud_cover = pd.concat(monthly_frames, ignore_index=True)
+    cloud_cover = cloud_cover[
+        (cloud_cover["date"] >= start.tz_localize("UTC"))
+        & (cloud_cover["date"] < (end + pd.Timedelta(days=1)).tz_localize("UTC"))
+    ]
+    cloud_cover = cloud_cover.drop_duplicates(subset=["date"]).sort_values("date").reset_index(drop=True)
+    cloud_cover.to_csv(output_csv, index=False)
+    return output_csv
+
+
+def enrich_weather_with_cloud_cover(
+    weather_csv: str | Path,
+    cloud_cover_csv: str | Path,
+    output_csv: str | Path | None = None,
+):
+    weather_path = Path(weather_csv)
+    cloud_path = Path(cloud_cover_csv)
+    out_path = Path(output_csv) if output_csv else weather_path
+
+    weather = pd.read_csv(weather_path)
+    cloud = pd.read_csv(cloud_path)
+    weather["date"] = pd.to_datetime(weather["date"], utc=True)
+    cloud["date"] = pd.to_datetime(cloud["date"], utc=True)
+
+    if "cloud_cover" in weather.columns:
+        weather = weather.drop(columns=["cloud_cover"])
+
+    merged = weather.merge(cloud[["date", "cloud_cover"]], on="date", how="left")
+    merged = merged.sort_values("date").reset_index(drop=True)
+    merged.to_csv(out_path, index=False)
+    return out_path
+
+
 def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
 
 
 def _parse_timestamp_series(series: pd.Series, timezone: str):
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().all():
+        timestamps = pd.to_datetime(numeric.astype("int64"), unit="s", utc=True)
+        return timestamps.dt.tz_convert("UTC")
+
     timestamps = pd.to_datetime(series)
     if getattr(timestamps.dt, "tz", None) is None:
         timestamps = timestamps.dt.tz_localize(timezone, ambiguous="infer", nonexistent="shift_forward")
@@ -317,22 +432,30 @@ def _parse_timestamp_series(series: pd.Series, timezone: str):
 
 def _standardize_nextgen_columns(df: pd.DataFrame):
     normalized = {_normalize_name(c): c for c in df.columns}
-    required_map = {
-        "index": "date",
-        "loadpowerkw": "load_kw",
-        "solarpowerkw": "solar_kw",
-        "batterypowerkw": "battery_power_kw",
-        "batterysockwh": "battery_soc_kwh",
-        "solarcapacitykw": "solar_capacity_kw",
-        "batterycapacitykwh": "battery_capacity_kwh",
-        "batterypeakpowerkw": "battery_peak_power_kw",
+    alias_groups = {
+        "date": ["originalindex", "index"],
+        "load_kw": ["loadpowerkw"],
+        "solar_kw": ["solarpowerkw"],
+        "battery_power_kw": ["batterypowerkw"],
+        "battery_soc_kwh": ["batterysockwh"],
+        "solar_capacity_kw": ["solarcapacitykw"],
+        "battery_capacity_kwh": ["batterycapacitykwh"],
+        "battery_peak_power_kw": ["batterypeakpowerkw"],
     }
 
-    missing = [raw for raw in required_map if raw not in normalized]
+    resolved = {}
+    missing = []
+    for target_col, aliases in alias_groups.items():
+        source = next((normalized[a] for a in aliases if a in normalized), None)
+        if source is None:
+            missing.append("/".join(aliases))
+        else:
+            resolved[source] = target_col
+
     if missing:
         raise ValueError(f"NextGen CSV missing expected columns: {missing}")
 
-    out = df[[normalized[k] for k in required_map]].rename(columns={normalized[k]: v for k, v in required_map.items()})
+    out = df[list(resolved.keys())].rename(columns=resolved)
     return out
 
 
@@ -395,6 +518,25 @@ def audit_battery_power_sign(household_df: pd.DataFrame):
     }
 
 
+def audit_generation_sign(series: pd.Series, positive_label: str, negative_label: str):
+    clean = pd.to_numeric(series, errors="coerce").dropna()
+    if clean.empty:
+        return {
+            "sign_convention": "unknown",
+            "positive_share": None,
+            "negative_share": None,
+        }
+
+    positive_share = float((clean > 0).mean())
+    negative_share = float((clean < 0).mean())
+    convention = positive_label if positive_share >= negative_share else negative_label
+    return {
+        "sign_convention": convention,
+        "positive_share": positive_share,
+        "negative_share": negative_share,
+    }
+
+
 def load_standardized_weather_csv(weather_csv: str | Path):
     weather = pd.read_csv(weather_csv)
     required = [
@@ -414,10 +556,16 @@ def load_standardized_weather_csv(weather_csv: str | Path):
 
 
 def broadcast_weather_to_15min(weather_hourly: pd.DataFrame, full_index: pd.DatetimeIndex):
-    weather = weather_hourly.set_index("date").reindex(full_index.floor("H"), method="ffill")
-    weather = weather.reset_index().rename(columns={"index": "date"})
+    weather = weather_hourly.copy()
     weather["date"] = pd.to_datetime(weather["date"], utc=True)
-    return weather
+    weather = weather.sort_values("date").drop_duplicates(subset=["date"]).set_index("date")
+
+    mapped = weather.reindex(full_index.floor("h"))
+    mapped = mapped.ffill().bfill()
+    mapped.index = full_index
+    mapped = mapped.reset_index().rename(columns={"index": "date"})
+    mapped["date"] = pd.to_datetime(mapped["date"], utc=True)
+    return mapped
 
 
 def _standardize_rye_generation_columns(df: pd.DataFrame):
@@ -457,8 +605,8 @@ def load_rye_generation_csv(csv_path: str | Path):
 def fit_hourly_wind_template(rye_generation: pd.DataFrame, rye_weather_hourly: pd.DataFrame):
     rye = rye_generation.copy()
     weather = rye_weather_hourly.copy()
-    rye["date"] = pd.to_datetime(rye["date"], utc=True).dt.floor("H")
-    weather["date"] = pd.to_datetime(weather["date"], utc=True).dt.floor("H")
+    rye["date"] = pd.to_datetime(rye["date"], utc=True).dt.floor("h")
+    weather["date"] = pd.to_datetime(weather["date"], utc=True).dt.floor("h")
 
     merged = rye.merge(weather[["date", "wind_speed_10m"]], on="date", how="inner")
     if merged.empty:
@@ -467,6 +615,10 @@ def fit_hourly_wind_template(rye_generation: pd.DataFrame, rye_weather_hourly: p
     rated_kw = float(np.quantile(np.maximum(merged["wind_kw"].to_numpy(dtype=float), 0.0), 0.995))
     rated_kw = rated_kw if rated_kw > 0 else float(np.maximum(merged["wind_kw"].max(), 1.0))
     merged["wind_cf"] = np.clip(merged["wind_kw"] / rated_kw, 0.0, 1.0)
+    merged = merged.replace([np.inf, -np.inf], np.nan)
+    merged = merged.dropna(subset=["wind_speed_10m", "wind_cf"])
+    if merged.empty:
+        raise ValueError("Wind template fitting data is empty after dropping NaN/Inf rows.")
     merged["hour"] = pd.to_datetime(merged["date"], utc=True).dt.hour
 
     global_model = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
@@ -536,6 +688,7 @@ def build_aggregate_table(
     household_df_15min: pd.DataFrame,
     shared_weather_15min: pd.DataFrame,
     battery_sign_audit: dict,
+    solar_sign_audit: dict,
 ):
     agg = household_df_15min.groupby("date", as_index=False).agg({
         "load_kw": "sum",
@@ -551,17 +704,25 @@ def build_aggregate_table(
 
     merged = agg.merge(shared_weather_15min, on="date", how="left")
 
+    solar_sign = solar_sign_audit["sign_convention"]
+    if solar_sign == "negative_is_generation":
+        solar_term = merged["agg_solar_kw"]
+        solar_formula = "+ agg_solar_kw"
+    else:
+        solar_term = -merged["agg_solar_kw"]
+        solar_formula = "- agg_solar_kw"
+
     sign_convention = battery_sign_audit["battery_power_sign_convention"]
     if sign_convention == "positive_is_discharging":
         merged["agg_net_load_kw"] = (
-            merged["agg_load_kw"] - merged["agg_solar_kw"] - merged["synthetic_wind_kw"] - merged["agg_battery_power_kw"]
+            merged["agg_load_kw"] + solar_term - merged["synthetic_wind_kw"] - merged["agg_battery_power_kw"]
         )
-        formula = "agg_load_kw - agg_solar_kw - synthetic_wind_kw - agg_battery_power_kw"
+        formula = f"agg_load_kw {solar_formula} - synthetic_wind_kw - agg_battery_power_kw"
     else:
         merged["agg_net_load_kw"] = (
-            merged["agg_load_kw"] - merged["agg_solar_kw"] - merged["synthetic_wind_kw"] + merged["agg_battery_power_kw"]
+            merged["agg_load_kw"] + solar_term - merged["synthetic_wind_kw"] + merged["agg_battery_power_kw"]
         )
-        formula = "agg_load_kw - agg_solar_kw - synthetic_wind_kw + agg_battery_power_kw"
+        formula = f"agg_load_kw {solar_formula} - synthetic_wind_kw + agg_battery_power_kw"
 
     return merged, formula
 
@@ -579,6 +740,11 @@ def build_semisynthetic_vpp_dataset(
     nextgen = load_nextgen_households(nextgen_dir, source_timezone=source_timezone)
     household_15 = resample_nextgen_to_15min(nextgen)
     battery_audit = audit_battery_power_sign(household_15)
+    solar_audit = audit_generation_sign(
+        household_15["solar_kw"],
+        positive_label="positive_is_generation",
+        negative_label="negative_is_generation",
+    )
 
     act_weather_hourly = load_standardized_weather_csv(act_weather_csv)
     rye_generation = load_rye_generation_csv(rye_generation_csv)
@@ -628,7 +794,7 @@ def build_semisynthetic_vpp_dataset(
         how="left",
     ).sort_values(["household_id", "date"]).reset_index(drop=True)
 
-    aggregate_out, net_formula = build_aggregate_table(household_15, act_weather_15_cf, battery_audit)
+    aggregate_out, net_formula = build_aggregate_table(household_15, act_weather_15_cf, battery_audit, solar_audit)
     aggregate_out = aggregate_out.sort_values("date").reset_index(drop=True)
 
     household_path = output_dir / "nextgen_vpp_household_15min.csv"
@@ -678,6 +844,7 @@ def build_semisynthetic_vpp_dataset(
             },
         },
         "battery_power_audit": battery_audit,
+        "solar_sign_audit": solar_audit,
         "aggregate_net_load_formula": net_formula,
         "wind_scaling": scaling,
         "wind_template_report": wind_report,

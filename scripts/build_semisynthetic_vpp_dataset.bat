@@ -13,8 +13,10 @@ if not defined OUTPUT_DIR set "OUTPUT_DIR=data_processed"
 if not defined ACT_WEATHER_CSV set "ACT_WEATHER_CSV=%ERA5_DIR%\act_canberra_hourly.csv"
 if not defined RYE_WEATHER_CSV set "RYE_WEATHER_CSV=%ERA5_DIR%\rye_template_hourly.csv"
 if not defined RYE_GENERATION_CSV set "RYE_GENERATION_CSV=%RYE_DIR%\rye_generation_and_load.csv"
-if not defined START_DATE set "START_DATE=2020-01-01"
-if not defined END_DATE set "END_DATE=2020-12-31"
+if not defined ACT_START_DATE set "ACT_START_DATE=2018-01-01"
+if not defined ACT_END_DATE set "ACT_END_DATE=2018-12-31"
+if not defined RYE_START_DATE set "RYE_START_DATE=2020-01-01"
+if not defined RYE_END_DATE set "RYE_END_DATE=2020-12-31"
 if not defined WIND_PENETRATION_TARGET set "WIND_PENETRATION_TARGET=0.15"
 
 if not defined FETCH_NEXTGEN set "FETCH_NEXTGEN=1"
@@ -69,20 +71,20 @@ if "%FETCH_RYE%"=="0" (
 if "%FETCH_ERA5_ACT%"=="0" (
   echo [semi-synthetic-vpp] skip fetch_era5_act
 ) else if "%DRY_RUN%"=="1" (
-  echo [semi-synthetic-vpp] dry-run fetch_era5_act: python tools/fetch_era5.py --site-key act_canberra --start-date "%START_DATE%" --end-date "%END_DATE%" --output-csv "%ACT_WEATHER_CSV%"
+  echo [semi-synthetic-vpp] dry-run fetch_era5_act: python tools/fetch_era5.py --site-key act_canberra --start-date "%ACT_START_DATE%" --end-date "%ACT_END_DATE%" --output-csv "%ACT_WEATHER_CSV%"
 ) else (
   echo [semi-synthetic-vpp] run fetch_era5_act
-  python tools/fetch_era5.py --site-key act_canberra --start-date "%START_DATE%" --end-date "%END_DATE%" --output-csv "%ACT_WEATHER_CSV%"
+  python tools/fetch_era5.py --site-key act_canberra --start-date "%ACT_START_DATE%" --end-date "%ACT_END_DATE%" --output-csv "%ACT_WEATHER_CSV%"
   if errorlevel 1 exit /b 1
 )
 
 if "%FETCH_ERA5_RYE%"=="0" (
   echo [semi-synthetic-vpp] skip fetch_era5_rye
 ) else if "%DRY_RUN%"=="1" (
-  echo [semi-synthetic-vpp] dry-run fetch_era5_rye: python tools/fetch_era5.py --site-key rye_template --start-date "%START_DATE%" --end-date "%END_DATE%" --output-csv "%RYE_WEATHER_CSV%"
+  echo [semi-synthetic-vpp] dry-run fetch_era5_rye: python tools/fetch_era5.py --site-key rye_template --start-date "%RYE_START_DATE%" --end-date "%RYE_END_DATE%" --output-csv "%RYE_WEATHER_CSV%"
 ) else (
   echo [semi-synthetic-vpp] run fetch_era5_rye
-  python tools/fetch_era5.py --site-key rye_template --start-date "%START_DATE%" --end-date "%END_DATE%" --output-csv "%RYE_WEATHER_CSV%"
+  python tools/fetch_era5.py --site-key rye_template --start-date "%RYE_START_DATE%" --end-date "%RYE_END_DATE%" --output-csv "%RYE_WEATHER_CSV%"
   if errorlevel 1 exit /b 1
 )
 
