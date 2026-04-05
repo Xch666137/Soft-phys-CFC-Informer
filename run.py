@@ -302,7 +302,8 @@ def run_driver_jobs(driver_cfg, cli_args, job_kind):
             exp.test(load=True)
             run_dirs.append(args.run_dir)
 
-    summary_path = Path('runs') / 'reports' / f'{job_kind}_summary_raw.csv'
+    driver_stem = Path(cli_args.config).stem
+    summary_path = Path('runs') / 'reports' / f'{driver_stem}_summary_raw.csv'
     summary = summarize_runs(run_dirs, str(summary_path), job_kind)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return summary

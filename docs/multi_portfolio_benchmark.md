@@ -139,9 +139,9 @@ The main driver runs `3 seeds` per model:
 It writes:
 
 - raw per-run summary:
-  `runs/reports/benchmark_summary_raw.csv`
+  `runs/reports/benchmark_net_injection_summary_raw.csv`
 - grouped per-experiment summary with `mean/std`:
-  `runs/reports/benchmark_summary_grouped.csv`
+  `runs/reports/benchmark_net_injection_summary_grouped.csv`
 
 Appendix benchmark driver:
 

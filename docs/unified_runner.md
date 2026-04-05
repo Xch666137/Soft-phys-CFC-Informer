@@ -126,9 +126,9 @@ runs/<base_run_name>__s2026/
 The runner writes two benchmark summaries:
 
 - raw run-level summary:
-  `runs/reports/benchmark_summary_raw.csv`
+  `runs/reports/<driver_name>_summary_raw.csv`
 - grouped experiment summary with `mean/std` across seeds:
-  `runs/reports/benchmark_summary_grouped.csv`
+  `runs/reports/<driver_name>_summary_grouped.csv`
 
 Run the appendix benchmark driver:
 
@@ -146,3 +146,6 @@ bash scripts/ablation.sh --config configs/drivers/physformer_ablation.yaml
 
 Legacy single-portfolio build flows are not part of the supported workflow in
 this thesis branch.
+
+For AutoDL-specific remote automation, see:
+`docs/autodl_automation.md`

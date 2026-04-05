@@ -14,8 +14,8 @@ set -euo pipefail
 #   2024 / 2025 / 2026
 #
 # Reports are written to:
-#   runs/reports/benchmark_summary_raw.csv
-#   runs/reports/benchmark_summary_grouped.csv
+#   runs/reports/<driver_name>_summary_raw.csv
+#   runs/reports/<driver_name>_summary_grouped.csv
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
