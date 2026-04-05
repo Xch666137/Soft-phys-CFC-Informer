@@ -294,7 +294,18 @@ rm -f $remoteUploadTar
     Write-Step "Skipping data upload by request."
 }
 
-$remoteRunCommand = "cd $RemoteProjectDir && bash scripts/autodl_remote_run.sh --project-dir $(Quote-Bash $RemoteProjectDir) --env-name $(Quote-Bash $RemoteEnvName) --python-version $(Quote-Bash $PythonVersion) --stages $(Quote-Bash $Stages); status=`$?; echo; echo '[autodl-submit] remote runner exited with status' `$status; echo '[autodl-submit] session kept open for inspection. Type exit to close.'; exec bash"
+$remoteTmuxRunnerPath = "/tmp/autodl_tmux_runner_$SessionName.sh"
+$remoteRunCommand = @"
+#!/bin/bash
+set +u
+cd $RemoteProjectDir
+bash scripts/autodl_remote_run.sh --project-dir $(Quote-Bash $RemoteProjectDir) --env-name $(Quote-Bash $RemoteEnvName) --python-version $(Quote-Bash $PythonVersion) --stages $(Quote-Bash $Stages)
+runner_status=`$?
+echo
+echo "[autodl-submit] remote runner exited with status `$runner_status"
+echo "[autodl-submit] session kept open for inspection. Type exit to close."
+exec bash
+"@
 $tmuxCommand = @"
 set -euo pipefail
 if ! command -v tmux >/dev/null 2>&1; then
@@ -305,7 +316,11 @@ if tmux has-session -t $(Quote-Bash $SessionName) 2>/dev/null; then
   echo "tmux session already exists: $SessionName" >&2
   exit 1
 fi
-tmux new-session -d -s $(Quote-Bash $SessionName) "bash -lc $(Quote-Bash $remoteRunCommand)"
+cat > $(Quote-Bash $remoteTmuxRunnerPath) <<'EOF'
+$remoteRunCommand
+EOF
+chmod +x $(Quote-Bash $remoteTmuxRunnerPath)
+tmux new-session -d -s $(Quote-Bash $SessionName) $(Quote-Bash $remoteTmuxRunnerPath)
 tmux ls
 "@
 
