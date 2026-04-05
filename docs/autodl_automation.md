@@ -4,7 +4,7 @@ This thesis branch includes a first-pass AutoDL automation path built around:
 
 - SSH key login
 - `tmux` for long-running jobs
-- remote `git clone` over HTTPS
+- local source archive upload by default
 - local tar packaging + `scp` upload for `data_raw/`
 
 It does not depend on AutoDL enterprise APIs. This follows the official
@@ -14,7 +14,7 @@ AutoDL guidance for SSH-based instance use and long-running terminal jobs:
   [https://www.autodl.com/docs/ssh/](https://www.autodl.com/docs/ssh/)
 - Daemon / long-running shell sessions:
   [https://api.autodl.com/docs/daemon/](https://api.autodl.com/docs/daemon/)
-- Git usage:
+- Git usage reference:
   [https://www.autodl.com/docs/git/](https://www.autodl.com/docs/git/)
 - File transfer reference:
   [https://api.autodl.com/docs/scp/](https://api.autodl.com/docs/scp/)
@@ -30,6 +30,8 @@ The scripts assume:
   `Soft-phys-CFC-Informer`
 - default branch:
   `codex/thesis-mainline`
+- default source sync mode:
+  `upload`
 - default stages:
   `verify,build_dataset,benchmark_main,benchmark_time`
 
@@ -51,7 +53,7 @@ Local fetch:
 
 1. Make sure local SSH key login to the AutoDL instance already works.
 2. Make sure the GitHub HTTPS repo URL is correct.
-3. Make sure local raw data is present under `data_raw/`.
+3. Make sure local source tree and local raw data are present.
 4. Start the remote chain with a dry-run first:
 
 ```powershell
@@ -67,6 +69,18 @@ powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
 powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
   -RemoteHost "<AUTODL_HOST>" `
   -Port <AUTODL_PORT>
+```
+
+If a previous submission already uploaded the source tree and `data_raw/`, and
+you only need to restart the remote runner after fixing something like a
+missing `tmux`, you can skip both uploads:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT> `
+  -SkipSourceUpload `
+  -SkipDataUpload
 ```
 
 6. Attach to the remote session if needed:
@@ -127,14 +141,23 @@ not overwrite each other:
 
 ## Failure handling
 
-- If the local branch is dirty or not pushed to `origin/<branch>`, the submit
-  script aborts by default. Use `-SkipGitSyncCheck` only if you know the remote
-  clone can safely diverge.
+- Default source sync mode is local upload, so the remote host does not need to
+  `git clone` the thesis branch.
+- If you switch to `-SourceSyncMode clone`, the submit script aborts when the
+  local branch is dirty or not pushed to `origin/<branch>`, unless you pass
+  `-SkipGitSyncCheck`.
 - If `data_raw/` has already been uploaded once, the submit script skips
   re-upload unless you pass `-ForceDataUpload`.
+- If the remote project directory is already present and valid, you can skip
+  source re-upload with `-SkipSourceUpload`.
 - The submit script uses a local temporary tar archive plus `scp` instead of a
   raw `tar | ssh | tar` pipeline because Windows PowerShell native binary
   piping is less reliable for large archives.
+- You can still opt into remote clone with:
+
+```powershell
+-SourceSyncMode clone -RepoUrl "https://github.com/<owner>/<repo>.git"
+```
 - If `tmux` is missing on the remote host, submission fails with a clear error
   before training starts.
 - If `conda` is missing on the remote host, the remote script stops before any
