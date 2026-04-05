@@ -162,3 +162,7 @@ not overwrite each other:
   before training starts.
 - If `conda` is missing on the remote host, the remote script stops before any
   build or training stage.
+- On AutoDL, `conda` may exist under `/root/miniconda3/` but not appear in
+  `PATH` for non-interactive shells. The remote runner now probes common AutoDL
+  locations and initializes conda explicitly before creating or activating the
+  project environment.

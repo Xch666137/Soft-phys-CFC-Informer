@@ -106,19 +106,45 @@ run_stage_cmd() {
   (
     set -euo pipefail
     cd "$PROJECT_DIR"
-    bash -lc "$command"
+    eval "$command"
   ) 2>&1 | tee -a "$stage_log" "$MASTER_LOG"
   log "DONE stage=$stage_name"
 }
 
 ensure_conda_env() {
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "[autodl-remote] conda was not found in PATH." | tee -a "$MASTER_LOG"
+  local conda_bin=""
+  local conda_base=""
+  local candidate=""
+
+  if command -v conda >/dev/null 2>&1; then
+    conda_bin="$(command -v conda)"
+  else
+    for candidate in \
+      "/root/miniconda3/bin/conda" \
+      "$HOME/miniconda3/bin/conda" \
+      "/opt/conda/bin/conda"
+    do
+      if [[ -x "$candidate" ]]; then
+        conda_bin="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$conda_bin" ]]; then
+    echo "[autodl-remote] conda was not found in PATH or common AutoDL locations." | tee -a "$MASTER_LOG"
     exit 1
   fi
 
-  # shellcheck disable=SC1091
-  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda_base="$("$conda_bin" info --base)"
+  export PATH="$conda_base/bin:$PATH"
+
+  if [[ -f "$conda_base/etc/profile.d/conda.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$conda_base/etc/profile.d/conda.sh"
+  else
+    eval "$("$conda_bin" shell.bash hook)"
+  fi
 
   if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
     log "Creating conda environment: $ENV_NAME (python=$PYTHON_VERSION)"
@@ -164,31 +190,31 @@ for raw_stage in "${stage_array[@]}"; do
   stage="$(echo "$raw_stage" | xargs)"
   case "$stage" in
     verify)
-      run_stage_cmd "verify" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python verify_imports.py && python run.py train --config configs/physformer_default.yaml --print-config && python run.py train --config configs/baselines/tide_net_injection.yaml --print-config"
+      run_stage_cmd "verify" "python -c \"import sys; print(sys.executable)\" && python verify_imports.py && python run.py train --config configs/physformer_default.yaml --print-config && python run.py train --config configs/baselines/tide_net_injection.yaml --print-config"
       ;;
     build_dataset)
-      run_stage_cmd "build_dataset" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py build-dataset --nextgen-dir data_raw/nextgen --act-weather-csv data_raw/era5/act_canberra_hourly.csv --rye-generation-csv data_raw/rye/rye_generation_and_load.csv --rye-weather-csv data_raw/era5/rye_template_hourly.csv --output-dir data_processed/multi_portfolio"
+      run_stage_cmd "build_dataset" "python run.py build-dataset --nextgen-dir data_raw/nextgen --act-weather-csv data_raw/era5/act_canberra_hourly.csv --rye-generation-csv data_raw/rye/rye_generation_and_load.csv --rye-weather-csv data_raw/era5/rye_template_hourly.csv --output-dir data_processed/multi_portfolio"
       ;;
     benchmark_main)
-      run_stage_cmd "benchmark_main" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml"
+      run_stage_cmd "benchmark_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml"
       ;;
     benchmark_time)
-      run_stage_cmd "benchmark_time" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization.yaml"
+      run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization.yaml"
       ;;
     ablation)
-      run_stage_cmd "ablation" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py ablation --config configs/drivers/physformer_ablation.yaml"
+      run_stage_cmd "ablation" "python run.py ablation --config configs/drivers/physformer_ablation.yaml"
       ;;
     appendix)
-      run_stage_cmd "appendix_main" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix.yaml"
-      run_stage_cmd "appendix_time" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix_time_generalization.yaml"
+      run_stage_cmd "appendix_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix.yaml"
+      run_stage_cmd "appendix_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix_time_generalization.yaml"
       ;;
     validate_powerflow)
       if [[ -z "$VALIDATE_CONFIG" || -z "$VALIDATE_RUN_NAME" || -z "$MAPPING_CSV" ]]; then
         echo "[autodl-remote] validate_powerflow requires --validate-config, --validate-run-name, and --mapping-csv" | tee -a "$MASTER_LOG"
         exit 1
       fi
-      run_stage_cmd "export_forecast" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py export-forecast --config '$VALIDATE_CONFIG' --run-name '$VALIDATE_RUN_NAME'"
-      run_stage_cmd "validate_powerflow" "source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate '$ENV_NAME' && python run.py validate-powerflow --config '$VALIDATE_CONFIG' --run-name '$VALIDATE_RUN_NAME' --mapping-csv '$MAPPING_CSV'"
+      run_stage_cmd "export_forecast" "python run.py export-forecast --config '$VALIDATE_CONFIG' --run-name '$VALIDATE_RUN_NAME'"
+      run_stage_cmd "validate_powerflow" "python run.py validate-powerflow --config '$VALIDATE_CONFIG' --run-name '$VALIDATE_RUN_NAME' --mapping-csv '$MAPPING_CSV'"
       ;;
     "")
       ;;
