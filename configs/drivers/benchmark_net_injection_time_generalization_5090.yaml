@@ -4,7 +4,13 @@ benchmark:
       run_name: physformer_net_injection_time_generalization
       config: configs/physformer_time_generalization.yaml
       seeds: [2024, 2025, 2026]
-      batch_size: 160
+      batch_size: 128
+      lr: 2.0e-4
+      patience: 25
+      warmup_epochs: 5
+      warmup_start_factor: 0.2
+      early_stop_metric: net_mse
+      early_stop_start_epoch: 20
       num_workers: 12
       pin_memory: true
       persistent_workers: true

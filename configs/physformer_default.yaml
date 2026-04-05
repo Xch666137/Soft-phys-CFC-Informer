@@ -37,11 +37,15 @@ training:
   seed: 2024
   batch_size: 64
   train_epochs: 100
-  learning_rate: 3.0e-4
+  learning_rate: 2.0e-4
   weight_decay: 1.0e-5
   grad_clip: 1.0
-  patience: 10
+  patience: 25
   use_amp: true
+  warmup_epochs: 5
+  warmup_start_factor: 0.2
+  early_stop_metric: net_mse
+  early_stop_start_epoch: 20
 
 hardware:
   use_gpu: true

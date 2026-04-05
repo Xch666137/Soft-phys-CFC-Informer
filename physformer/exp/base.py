@@ -151,7 +151,7 @@ class ForecastExperiment(BaseExperiment):
 
 
 class EarlyStopping:
-    def __init__(self, patience=10, verbose=False, delta=0, logger=None):
+    def __init__(self, patience=10, verbose=False, delta=0, logger=None, metric_name="Validation loss", start_epoch=1):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
@@ -160,6 +160,8 @@ class EarlyStopping:
         self.val_loss_min = float('inf')
         self.delta = delta
         self.logger = logger
+        self.metric_name = metric_name
+        self.start_epoch = max(int(start_epoch), 1)
 
     def __call__(self, val_loss, model, path, optimizer=None, scheduler=None, scaler=None, epoch=None, global_step=None):
         if not np.isfinite(val_loss):
@@ -167,7 +169,7 @@ class EarlyStopping:
                 self.logger.warning(f'Warning: EarlyStopping encountered invalid val_loss: {val_loss}. Skipping save.')
             elif self.verbose:
                 print(f'Warning: EarlyStopping encountered invalid val_loss: {val_loss}. Skipping save.')
-            self.counter += 1
+                self.counter += 1
             if self.counter >= self.patience:
                 self.early_stop = True
             return
@@ -176,11 +178,20 @@ class EarlyStopping:
         if self.best_score is None:
             self.best_score = score
             self.save_checkpoint(val_loss, model, path, optimizer, scheduler, scaler, epoch, global_step)
-        elif score < self.best_score + self.delta:
+            return
+
+        if epoch is not None and int(epoch) < self.start_epoch:
+            if score >= self.best_score + self.delta:
+                self.best_score = score
+                self.save_checkpoint(val_loss, model, path, optimizer, scheduler, scaler, epoch, global_step)
+            return
+
+        if score < self.best_score + self.delta:
             self.counter += 1
             if self.logger:
                 self.logger.info(
-                    f'EarlyStopping counter: {self.counter} out of {self.patience} (Best: {-self.best_score:.6f})'
+                    f'EarlyStopping counter: {self.counter} out of {self.patience} '
+                    f'({self.metric_name} best: {-self.best_score:.6f})'
                 )
             elif self.verbose:
                 print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
@@ -198,10 +209,10 @@ class EarlyStopping:
 
         if self.logger:
             self.logger.info(
-                f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model ...'
+                f'{self.metric_name} improved ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model ...'
             )
         elif self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model ...')
+            print(f'{self.metric_name} improved ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model ...')
 
         torch.save(model.state_dict(), checkpoint_path)
         if optimizer is not None:

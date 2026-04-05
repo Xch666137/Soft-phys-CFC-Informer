@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 from torch.cuda.amp import GradScaler, autocast
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from tqdm import tqdm
 
 from .base import EarlyStopping, ForecastExperiment
@@ -173,8 +173,45 @@ class Exp_PhysFormer(ForecastExperiment):
         _, vali_loader = self._get_data("val")
 
         optimizer = self._select_optimizer()
-        scheduler = CosineAnnealingLR(optimizer, T_max=self.args.train_epochs, eta_min=1e-6)
-        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True, logger=self.logger)
+        warmup_epochs = max(int(getattr(self.args, "warmup_epochs", 0)), 0)
+        warmup_start_factor = float(getattr(self.args, "warmup_start_factor", 0.2))
+        if warmup_epochs > 0 and self.args.train_epochs > warmup_epochs:
+            warmup_scheduler = LinearLR(
+                optimizer,
+                start_factor=warmup_start_factor,
+                end_factor=1.0,
+                total_iters=warmup_epochs,
+            )
+            cosine_scheduler = CosineAnnealingLR(
+                optimizer,
+                T_max=max(self.args.train_epochs - warmup_epochs, 1),
+                eta_min=1e-6,
+            )
+            scheduler = SequentialLR(
+                optimizer,
+                schedulers=[warmup_scheduler, cosine_scheduler],
+                milestones=[warmup_epochs],
+            )
+        elif warmup_epochs > 0:
+            scheduler = LinearLR(
+                optimizer,
+                start_factor=warmup_start_factor,
+                end_factor=1.0,
+                total_iters=max(self.args.train_epochs, 1),
+            )
+        else:
+            scheduler = CosineAnnealingLR(optimizer, T_max=self.args.train_epochs, eta_min=1e-6)
+
+        early_stop_metric = str(getattr(self.args, "early_stop_metric", "loss")).lower()
+        early_stop_start_epoch = max(int(getattr(self.args, "early_stop_start_epoch", 1)), 1)
+        metric_name = "Validation Net MSE" if early_stop_metric == "net_mse" else "Validation loss"
+        early_stopping = EarlyStopping(
+            patience=self.args.patience,
+            verbose=True,
+            logger=self.logger,
+            metric_name=metric_name,
+            start_epoch=early_stop_start_epoch,
+        )
         use_amp = getattr(self.args, "use_amp", False) and self.args.use_gpu
         scaler = GradScaler(enabled=use_amp)
         log_interval = max(int(getattr(self.args, "log_interval", 50)), 1)
@@ -182,6 +219,10 @@ class Exp_PhysFormer(ForecastExperiment):
         self.logger.info(
             "Training throughput setup | samples=%d | steps_per_epoch=%d | batch_size=%d"
             % (len(train_data), len(train_loader), self.args.batch_size)
+        )
+        self.logger.info(
+            "Optimization setup | lr=%.6g | warmup_epochs=%d | early_stop_metric=%s | early_stop_start_epoch=%d"
+            % (self.args.learning_rate, warmup_epochs, early_stop_metric, early_stop_start_epoch)
         )
 
         for epoch in range(self.args.train_epochs):
@@ -229,11 +270,12 @@ class Exp_PhysFormer(ForecastExperiment):
             scheduler.step()
             samples_per_second = (steps * self.args.batch_size) / max(epoch_seconds, 1e-6)
             max_memory_gb = 0.0
+            current_lr = optimizer.param_groups[0]["lr"]
             if self.args.use_gpu and torch.cuda.is_available():
                 max_memory_gb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 3)
 
             self.logger.info(
-                "Epoch: %d | Cost: %.2fs | Steps: %d | Samples/s: %.2f | Max GPU Mem: %.2f GB | "
+                "Epoch: %d | Cost: %.2fs | Steps: %d | Samples/s: %.2f | Max GPU Mem: %.2f GB | LR: %.6g | "
                 "Train Loss: %.7f | Vali Loss: %.7f | Vali Net MSE: %.7f"
                 % (
                     epoch + 1,
@@ -241,14 +283,16 @@ class Exp_PhysFormer(ForecastExperiment):
                     steps,
                     samples_per_second,
                     max_memory_gb,
+                    current_lr,
                     train_loss,
                     vali_stats["loss"],
                     vali_stats["net_mse"],
                 )
             )
 
+            stop_value = vali_stats["net_mse"] if early_stop_metric == "net_mse" else vali_stats["loss"]
             early_stopping(
-                vali_stats["loss"],
+                stop_value,
                 self.model,
                 str(self.run_dir),
                 optimizer=optimizer,

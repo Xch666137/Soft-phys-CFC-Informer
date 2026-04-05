@@ -104,6 +104,10 @@ def config_to_args(cfg):
     flat['use_amp'] = training_cfg.get('use_amp', True)
     flat['seed'] = training_cfg.get('seed', 2024)
     flat['log_interval'] = training_cfg.get('log_interval', 50)
+    flat['warmup_epochs'] = training_cfg.get('warmup_epochs', 0)
+    flat['warmup_start_factor'] = training_cfg.get('warmup_start_factor', 0.2)
+    flat['early_stop_metric'] = training_cfg.get('early_stop_metric', 'loss')
+    flat['early_stop_start_epoch'] = training_cfg.get('early_stop_start_epoch', 1)
 
     hardware_cfg = cfg.get('hardware', {})
     flat['use_gpu'] = hardware_cfg.get('use_gpu', True)
@@ -307,6 +311,18 @@ def apply_job_overrides(args, cfg, job):
     if 'log_interval' in job:
         args.log_interval = int(job['log_interval'])
         cfg.setdefault('training', {})['log_interval'] = int(job['log_interval'])
+    if 'warmup_epochs' in job:
+        args.warmup_epochs = int(job['warmup_epochs'])
+        cfg.setdefault('training', {})['warmup_epochs'] = int(job['warmup_epochs'])
+    if 'warmup_start_factor' in job:
+        args.warmup_start_factor = float(job['warmup_start_factor'])
+        cfg.setdefault('training', {})['warmup_start_factor'] = float(job['warmup_start_factor'])
+    if 'early_stop_metric' in job:
+        args.early_stop_metric = str(job['early_stop_metric'])
+        cfg.setdefault('training', {})['early_stop_metric'] = str(job['early_stop_metric'])
+    if 'early_stop_start_epoch' in job:
+        args.early_stop_start_epoch = int(job['early_stop_start_epoch'])
+        cfg.setdefault('training', {})['early_stop_start_epoch'] = int(job['early_stop_start_epoch'])
     return args, cfg
 
 
