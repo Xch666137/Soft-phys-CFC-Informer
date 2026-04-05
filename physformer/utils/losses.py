@@ -61,7 +61,7 @@ class PhysAwareBaseLoss(nn.Module):
             "capacity_real": capacity_real,
         }
 
-    def compute_terms(self, pred_dict, y_target, y_aux, batch_context):
+    def compute_terms(self, pred_dict, y_target, y_aux, batch_context, collect_debug=False):
         pred_net = pred_dict["pred_net"]
         pred_aux = pred_dict["pred_aux"]
 
@@ -114,15 +114,10 @@ class PhysAwareBaseLoss(nn.Module):
         battery_power_mae = F.l1_loss(pred_battery_power, true_battery_power)
         battery_soc_mae = F.l1_loss(pred_battery_soc, true_battery_soc)
 
-        component_mae = {
-            name: float(F.l1_loss(pred_aux_real[..., idx], true_aux_real[..., idx]).detach().cpu())
-            for idx, name in enumerate(self.COMPONENT_NAMES)
-        }
-
         net_mae_real = F.l1_loss(pred_net_real, true_net_real)
         net_mse_real = F.mse_loss(pred_net_real, true_net_real)
 
-        return {
+        terms = {
             "net_mse": net_mse,
             "net_mae_norm": net_mae_norm,
             "net_mae_real": net_mae_real,
@@ -137,12 +132,17 @@ class PhysAwareBaseLoss(nn.Module):
             "anti_overlap_loss": anti_overlap_loss,
             "battery_power_mae": battery_power_mae,
             "battery_soc_mae": battery_soc_mae,
-            "component_mae": component_mae,
             "pred_net_real": pred_net_real,
             "true_net_real": true_net_real,
             "pred_aux_real": pred_aux_real,
             "true_aux_real": true_aux_real,
         }
+        if collect_debug:
+            terms["component_mae"] = {
+                name: float(F.l1_loss(pred_aux_real[..., idx], true_aux_real[..., idx]).detach().cpu())
+                for idx, name in enumerate(self.COMPONENT_NAMES)
+            }
+        return terms
 
 
 class PhysLoss(nn.Module):
@@ -178,8 +178,8 @@ class PhysLoss(nn.Module):
         physics = min(max((progress - 0.25) / 0.40, 0.0), 1.0)
         return {"aux": aux, "physics": physics}
 
-    def forward(self, pred_dict, y_target, y_aux, batch_context, epoch=None):
-        terms = self.base_loss.compute_terms(pred_dict, y_target, y_aux, batch_context)
+    def forward(self, pred_dict, y_target, y_aux, batch_context, epoch=None, collect_debug=False):
+        terms = self.base_loss.compute_terms(pred_dict, y_target, y_aux, batch_context, collect_debug=collect_debug)
         curriculum = self._curriculum_weights(epoch)
 
         total_loss = terms["net_mse"]
@@ -202,24 +202,26 @@ class PhysLoss(nn.Module):
                 terms["soc_transition_loss"] + terms["soc_bounds_loss"]
             )
 
-        debug = {
-            "total_loss": float(total_loss.detach().cpu()),
-            "net_mse": float(terms["net_mse"].detach().cpu()),
-            "net_mae_norm": float(terms["net_mae_norm"].detach().cpu()),
-            "net_mae_real": float(terms["net_mae_real"].detach().cpu()),
-            "net_mse_real": float(terms["net_mse_real"].detach().cpu()),
-            "component_loss": float(terms["component_loss"].detach().cpu()),
-            "battery_state_loss": float(terms["battery_state_loss"].detach().cpu()),
-            "net_ramp_penalty": float(terms["net_ramp_penalty"].detach().cpu()),
-            "battery_ramp_penalty": float(terms["battery_ramp_penalty"].detach().cpu()),
-            "battery_smoothness": float(terms["battery_smoothness"].detach().cpu()),
-            "soc_transition_loss": float(terms["soc_transition_loss"].detach().cpu()),
-            "soc_bounds_loss": float(terms["soc_bounds_loss"].detach().cpu()),
-            "anti_overlap_loss": float(terms["anti_overlap_loss"].detach().cpu()),
-            "battery_power_mae": float(terms["battery_power_mae"].detach().cpu()),
-            "battery_soc_mae": float(terms["battery_soc_mae"].detach().cpu()),
-            "curriculum_aux": float(curriculum["aux"]),
-            "curriculum_physics": float(curriculum["physics"]),
-            "component_mae": terms["component_mae"],
-        }
+        debug = None
+        if collect_debug:
+            debug = {
+                "total_loss": float(total_loss.detach().cpu()),
+                "net_mse": float(terms["net_mse"].detach().cpu()),
+                "net_mae_norm": float(terms["net_mae_norm"].detach().cpu()),
+                "net_mae_real": float(terms["net_mae_real"].detach().cpu()),
+                "net_mse_real": float(terms["net_mse_real"].detach().cpu()),
+                "component_loss": float(terms["component_loss"].detach().cpu()),
+                "battery_state_loss": float(terms["battery_state_loss"].detach().cpu()),
+                "net_ramp_penalty": float(terms["net_ramp_penalty"].detach().cpu()),
+                "battery_ramp_penalty": float(terms["battery_ramp_penalty"].detach().cpu()),
+                "battery_smoothness": float(terms["battery_smoothness"].detach().cpu()),
+                "soc_transition_loss": float(terms["soc_transition_loss"].detach().cpu()),
+                "soc_bounds_loss": float(terms["soc_bounds_loss"].detach().cpu()),
+                "anti_overlap_loss": float(terms["anti_overlap_loss"].detach().cpu()),
+                "battery_power_mae": float(terms["battery_power_mae"].detach().cpu()),
+                "battery_soc_mae": float(terms["battery_soc_mae"].detach().cpu()),
+                "curriculum_aux": float(curriculum["aux"]),
+                "curriculum_physics": float(curriculum["physics"]),
+                "component_mae": terms.get("component_mae", {}),
+            }
         return total_loss, debug, terms

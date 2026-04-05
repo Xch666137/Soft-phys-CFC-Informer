@@ -103,6 +103,7 @@ def config_to_args(cfg):
     flat['patience'] = training_cfg.get('patience', 10)
     flat['use_amp'] = training_cfg.get('use_amp', True)
     flat['seed'] = training_cfg.get('seed', 2024)
+    flat['log_interval'] = training_cfg.get('log_interval', 50)
 
     hardware_cfg = cfg.get('hardware', {})
     flat['use_gpu'] = hardware_cfg.get('use_gpu', True)
@@ -110,6 +111,9 @@ def config_to_args(cfg):
     flat['num_workers'] = hardware_cfg.get('num_workers', 8)
     flat['use_multi_gpu'] = hardware_cfg.get('use_multi_gpu', False)
     flat['device_ids'] = hardware_cfg.get('device_ids', [flat['gpu']])
+    flat['pin_memory'] = hardware_cfg.get('pin_memory', True)
+    flat['persistent_workers'] = hardware_cfg.get('persistent_workers', True)
+    flat['prefetch_factor'] = hardware_cfg.get('prefetch_factor', 4)
 
     checkpoint_cfg = cfg.get('checkpoint', {})
     flat['checkpoint_name'] = checkpoint_cfg.get('name')
@@ -271,6 +275,41 @@ def clone_args(args):
     return argparse.Namespace(**vars(copy.deepcopy(args)))
 
 
+def apply_job_overrides(args, cfg, job):
+    if 'batch_size' in job:
+        args.batch_size = int(job['batch_size'])
+        cfg.setdefault('training', {})['batch_size'] = int(job['batch_size'])
+    if 'epochs' in job:
+        args.train_epochs = int(job['epochs'])
+        cfg.setdefault('training', {})['train_epochs'] = int(job['epochs'])
+    if 'lr' in job:
+        args.learning_rate = float(job['lr'])
+        cfg.setdefault('training', {})['learning_rate'] = float(job['lr'])
+    if 'patience' in job:
+        args.patience = int(job['patience'])
+        cfg.setdefault('training', {})['patience'] = int(job['patience'])
+    if 'num_workers' in job:
+        args.num_workers = int(job['num_workers'])
+        cfg.setdefault('hardware', {})['num_workers'] = int(job['num_workers'])
+    if 'gpu' in job:
+        args.gpu = int(job['gpu'])
+        args.device_ids = [int(job['gpu'])]
+        cfg.setdefault('hardware', {})['gpu'] = int(job['gpu'])
+    if 'pin_memory' in job:
+        args.pin_memory = bool(job['pin_memory'])
+        cfg.setdefault('hardware', {})['pin_memory'] = bool(job['pin_memory'])
+    if 'persistent_workers' in job:
+        args.persistent_workers = bool(job['persistent_workers'])
+        cfg.setdefault('hardware', {})['persistent_workers'] = bool(job['persistent_workers'])
+    if 'prefetch_factor' in job:
+        args.prefetch_factor = int(job['prefetch_factor'])
+        cfg.setdefault('hardware', {})['prefetch_factor'] = int(job['prefetch_factor'])
+    if 'log_interval' in job:
+        args.log_interval = int(job['log_interval'])
+        cfg.setdefault('training', {})['log_interval'] = int(job['log_interval'])
+    return args, cfg
+
+
 def run_driver_jobs(driver_cfg, cli_args, job_kind):
     jobs = driver_cfg.get(job_kind, {}).get('jobs', [])
     if not jobs:
@@ -289,6 +328,7 @@ def run_driver_jobs(driver_cfg, cli_args, job_kind):
             base_run_name = job.get('run_name') or job.get('name') or getattr(args, 'checkpoint_name', None)
             args.run_name = base_run_name
             args, cfg = finalize_args(args, cfg, cli_args)
+            args, cfg = apply_job_overrides(args, cfg, job)
             if seed is not None:
                 args.seed = int(seed)
                 cfg.setdefault('training', {})['seed'] = int(seed)
@@ -416,6 +456,15 @@ def main():
         return
 
     cfg = load_config(cli_args.config)
+
+    if cli_args.command == 'benchmark':
+        run_driver_jobs(cfg, cli_args, 'benchmark')
+        return
+
+    if cli_args.command == 'ablation':
+        run_driver_jobs(cfg, cli_args, 'ablation')
+        return
+
     args = config_to_args(cfg)
     args, cfg = finalize_args(args, cfg, cli_args)
 
@@ -427,10 +476,6 @@ def main():
         run_train(args, cfg)
     elif cli_args.command == 'test':
         run_test(args, cfg)
-    elif cli_args.command == 'benchmark':
-        run_driver_jobs(cfg, cli_args, 'benchmark')
-    elif cli_args.command == 'ablation':
-        run_driver_jobs(cfg, cli_args, 'ablation')
     elif cli_args.command == 'export-forecast':
         run_export_forecast(args, cli_args.config)
     elif cli_args.command == 'validate-powerflow':

@@ -6,6 +6,8 @@ set -euo pipefail
 # Examples:
 #   bash scripts/benchmark.sh --config configs/drivers/benchmark_net_injection.yaml
 #   bash scripts/benchmark.sh --config configs/drivers/benchmark_net_injection_time_generalization.yaml
+#   bash scripts/benchmark.sh --config configs/drivers/benchmark_net_injection_5090.yaml
+#   bash scripts/benchmark.sh --config configs/drivers/benchmark_net_injection_time_generalization_5090.yaml
 #   bash scripts/benchmark.sh --config configs/drivers/benchmark_net_injection_appendix.yaml
 #
 # Main benchmark drivers run the paper-strong matrix:

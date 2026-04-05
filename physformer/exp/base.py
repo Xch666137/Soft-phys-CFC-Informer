@@ -58,6 +58,11 @@ class BaseExperiment:
     def _setup_device(self):
         if getattr(self.args, 'use_gpu', False) and torch.cuda.is_available():
             os.environ["CUDA_VISIBLE_DEVICES"] = str(self.args.gpu)
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            if hasattr(torch, "set_float32_matmul_precision"):
+                torch.set_float32_matmul_precision("high")
             device = torch.device(f'cuda:{self.args.gpu}')
             self.logger.info(f'Use GPU: cuda:{self.args.gpu}')
             return device

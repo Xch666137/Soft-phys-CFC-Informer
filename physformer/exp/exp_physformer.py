@@ -106,9 +106,9 @@ class Exp_PhysFormer(ForecastExperiment):
         )
 
     def _move_batch(self, batch_data):
-        return [tensor.float().to(self.device) for tensor in batch_data]
+        return [tensor.float().to(self.device, non_blocking=True) for tensor in batch_data]
 
-    def _process_one_batch(self, batch_data, epoch=None):
+    def _process_one_batch(self, batch_data, epoch=None, collect_debug=False):
         (
             x_net_hist,
             x_weather_hist,
@@ -129,7 +129,14 @@ class Exp_PhysFormer(ForecastExperiment):
             y_mark=y_mark,
         )
         batch_context = self.criterion.base_loss.build_batch_context(x_battery_hist)
-        loss, debug, terms = self.criterion(outputs, y_target, y_aux, batch_context, epoch=epoch)
+        loss, debug, terms = self.criterion(
+            outputs,
+            y_target,
+            y_aux,
+            batch_context,
+            epoch=epoch,
+            collect_debug=collect_debug,
+        )
         return {
             "loss": loss,
             "debug": debug,
@@ -142,34 +149,48 @@ class Exp_PhysFormer(ForecastExperiment):
 
     def vali(self, vali_loader, epoch=None):
         self.model.eval()
-        losses = []
-        net_mse = []
+        loss_total = None
+        net_mse_total = None
+        steps = 0
         with torch.no_grad():
             for batch_data in vali_loader:
-                result = self._process_one_batch(batch_data, epoch=epoch)
-                losses.append(result["debug"]["total_loss"])
-                net_mse.append(result["debug"]["net_mse"])
+                result = self._process_one_batch(batch_data, epoch=epoch, collect_debug=False)
+                loss_total = result["loss"].detach() if loss_total is None else loss_total + result["loss"].detach()
+                net_mse_total = (
+                    result["terms"]["net_mse"].detach()
+                    if net_mse_total is None
+                    else net_mse_total + result["terms"]["net_mse"].detach()
+                )
+                steps += 1
         self.model.train()
         return {
-            "loss": float(np.mean(losses)) if losses else 0.0,
-            "net_mse": float(np.mean(net_mse)) if net_mse else 0.0,
+            "loss": float((loss_total / max(steps, 1)).detach().cpu()) if steps else 0.0,
+            "net_mse": float((net_mse_total / max(steps, 1)).detach().cpu()) if steps else 0.0,
         }
 
     def train(self):
         train_data, train_loader = self._get_data("train")
         _, vali_loader = self._get_data("val")
-        _, test_loader = self._get_data("test")
 
         optimizer = self._select_optimizer()
         scheduler = CosineAnnealingLR(optimizer, T_max=self.args.train_epochs, eta_min=1e-6)
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True, logger=self.logger)
         use_amp = getattr(self.args, "use_amp", False) and self.args.use_gpu
         scaler = GradScaler(enabled=use_amp)
+        log_interval = max(int(getattr(self.args, "log_interval", 50)), 1)
+
+        self.logger.info(
+            "Training throughput setup | samples=%d | steps_per_epoch=%d | batch_size=%d"
+            % (len(train_data), len(train_loader), self.args.batch_size)
+        )
 
         for epoch in range(self.args.train_epochs):
             self.model.train()
-            train_losses = []
+            train_loss_sum = None
+            steps = 0
             epoch_time = time.time()
+            if self.args.use_gpu and torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats(self.device)
 
             with tqdm(
                 total=len(train_loader),
@@ -178,13 +199,14 @@ class Exp_PhysFormer(ForecastExperiment):
                 leave=False,
                 ncols=100,
             ) as pbar:
-                for batch_data in train_loader:
+                for step_idx, batch_data in enumerate(train_loader, start=1):
                     optimizer.zero_grad()
                     with autocast(enabled=use_amp):
-                        result = self._process_one_batch(batch_data, epoch=epoch)
+                        result = self._process_one_batch(batch_data, epoch=epoch, collect_debug=False)
                         loss = result["loss"]
 
-                    train_losses.append(result["debug"]["total_loss"])
+                    train_loss_sum = loss.detach() if train_loss_sum is None else train_loss_sum + loss.detach()
+                    steps += 1
                     if use_amp:
                         scaler.scale(loss).backward()
                         scaler.unscale_(optimizer)
@@ -196,24 +218,32 @@ class Exp_PhysFormer(ForecastExperiment):
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), getattr(self.args, "grad_clip", 1.0))
                         optimizer.step()
 
-                    pbar.set_postfix(loss=f"{result['debug']['total_loss']:.4f}")
+                    if step_idx % log_interval == 0 or step_idx == len(train_loader):
+                        avg_loss = float((train_loss_sum / max(steps, 1)).detach().cpu())
+                        pbar.set_postfix(loss=f"{avg_loss:.4f}")
                     pbar.update(1)
 
-            train_loss = float(np.mean(train_losses)) if train_losses else 0.0
+            epoch_seconds = time.time() - epoch_time
+            train_loss = float((train_loss_sum / max(steps, 1)).detach().cpu()) if steps else 0.0
             vali_stats = self.vali(vali_loader, epoch=epoch)
-            test_stats = self.vali(test_loader, epoch=epoch)
             scheduler.step()
+            samples_per_second = (steps * self.args.batch_size) / max(epoch_seconds, 1e-6)
+            max_memory_gb = 0.0
+            if self.args.use_gpu and torch.cuda.is_available():
+                max_memory_gb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 3)
 
             self.logger.info(
-                "Epoch: %d | Cost: %.2fs | Train Loss: %.7f | Vali Loss: %.7f | "
-                "Vali Net MSE: %.7f | Test Proxy Loss: %.7f"
+                "Epoch: %d | Cost: %.2fs | Steps: %d | Samples/s: %.2f | Max GPU Mem: %.2f GB | "
+                "Train Loss: %.7f | Vali Loss: %.7f | Vali Net MSE: %.7f"
                 % (
                     epoch + 1,
-                    time.time() - epoch_time,
+                    epoch_seconds,
+                    steps,
+                    samples_per_second,
+                    max_memory_gb,
                     train_loss,
                     vali_stats["loss"],
                     vali_stats["net_mse"],
-                    test_stats["loss"],
                 )
             )
 
@@ -263,7 +293,7 @@ class Exp_PhysFormer(ForecastExperiment):
 
         with torch.no_grad():
             for batch_data in test_loader:
-                result = self._process_one_batch(batch_data, epoch=self.args.train_epochs - 1)
+                result = self._process_one_batch(batch_data, epoch=self.args.train_epochs - 1, collect_debug=False)
                 outputs = result["outputs"]
                 preds.append(outputs["pred_net"].detach().cpu().numpy())
                 trues.append(result["y_target"].detach().cpu().numpy())

@@ -96,9 +96,11 @@ ssh -p <AUTODL_PORT> root@<AUTODL_HOST> -t "tmux attach -t autodl-thesis"
 - `build_dataset`
   - builds `data_processed/multi_portfolio`
 - `benchmark_main`
-  - runs `configs/drivers/benchmark_net_injection.yaml`
+  - runs `configs/drivers/benchmark_net_injection_5090.yaml`
 - `benchmark_time`
-  - runs `configs/drivers/benchmark_net_injection_time_generalization.yaml`
+  - runs `configs/drivers/benchmark_net_injection_time_generalization_5090.yaml`
+- `audit_batch`
+  - runs 2-epoch batch-size audit sweeps for PhysFormer / DLinear / TiDE / TimeXer / TFT
 - `ablation`
   - runs `configs/drivers/physformer_ablation.yaml`
 - `appendix`
@@ -123,6 +125,9 @@ The fetch script downloads:
 - the median-seed PhysFormer run for each benchmark
 - the median-seed strongest baseline for each benchmark
 
+The AutoDL benchmark stages use 5090-specific driver configs with larger batch
+sizes and loader overrides. Base thesis configs remain unchanged.
+
 Downloaded files are written under:
 
 ```text
@@ -131,13 +136,25 @@ downloads/autodl/<host>_<timestamp>/
 
 ## Summary file naming
 
-Benchmark summaries are now written per driver, so main and time benchmarks do
-not overwrite each other:
+Benchmark summaries are written per driver, so main and time benchmarks do not
+overwrite each other.
+
+For AutoDL 5090 runs, the benchmark stages write:
+
+- `runs/reports/benchmark_net_injection_5090_summary_raw.csv`
+- `runs/reports/benchmark_net_injection_5090_summary_grouped.csv`
+- `runs/reports/benchmark_net_injection_time_generalization_5090_summary_raw.csv`
+- `runs/reports/benchmark_net_injection_time_generalization_5090_summary_grouped.csv`
+
+For non-5090 or legacy local runs, the default drivers still write:
 
 - `runs/reports/benchmark_net_injection_summary_raw.csv`
 - `runs/reports/benchmark_net_injection_summary_grouped.csv`
 - `runs/reports/benchmark_net_injection_time_generalization_summary_raw.csv`
 - `runs/reports/benchmark_net_injection_time_generalization_summary_grouped.csv`
+
+`autodl_fetch_results.ps1` now prefers the 5090 summary names and falls back to
+the legacy names automatically.
 
 ## Failure handling
 

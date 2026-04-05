@@ -114,12 +114,12 @@ class BaselineExperiment(ForecastExperiment):
         return torch.cat([batch_y[:, : self.args.label_len, :], future_zeros], dim=1).float()
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_mark, batch_y_mark):
-        batch_x = batch_x.float().to(self.device)
-        batch_y = batch_y.float().to(self.device)
-        batch_x_mark = batch_x_mark.float().to(self.device)
-        batch_y_mark = batch_y_mark.float().to(self.device)
+        batch_x = batch_x.float().to(self.device, non_blocking=True)
+        batch_y = batch_y.float().to(self.device, non_blocking=True)
+        batch_x_mark = batch_x_mark.float().to(self.device, non_blocking=True)
+        batch_y_mark = batch_y_mark.float().to(self.device, non_blocking=True)
 
-        dec_inp = self._build_decoder_input(batch_y).to(self.device)
+        dec_inp = self._build_decoder_input(batch_y).to(self.device, non_blocking=True)
         return batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp
 
     def _forward_model(self, batch_x, batch_x_mark, dec_inp, batch_y_mark):
@@ -132,7 +132,8 @@ class BaselineExperiment(ForecastExperiment):
 
     def vali(self, vali_loader, criterion):
         self.model.eval()
-        total_loss = []
+        loss_total = None
+        steps = 0
         with torch.no_grad():
             for batch_x, batch_y, batch_x_mark, batch_y_mark in vali_loader:
                 batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp = self._process_one_batch(
@@ -141,14 +142,15 @@ class BaselineExperiment(ForecastExperiment):
                 outputs = self._forward_model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 outputs = outputs[:, -self.args.pred_len :, : self.args.c_out]
                 batch_y = batch_y[:, -self.args.pred_len :, : self.args.c_out]
-                total_loss.append(criterion(outputs, batch_y).item())
+                loss = criterion(outputs, batch_y)
+                loss_total = loss.detach() if loss_total is None else loss_total + loss.detach()
+                steps += 1
         self.model.train()
-        return float(np.average(total_loss)) if total_loss else 0.0
+        return float((loss_total / max(steps, 1)).detach().cpu()) if steps else 0.0
 
     def train(self):
         train_data, train_loader = self._get_data(flag="train")
         _, vali_loader = self._get_data(flag="val")
-        _, test_loader = self._get_data(flag="test")
 
         criterion = self._select_criterion()
         optimizer = self._select_optimizer()
@@ -156,11 +158,20 @@ class BaselineExperiment(ForecastExperiment):
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True, logger=self.logger)
         use_amp = getattr(self.args, "use_amp", False) and self.args.use_gpu
         scaler = GradScaler(enabled=use_amp)
+        log_interval = max(int(getattr(self.args, "log_interval", 50)), 1)
+
+        self.logger.info(
+            "Training throughput setup | samples=%d | steps_per_epoch=%d | batch_size=%d"
+            % (len(train_data), len(train_loader), self.args.batch_size)
+        )
 
         for epoch in range(self.args.train_epochs):
             self.model.train()
-            train_loss = []
+            train_loss_sum = None
+            steps = 0
             epoch_time = time.time()
+            if self.args.use_gpu and torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats(self.device)
 
             with tqdm(
                 total=len(train_loader),
@@ -169,7 +180,7 @@ class BaselineExperiment(ForecastExperiment):
                 leave=False,
                 ncols=100,
             ) as pbar:
-                for batch_x, batch_y, batch_x_mark, batch_y_mark in train_loader:
+                for step_idx, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader, start=1):
                     optimizer.zero_grad()
                     batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp = self._process_one_batch(
                         batch_x, batch_y, batch_x_mark, batch_y_mark
@@ -180,7 +191,8 @@ class BaselineExperiment(ForecastExperiment):
                         batch_y = batch_y[:, -self.args.pred_len :, : self.args.c_out]
                         loss = criterion(outputs, batch_y)
 
-                    train_loss.append(loss.item())
+                    train_loss_sum = loss.detach() if train_loss_sum is None else train_loss_sum + loss.detach()
+                    steps += 1
                     if use_amp:
                         scaler.scale(loss).backward()
                         scaler.step(optimizer)
@@ -188,16 +200,24 @@ class BaselineExperiment(ForecastExperiment):
                     else:
                         loss.backward()
                         optimizer.step()
+                    if step_idx % log_interval == 0 or step_idx == len(train_loader):
+                        avg_loss = float((train_loss_sum / max(steps, 1)).detach().cpu())
+                        pbar.set_postfix(loss=f"{avg_loss:.4f}")
                     pbar.update(1)
 
-            train_loss = float(np.average(train_loss)) if train_loss else 0.0
+            epoch_seconds = time.time() - epoch_time
+            train_loss = float((train_loss_sum / max(steps, 1)).detach().cpu()) if steps else 0.0
             vali_loss = self.vali(vali_loader, criterion)
-            test_loss = self.vali(test_loader, criterion)
             scheduler.step()
+            samples_per_second = (steps * self.args.batch_size) / max(epoch_seconds, 1e-6)
+            max_memory_gb = 0.0
+            if self.args.use_gpu and torch.cuda.is_available():
+                max_memory_gb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 3)
 
             self.logger.info(
-                f"Epoch: {epoch + 1} | Cost: {time.time() - epoch_time:.2f}s | "
-                f"Train Loss: {train_loss:.7f} Vali Loss: {vali_loss:.7f} Test Loss: {test_loss:.7f}"
+                f"Epoch: {epoch + 1} | Cost: {epoch_seconds:.2f}s | Steps: {steps} | "
+                f"Samples/s: {samples_per_second:.2f} | Max GPU Mem: {max_memory_gb:.2f} GB | "
+                f"Train Loss: {train_loss:.7f} Vali Loss: {vali_loss:.7f}"
             )
             early_stopping(
                 vali_loss,

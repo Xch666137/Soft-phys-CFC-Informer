@@ -49,6 +49,40 @@ function Copy-RemoteFile {
     return $true
 }
 
+function Resolve-RemoteSummarySpec {
+    param(
+        [string]$PreferredPath,
+        [string]$FallbackPath
+    )
+
+    if ($DryRun) {
+        return @{
+            Remote = $PreferredPath
+            Label = [System.IO.Path]::GetFileName($PreferredPath)
+        }
+    }
+
+    $checkPreferred = "test -f '$PreferredPath'"
+    & ssh -p $Port "${RemoteUser}@${RemoteHost}" $checkPreferred | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        return @{
+            Remote = $PreferredPath
+            Label = [System.IO.Path]::GetFileName($PreferredPath)
+        }
+    }
+
+    $checkFallback = "test -f '$FallbackPath'"
+    & ssh -p $Port "${RemoteUser}@${RemoteHost}" $checkFallback | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        return @{
+            Remote = $FallbackPath
+            Label = [System.IO.Path]::GetFileName($FallbackPath)
+        }
+    }
+
+    return $null
+}
+
 function Get-MedianSeedRun {
     param(
         [array]$Rows,
@@ -91,14 +125,18 @@ Ensure-Dir $localRunsDir
 $summarySpecs = @(
     @{
         Name = "benchmark_net_injection"
-        Raw = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_raw.csv"
-        Grouped = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_grouped.csv"
+        RawPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_5090_summary_raw.csv"
+        RawFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_raw.csv"
+        GroupedPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_5090_summary_grouped.csv"
+        GroupedFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_grouped.csv"
         PhysFormer = "physformer_net_injection"
     },
     @{
         Name = "benchmark_net_injection_time_generalization"
-        Raw = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_raw.csv"
-        Grouped = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_grouped.csv"
+        RawPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_5090_summary_raw.csv"
+        RawFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_raw.csv"
+        GroupedPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_5090_summary_grouped.csv"
+        GroupedFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_grouped.csv"
         PhysFormer = "physformer_net_injection_time_generalization"
     }
 )
@@ -130,11 +168,18 @@ $manifest = [ordered]@{
 }
 
 foreach ($spec in $summarySpecs) {
-    $rawLocal = Join-Path $localSummaryDir ([System.IO.Path]::GetFileName($spec.Raw))
-    $groupedLocal = Join-Path $localSummaryDir ([System.IO.Path]::GetFileName($spec.Grouped))
+    $rawResolved = Resolve-RemoteSummarySpec -PreferredPath $spec.RawPreferred -FallbackPath $spec.RawFallback
+    $groupedResolved = Resolve-RemoteSummarySpec -PreferredPath $spec.GroupedPreferred -FallbackPath $spec.GroupedFallback
+    if ($null -eq $rawResolved -or $null -eq $groupedResolved) {
+        Write-Step "Skipping $($spec.Name): summary files not found on remote host."
+        continue
+    }
 
-    $rawOk = Copy-RemoteFile -RemotePath $spec.Raw -LocalPath $rawLocal
-    $groupedOk = Copy-RemoteFile -RemotePath $spec.Grouped -LocalPath $groupedLocal
+    $rawLocal = Join-Path $localSummaryDir $rawResolved.Label
+    $groupedLocal = Join-Path $localSummaryDir $groupedResolved.Label
+
+    $rawOk = Copy-RemoteFile -RemotePath $rawResolved.Remote -LocalPath $rawLocal
+    $groupedOk = Copy-RemoteFile -RemotePath $groupedResolved.Remote -LocalPath $groupedLocal
 
     if (-not ($rawOk -and $groupedOk)) {
         continue

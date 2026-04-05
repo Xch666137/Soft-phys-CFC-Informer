@@ -1,0 +1,52 @@
+benchmark:
+  jobs:
+    - name: physformer_net_injection_time_generalization
+      run_name: physformer_net_injection_time_generalization
+      config: configs/physformer_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 160
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: dlinear_net_injection_time_generalization
+      run_name: dlinear_net_injection_time_generalization
+      config: configs/baselines/dlinear_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 512
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: tide_net_injection_time_generalization
+      run_name: tide_net_injection_time_generalization
+      config: configs/baselines/tide_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 160
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: timexer_net_injection_time_generalization
+      run_name: timexer_net_injection_time_generalization
+      config: configs/baselines/timexer_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 128
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: tft_net_injection_time_generalization
+      run_name: tft_net_injection_time_generalization
+      config: configs/baselines/tft_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 128
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50

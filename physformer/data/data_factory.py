@@ -507,6 +507,10 @@ def data_provider(args, flag):
     shuffle_flag = flag == "train"
     drop_last = flag == "train"
     batch_size = args.batch_size if flag != "test" else 1
+    num_workers = getattr(args, "num_workers", 0)
+    pin_memory = bool(getattr(args, "pin_memory", False)) and bool(getattr(args, "use_gpu", False))
+    persistent_workers = bool(getattr(args, "persistent_workers", False)) and num_workers > 0
+    prefetch_factor = getattr(args, "prefetch_factor", 2)
 
     data_set = Data(
         root_path=args.root_path,
@@ -530,11 +534,19 @@ def data_provider(args, flag):
         task_mode=getattr(args, "task_mode", "component_multitask"),
     )
 
-    data_loader = DataLoader(
-        data_set,
+    loader_kwargs = dict(
         batch_size=batch_size,
         shuffle=shuffle_flag,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
         drop_last=drop_last,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+    )
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = prefetch_factor
+
+    data_loader = DataLoader(
+        data_set,
+        **loader_kwargs,
     )
     return data_set, data_loader

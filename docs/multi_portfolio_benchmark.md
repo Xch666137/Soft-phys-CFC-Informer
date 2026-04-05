@@ -122,6 +122,12 @@ Main paper benchmark driver:
 python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml
 ```
 
+AutoDL 5090 benchmark driver:
+
+```bash
+python run.py benchmark --config configs/drivers/benchmark_net_injection_5090.yaml
+```
+
 This driver compares:
 
 - `PhysFormer v2`
@@ -136,12 +142,19 @@ The main driver runs `3 seeds` per model:
 - `2025`
 - `2026`
 
-It writes:
+The default thesis driver writes:
 
 - raw per-run summary:
   `runs/reports/benchmark_net_injection_summary_raw.csv`
 - grouped per-experiment summary with `mean/std`:
   `runs/reports/benchmark_net_injection_summary_grouped.csv`
+
+The AutoDL 5090 driver writes:
+
+- raw per-run summary:
+  `runs/reports/benchmark_net_injection_5090_summary_raw.csv`
+- grouped per-experiment summary with `mean/std`:
+  `runs/reports/benchmark_net_injection_5090_summary_grouped.csv`
 
 Appendix benchmark driver:
 

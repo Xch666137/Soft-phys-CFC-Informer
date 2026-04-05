@@ -15,6 +15,7 @@ Options:
   --validate-config PATH
   --validate-run-name NAME
   --mapping-csv PATH
+  --force-rebuild-dataset
   --help
 
 Default stages:
@@ -30,6 +31,7 @@ LOG_ROOT=""
 VALIDATE_CONFIG=""
 VALIDATE_RUN_NAME=""
 MAPPING_CSV=""
+FORCE_REBUILD_DATASET="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,6 +67,10 @@ while [[ $# -gt 0 ]]; do
       MAPPING_CSV="$2"
       shift 2
       ;;
+    --force-rebuild-dataset)
+      FORCE_REBUILD_DATASET="true"
+      shift 1
+      ;;
     --help|-h)
       usage
       exit 0
@@ -98,6 +104,13 @@ require_file() {
   fi
 }
 
+dataset_ready() {
+  local output_dir="$PROJECT_DIR/data_processed/multi_portfolio"
+  [[ -f "$output_dir/portfolio_dataset_for_training.csv" ]] &&
+  [[ -f "$output_dir/portfolio_dataset_for_time_generalization.csv" ]] &&
+  [[ -f "$output_dir/multi_portfolio_metadata.json" ]]
+}
+
 run_stage_cmd() {
   local stage_name="$1"
   local command="$2"
@@ -109,6 +122,52 @@ run_stage_cmd() {
     eval "$command"
   ) 2>&1 | tee -a "$stage_log" "$MASTER_LOG"
   log "DONE stage=$stage_name"
+}
+
+run_batch_audit() {
+  local audit_log="$LOG_DIR/audit_batch.log"
+  local summary_file="$LOG_DIR/audit_batch_summary.txt"
+  : > "$summary_file"
+
+  audit_one_model() {
+    local model_name="$1"
+    local config_path="$2"
+    shift 2
+    local best_batch=""
+
+    for batch_size in "$@"; do
+      local audit_run_name="${model_name}_audit_bs${batch_size}"
+      log "AUDIT start model=$model_name batch_size=$batch_size"
+      set +e
+      (
+        set -euo pipefail
+        cd "$PROJECT_DIR"
+        python run.py train --config "$config_path" --epochs 2 --batch-size "$batch_size" --run-name "$audit_run_name"
+      ) 2>&1 | tee -a "$audit_log" "$MASTER_LOG"
+      local status=${PIPESTATUS[0]}
+      set -e
+
+      if [[ "$status" -eq 0 ]]; then
+        best_batch="$batch_size"
+        log "AUDIT success model=$model_name batch_size=$batch_size"
+      else
+        log "AUDIT fail model=$model_name batch_size=$batch_size status=$status"
+        break
+      fi
+    done
+
+    if [[ -n "$best_batch" ]]; then
+      echo "$model_name best_stable_batch=$best_batch" | tee -a "$summary_file" "$MASTER_LOG"
+    else
+      echo "$model_name best_stable_batch=NONE" | tee -a "$summary_file" "$MASTER_LOG"
+    fi
+  }
+
+  audit_one_model "physformer" "configs/physformer_default.yaml" 96 128 160
+  audit_one_model "tide" "configs/baselines/tide_net_injection.yaml" 96 128 160
+  audit_one_model "timexer" "configs/baselines/timexer_net_injection.yaml" 64 96 128
+  audit_one_model "tft" "configs/baselines/tft_net_injection.yaml" 64 96 128
+  audit_one_model "dlinear" "configs/baselines/dlinear_net_injection.yaml" 256 512
 }
 
 ensure_conda_env() {
@@ -190,16 +249,25 @@ for raw_stage in "${stage_array[@]}"; do
   stage="$(echo "$raw_stage" | xargs)"
   case "$stage" in
     verify)
-      run_stage_cmd "verify" "python -c \"import sys; print(sys.executable)\" && python verify_imports.py && python run.py train --config configs/physformer_default.yaml --print-config && python run.py train --config configs/baselines/tide_net_injection.yaml --print-config"
+      run_stage_cmd "verify" "python -c \"import sys; print(sys.executable)\" && python verify_imports.py && python run.py train --config configs/physformer_default.yaml --print-config"
       ;;
     build_dataset)
-      run_stage_cmd "build_dataset" "python run.py build-dataset --nextgen-dir data_raw/nextgen --act-weather-csv data_raw/era5/act_canberra_hourly.csv --rye-generation-csv data_raw/rye/rye_generation_and_load.csv --rye-weather-csv data_raw/era5/rye_template_hourly.csv --output-dir data_processed/multi_portfolio"
+      if [[ "$FORCE_REBUILD_DATASET" != "true" ]] && dataset_ready; then
+        log "SKIP stage=build_dataset reason=existing_outputs"
+      else
+        run_stage_cmd "build_dataset" "python run.py build-dataset --nextgen-dir data_raw/nextgen --act-weather-csv data_raw/era5/act_canberra_hourly.csv --rye-generation-csv data_raw/rye/rye_generation_and_load.csv --rye-weather-csv data_raw/era5/rye_template_hourly.csv --output-dir data_processed/multi_portfolio"
+      fi
       ;;
     benchmark_main)
-      run_stage_cmd "benchmark_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml"
+      run_stage_cmd "benchmark_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection_5090.yaml"
       ;;
     benchmark_time)
-      run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization.yaml"
+      run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization_5090.yaml"
+      ;;
+    audit_batch)
+      log "START stage=audit_batch"
+      run_batch_audit
+      log "DONE stage=audit_batch"
       ;;
     ablation)
       run_stage_cmd "ablation" "python run.py ablation --config configs/drivers/physformer_ablation.yaml"
