@@ -5,7 +5,7 @@ This thesis branch includes a first-pass AutoDL automation path built around:
 - SSH key login
 - `tmux` for long-running jobs
 - remote `git clone` over HTTPS
-- `tar | ssh | tar` upload for `data_raw/`
+- local tar packaging + `scp` upload for `data_raw/`
 
 It does not depend on AutoDL enterprise APIs. This follows the official
 AutoDL guidance for SSH-based instance use and long-running terminal jobs:
@@ -16,7 +16,7 @@ AutoDL guidance for SSH-based instance use and long-running terminal jobs:
   [https://api.autodl.com/docs/daemon/](https://api.autodl.com/docs/daemon/)
 - Git usage:
   [https://www.autodl.com/docs/git/](https://www.autodl.com/docs/git/)
-- File transfer:
+- File transfer reference:
   [https://api.autodl.com/docs/scp/](https://api.autodl.com/docs/scp/)
 
 ## Defaults
@@ -132,6 +132,9 @@ not overwrite each other:
   clone can safely diverge.
 - If `data_raw/` has already been uploaded once, the submit script skips
   re-upload unless you pass `-ForceDataUpload`.
+- The submit script uses a local temporary tar archive plus `scp` instead of a
+  raw `tar | ssh | tar` pipeline because Windows PowerShell native binary
+  piping is less reliable for large archives.
 - If `tmux` is missing on the remote host, submission fails with a clear error
   before training starts.
 - If `conda` is missing on the remote host, the remote script stops before any

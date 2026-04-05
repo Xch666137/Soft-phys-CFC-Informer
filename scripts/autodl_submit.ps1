@@ -104,6 +104,7 @@ Set-Location $repoRoot
 Assert-Tool "ssh"
 Assert-Tool "git"
 Assert-Tool "tar"
+Assert-Tool "scp"
 
 $sshTarget = "$RemoteUser@$RemoteHost"
 $remoteParent = Get-RemoteParent -UnixPath $RemoteProjectDir
@@ -111,6 +112,7 @@ $localDataRootPath = (Resolve-Path $LocalDataRoot).Path
 $remoteDataRoot = "$RemoteProjectDir/data_raw"
 $remoteScriptPath = "$RemoteProjectDir/scripts/autodl_remote_run.sh"
 $remoteUploadStamp = "$remoteDataRoot/.autodl_upload_complete"
+$remoteUploadTar = "/tmp/soft_phys_cfc_informer_data_raw.tar"
 
 if (-not $SkipGitSyncCheck -and -not $DryRun) {
     Write-Step "Checking local git sync against origin/$Branch"
@@ -122,9 +124,22 @@ if (-not (Test-Path $localDataRootPath)) {
 }
 
 $cloneCommand = @"
+set -euo pipefail
 mkdir -p $(Quote-Bash $remoteParent)
+if [ -d $(Quote-Bash "$RemoteProjectDir") ] && ! git -C $(Quote-Bash "$RemoteProjectDir") rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  rm -rf $(Quote-Bash $RemoteProjectDir)
+fi
 if [ ! -d $(Quote-Bash "$RemoteProjectDir/.git") ]; then
-  git clone --branch $(Quote-Bash $Branch) --single-branch $(Quote-Bash $RepoUrl) $(Quote-Bash $RemoteProjectDir)
+  rm -rf $(Quote-Bash $RemoteProjectDir)
+  for attempt in 1 2 3; do
+    git clone --depth 1 --branch $(Quote-Bash $Branch) --single-branch $(Quote-Bash $RepoUrl) $(Quote-Bash $RemoteProjectDir) && break
+    if [ "`$attempt" -eq 3 ]; then
+      echo "git clone failed after 3 attempts" >&2
+      exit 1
+    fi
+    rm -rf $(Quote-Bash $RemoteProjectDir)
+    sleep 3
+  done
 else
   git -C $(Quote-Bash $RemoteProjectDir) fetch origin
   git -C $(Quote-Bash $RemoteProjectDir) checkout $(Quote-Bash $Branch)
@@ -136,6 +151,9 @@ chmod +x $(Quote-Bash $remoteScriptPath)
 $cloneDisplay = "ssh -p $Port $sshTarget bash -lc " + (Quote-Bash $cloneCommand)
 Invoke-OrPrint -Label "Clone or update remote repository" -Display $cloneDisplay -Action {
     & ssh -p $Port $sshTarget "bash -lc $(Quote-Bash $cloneCommand)"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Remote clone/update failed."
+    }
 }
 
 if (-not $SkipDataUpload) {
@@ -148,9 +166,30 @@ if (-not $SkipDataUpload) {
     }
 
     if ($ForceDataUpload -or $needsUpload) {
-        $uploadDisplay = "tar -cf - -C `"$localDataRootPath`" . | ssh -p $Port $sshTarget ""mkdir -p $(Quote-Bash $remoteDataRoot) && tar -xf - -C $(Quote-Bash $remoteDataRoot) && touch $(Quote-Bash $remoteUploadStamp)"""
+        $tempArchive = Join-Path $env:TEMP "soft_phys_cfc_informer_data_raw.tar"
+        $uploadDisplay = @"
+tar -cf "$tempArchive" -C "$localDataRootPath" .
+scp -P $Port "$tempArchive" ${sshTarget}:$remoteUploadTar
+ssh -p $Port $sshTarget bash -lc 'mkdir -p $(Quote-Bash $remoteDataRoot) && tar -xf $(Quote-Bash $remoteUploadTar) -C $(Quote-Bash $remoteDataRoot) && touch $(Quote-Bash $remoteUploadStamp) && rm -f $(Quote-Bash $remoteUploadTar)'
+"@
         Invoke-OrPrint -Label "Upload data_raw via tar stream" -Display $uploadDisplay -Action {
-            tar -cf - -C $localDataRootPath . | ssh -p $Port $sshTarget "mkdir -p $(Quote-Bash $remoteDataRoot) && tar -xf - -C $(Quote-Bash $remoteDataRoot) && touch $(Quote-Bash $remoteUploadStamp)"
+            if (Test-Path $tempArchive) {
+                Remove-Item $tempArchive -Force
+            }
+            tar -cf $tempArchive -C $localDataRootPath .
+            if ($LASTEXITCODE -ne 0) {
+                throw "Local tar archive creation failed."
+            }
+            & scp -P $Port $tempArchive "${sshTarget}:$remoteUploadTar"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Remote archive upload failed."
+            }
+            $extractCommand = "mkdir -p $(Quote-Bash $remoteDataRoot) && tar -xf $(Quote-Bash $remoteUploadTar) -C $(Quote-Bash $remoteDataRoot) && touch $(Quote-Bash $remoteUploadStamp) && rm -f $(Quote-Bash $remoteUploadTar)"
+            & ssh -p $Port $sshTarget "bash -lc $(Quote-Bash $extractCommand)"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Remote archive extraction failed."
+            }
+            Remove-Item $tempArchive -Force -ErrorAction SilentlyContinue
         }
     } else {
         Write-Step "Remote data upload skipped because upload stamp already exists."
@@ -159,23 +198,27 @@ if (-not $SkipDataUpload) {
     Write-Step "Skipping data upload by request."
 }
 
-$remoteRunCommand = "cd $(Quote-Bash $RemoteProjectDir) && bash $(Quote-Bash "scripts/autodl_remote_run.sh") --project-dir $(Quote-Bash $RemoteProjectDir) --env-name $(Quote-Bash $RemoteEnvName) --python-version $(Quote-Bash $PythonVersion) --stages $(Quote-Bash $Stages)"
+$remoteRunCommand = "cd $(Quote-Bash $RemoteProjectDir) && bash scripts/autodl_remote_run.sh --project-dir $(Quote-Bash $RemoteProjectDir) --env-name $(Quote-Bash $RemoteEnvName) --python-version $(Quote-Bash $PythonVersion) --stages $(Quote-Bash $Stages)"
 $tmuxCommand = @"
+set -euo pipefail
 if ! command -v tmux >/dev/null 2>&1; then
-  echo 'tmux not found on remote host.' >&2
+  echo "tmux not found on remote host." >&2
   exit 1
 fi
 if tmux has-session -t $(Quote-Bash $SessionName) 2>/dev/null; then
-  echo 'tmux session already exists: $SessionName' >&2
+  echo "tmux session already exists: $SessionName" >&2
   exit 1
 fi
-tmux new-session -d -s $(Quote-Bash $SessionName) $(Quote-Bash $remoteRunCommand)
+tmux new-session -d -s $(Quote-Bash $SessionName) bash -lc $(Quote-Bash $remoteRunCommand)
 tmux ls
 "@
 
 $tmuxDisplay = "ssh -p $Port $sshTarget bash -lc " + (Quote-Bash $tmuxCommand)
 Invoke-OrPrint -Label "Launch remote tmux session" -Display $tmuxDisplay -Action {
     & ssh -p $Port $sshTarget "bash -lc $(Quote-Bash $tmuxCommand)"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Remote tmux launch failed."
+    }
 }
 
 Write-Step "Submission complete."
