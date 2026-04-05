@@ -1,29 +1,26 @@
 #!/bin/bash
-# Remote server verification — run on GPU server after refactoring
-set -e
+# Remote server verification - run on GPU server after refactoring
+set -euo pipefail
 
-echo "=== 1. Install package ==="
-pip install -e .
-
-echo "=== 2. Import verification ==="
+echo "=== 1. Import verification ==="
 python verify_imports.py
 
-echo "=== 3. Config loading test ==="
-python run.py --config configs/physformer_default.yaml --print_config
+echo "=== 2. Config loading test (PhysFormer v2) ==="
+python run.py train --config configs/physformer_default.yaml --print-config
 
-echo "=== 4. PhysFormer single epoch training ==="
-python run.py --config configs/physformer_default.yaml \
-    --epochs 1 --batch_size 32
+echo "=== 3. Config loading test (TiDE baseline) ==="
+python run.py train --config configs/baselines/tide_net_injection.yaml --print-config
 
-echo "=== 5. PhysFormer inference (load checkpoint) ==="
-python run.py --config configs/physformer_default.yaml --test_only
+echo "=== 4. PhysFormer single epoch training smoke ==="
+python run.py train --config configs/physformer_default.yaml --epochs 1 --batch-size 32 --run-name physformer_verify_smoke
 
-echo "=== 6. Baseline single epoch (Informer) ==="
-python run.py --config configs/baselines/informer.yaml \
-    --epochs 1 --batch_size 32
+echo "=== 5. TiDE single epoch training smoke ==="
+python run.py train --config configs/baselines/tide_net_injection.yaml --epochs 1 --batch-size 64 --run-name tide_verify_smoke
 
-echo "=== 7. Ablation V1 single epoch ==="
-python run.py --config configs/physformer_ablation_v1.yaml \
-    --epochs 1 --batch_size 32
+echo "=== 6. PhysFormer test smoke ==="
+python run.py test --config configs/physformer_default.yaml --run-name physformer_verify_smoke
+
+echo "=== 7. TimeXer config loading smoke ==="
+python run.py train --config configs/baselines/timexer_net_injection.yaml --print-config
 
 echo "=== ALL PASSED ==="

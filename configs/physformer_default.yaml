@@ -1,6 +1,3 @@
-# PhysFormer Default Configuration
-# Usage: python run.py --config configs/physformer_default.yaml
-
 model:
   name: PhysFormer
   enc_in: 6
@@ -19,25 +16,29 @@ model:
 
 data:
   root_path: ./
-  data_path: data/vpp_dataset_3years.csv
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
   features: M
   target: null
   time_col: date
-  id_col: null
-  region_col: null
-  task_mode: component_multitask
-  target_cols: [load_mw, pv_mw, wind_mw]
-  covariate_cols: [temperature, irradiance, wind_speed]
+  id_col: portfolio_id
+  region_col: region_id
+  split_col: split
+  split_strategy: portfolio_manifest
+  task_mode: net_injection
+  target_cols: [p_vpp_mw]
+  known_future_covariate_cols: [temperature, irradiance, wind_speed]
+  history_state_cols: [p_battery_mw, e_battery_soc_mwh]
+  aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
   seq_len: 672
   pred_len: 96
-  freq: h
+  freq: t
 
 training:
-  batch_size: 128
+  seed: 2024
+  batch_size: 64
   train_epochs: 100
   learning_rate: 3.0e-4
   weight_decay: 1.0e-5
-  physics_prior_weight: 0.1
   grad_clip: 1.0
   patience: 10
   use_amp: true
@@ -48,12 +49,13 @@ hardware:
   num_workers: 8
 
 checkpoint:
-  name: PhysFormer_full_seed2024
-  path: checkpoints/PhysFormer/
+  name: physformer_net_injection
+  path: runs/
 
 ablation:
   no_phys_stream: false
-  no_pgcc: false
-  no_future_glu: false
-  no_curriculum: false
-  fixed_phys: false
+  no_battery_branch: false
+  no_aux_supervision: false
+  no_soc_consistency: false
+  no_future_weather: false
+  shared_query_only: false

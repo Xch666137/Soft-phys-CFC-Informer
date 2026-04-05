@@ -1,11 +1,22 @@
 benchmark:
   jobs:
-    - name: informer_net_injection
-      run_name: informer_net_injection
-      config: configs/baselines/informer_net_injection.yaml
+    - name: physformer_net_injection
+      run_name: physformer_net_injection
+      config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
     - name: dlinear_net_injection
       run_name: dlinear_net_injection
       config: configs/baselines/dlinear_net_injection.yaml
-    - name: lstm_net_injection
-      run_name: lstm_net_injection
-      config: configs/baselines/lstm_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+    - name: tide_net_injection
+      run_name: tide_net_injection
+      config: configs/baselines/tide_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+    - name: timexer_net_injection
+      run_name: timexer_net_injection
+      config: configs/baselines/timexer_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+    - name: tft_net_injection
+      run_name: tft_net_injection
+      config: configs/baselines/tft_net_injection.yaml
+      seeds: [2024, 2025, 2026]

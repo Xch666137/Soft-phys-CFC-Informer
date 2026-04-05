@@ -1,0 +1,22 @@
+benchmark:
+  jobs:
+    - name: physformer_net_injection_time_generalization
+      run_name: physformer_net_injection_time_generalization
+      config: configs/physformer_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+    - name: dlinear_net_injection_time_generalization
+      run_name: dlinear_net_injection_time_generalization
+      config: configs/baselines/dlinear_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+    - name: tide_net_injection_time_generalization
+      run_name: tide_net_injection_time_generalization
+      config: configs/baselines/tide_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+    - name: timexer_net_injection_time_generalization
+      run_name: timexer_net_injection_time_generalization
+      config: configs/baselines/timexer_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]
+    - name: tft_net_injection_time_generalization
+      run_name: tft_net_injection_time_generalization
+      config: configs/baselines/tft_net_injection_time_generalization.yaml
+      seeds: [2024, 2025, 2026]

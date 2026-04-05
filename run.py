@@ -2,11 +2,12 @@
 Unified thesis experiment entrypoint.
 
 Examples:
-    python run.py train --config configs/baselines/informer_net_injection.yaml --print-config
-    python run.py test --config configs/baselines/informer_net_injection.yaml --run-name informer_netload
+    python run.py train --config configs/baselines/tide_net_injection.yaml --print-config
+    python run.py test --config configs/baselines/tide_net_injection.yaml --run-name tide_net_injection
     python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml
     python run.py ablation --config configs/drivers/physformer_ablation.yaml
-    python run.py pipeline --config configs/baselines/informer_net_injection.yaml --mapping-csv templates/network_mapping.csv
+    python run.py build-dataset --nextgen-dir data_raw/nextgen --act-weather-csv data_raw/era5/act_canberra_hourly.csv --rye-generation-csv data_raw/rye/rye_generation_and_load.csv --rye-weather-csv data_raw/era5/rye_template_hourly.csv --output-dir data_processed/multi_portfolio
+    python run.py pipeline --config configs/baselines/tide_net_injection.yaml --mapping-csv templates/network_mapping.csv --nextgen-dir data_raw/nextgen --act-weather-csv data_raw/era5/act_canberra_hourly.csv --rye-generation-csv data_raw/rye/rye_generation_and_load.csv --rye-weather-csv data_raw/era5/rye_template_hourly.csv --output-dir data_processed/multi_portfolio
 """
 
 import argparse
@@ -20,13 +21,13 @@ import yaml
 
 from physformer.data.data_factory import data_provider
 from physformer.exp.exp_baseline import BaselineExperiment
-from physformer.exp.exp_physformer import Exp_PhysFormer
 from physformer.pipelines import (
-    build_portfolio_dataset,
+    build_multi_portfolio_dataset,
     export_portfolio_forecasts,
     summarize_runs,
     validate_portfolio_forecasts,
 )
+from physformer.utils.tools import set_seed
 
 
 def deep_update(base, override):
@@ -69,17 +70,28 @@ def config_to_args(cfg):
     data_cfg = cfg.get('data', {})
     for key in [
         'root_path', 'data_path', 'features', 'target', 'seq_len', 'pred_len', 'label_len',
-        'freq', 'time_col', 'id_col', 'region_col', 'task_mode', 'target_cols', 'covariate_cols'
+        'freq', 'time_col', 'id_col', 'region_col', 'split_col', 'split_strategy',
+        'task_mode', 'target_cols', 'covariate_cols', 'known_future_covariate_cols',
+        'history_state_cols', 'aux_target_cols'
     ]:
         if key in data_cfg:
             flat[key] = data_cfg[key]
 
     target_cols = data_cfg.get('target_cols')
     covariate_cols = data_cfg.get('covariate_cols')
+    known_future_covariate_cols = data_cfg.get('known_future_covariate_cols')
+    history_state_cols = data_cfg.get('history_state_cols')
+    aux_target_cols = data_cfg.get('aux_target_cols')
     if target_cols is not None:
         flat['target_cols'] = list(target_cols)
     if covariate_cols is not None:
         flat['covariate_cols'] = list(covariate_cols)
+    if known_future_covariate_cols is not None:
+        flat['known_future_covariate_cols'] = list(known_future_covariate_cols)
+    if history_state_cols is not None:
+        flat['history_state_cols'] = list(history_state_cols)
+    if aux_target_cols is not None:
+        flat['aux_target_cols'] = list(aux_target_cols)
 
     training_cfg = cfg.get('training', {})
     flat['batch_size'] = training_cfg.get('batch_size', 128)
@@ -90,6 +102,7 @@ def config_to_args(cfg):
     flat['grad_clip'] = training_cfg.get('grad_clip', 1.0)
     flat['patience'] = training_cfg.get('patience', 10)
     flat['use_amp'] = training_cfg.get('use_amp', True)
+    flat['seed'] = training_cfg.get('seed', 2024)
 
     hardware_cfg = cfg.get('hardware', {})
     flat['use_gpu'] = hardware_cfg.get('use_gpu', True)
@@ -104,15 +117,19 @@ def config_to_args(cfg):
 
     ablation_cfg = cfg.get('ablation', {})
     flat['ablation_no_phys_stream'] = ablation_cfg.get('no_phys_stream', False)
-    flat['ablation_no_pgcc'] = ablation_cfg.get('no_pgcc', False)
-    flat['ablation_no_future_glu'] = ablation_cfg.get('no_future_glu', False)
-    flat['ablation_no_curriculum'] = ablation_cfg.get('no_curriculum', False)
-    flat['ablation_fixed_phys'] = ablation_cfg.get('fixed_phys', False)
-    flat['ablation_no_gate_reg'] = ablation_cfg.get('no_gate_reg', False)
+    flat['ablation_no_battery_branch'] = ablation_cfg.get('no_battery_branch', False)
+    flat['ablation_no_aux_supervision'] = ablation_cfg.get('no_aux_supervision', False)
+    flat['ablation_no_soc_consistency'] = ablation_cfg.get('no_soc_consistency', False)
+    flat['ablation_no_future_weather'] = ablation_cfg.get('no_future_weather', False)
+    flat['ablation_shared_query_only'] = ablation_cfg.get('shared_query_only', False)
 
-    if target_cols is not None and covariate_cols is not None:
+    feature_target_cols = list(target_cols or [])
+    feature_known_future_cols = list(known_future_covariate_cols or covariate_cols or [])
+    feature_history_state_cols = list(history_state_cols or [])
+
+    if feature_target_cols:
         flat['c_out'] = len(target_cols)
-        feature_count = len(target_cols) + len(covariate_cols)
+        feature_count = len(feature_target_cols) + len(feature_known_future_cols) + len(feature_history_state_cols)
         flat['enc_in'] = feature_count
         flat['dec_in'] = feature_count
 
@@ -136,6 +153,8 @@ def apply_cli_overrides(args, cli_args):
         args.device_ids = [cli_args.gpu]
     if cli_args.patience is not None:
         args.patience = cli_args.patience
+    if getattr(cli_args, 'seed', None) is not None:
+        args.seed = cli_args.seed
     if cli_args.run_name is not None:
         args.run_name = cli_args.run_name
     if cli_args.run_dir is not None:
@@ -171,6 +190,7 @@ def finalize_args(args, cfg, cli_args):
     args.save_gate_details = bool(getattr(args, 'save_gate_details', False))
     args.mix = getattr(args, 'mix', True)
     args.output_attention = getattr(args, 'output_attention', False)
+    args.seed = int(getattr(args, 'seed', 2024))
 
     run_name = getattr(args, 'run_name', None) or default_run_name(args)
     args.run_name = run_name
@@ -186,6 +206,7 @@ def finalize_args(args, cfg, cli_args):
 
 def create_experiment(args):
     if args.model == 'PhysFormer':
+        from physformer.exp.exp_physformer import Exp_PhysFormer
         return Exp_PhysFormer(args)
     return BaselineExperiment(args)
 
@@ -197,44 +218,37 @@ def print_config(args):
 
 
 def run_train(args, cfg):
+    set_seed(getattr(args, 'seed', 2024))
     exp = create_experiment(args)
     exp.save_config(cfg)
     exp.train()
     return exp
 
 
-def _normalize_metrics_from_array(metrics_array):
-    mae, mse, rmse, bvr, rvr = metrics_array
-    return {
-        'mae': float(mae),
-        'mse': float(mse),
-        'rmse': float(rmse),
-        'bvr_percent': float(bvr),
-        'rvr_percent': float(rvr),
-        'legacy_array': [float(mae), float(mse), float(rmse), float(bvr), float(rvr)],
-    }
-
-
 def run_test(args, cfg):
+    set_seed(getattr(args, 'seed', 2024))
     exp = create_experiment(args)
     exp.save_config(cfg)
-    if args.model == 'PhysFormer':
-        preds, trues, metrics_array = exp.test(load=True, return_preds=True)
-        exp.save_metrics_json(_normalize_metrics_from_array(metrics_array))
-        return exp
-
     exp.test(load=True)
     return exp
 
 
 def run_build_dataset(cli_args):
-    output_path = build_portfolio_dataset(
-        input_csv=cli_args.input_csv,
-        output_csv=cli_args.output_csv,
-        portfolio_id=cli_args.portfolio_id,
+    outputs = build_multi_portfolio_dataset(
+        nextgen_dir=cli_args.nextgen_dir,
+        act_weather_csv=cli_args.act_weather_csv,
+        rye_generation_csv=cli_args.rye_generation_csv,
+        rye_weather_csv=cli_args.rye_weather_csv,
+        output_dir=cli_args.output_dir,
+        portfolio_size=cli_args.portfolio_size,
+        target_penetration=cli_args.wind_penetration_target,
+        audit_year=cli_args.audit_year,
+        source_timezone=cli_args.source_timezone,
         region_id=cli_args.region_id,
+        min_feature_availability=cli_args.min_feature_availability,
     )
-    print(f"Saved canonical portfolio dataset to: {output_path}")
+    print(json.dumps(outputs, indent=2, ensure_ascii=False))
+    return outputs
 
 
 def run_export_forecast(args, config_path):
@@ -264,20 +278,31 @@ def run_driver_jobs(driver_cfg, cli_args, job_kind):
 
     run_dirs = []
     for job in jobs:
-        job_config_path = job['config']
-        cfg = load_config(job_config_path)
-        args = config_to_args(cfg)
-        args.run_name = job.get('run_name') or job.get('name') or getattr(args, 'checkpoint_name', None)
-        args, cfg = finalize_args(args, cfg, cli_args)
-        exp = run_train(args, cfg)
-        if args.model == 'PhysFormer':
-            preds, trues, metrics_array = exp.test(load=True, return_preds=True)
-            exp.save_metrics_json(_normalize_metrics_from_array(metrics_array))
-        else:
-            exp.test(load=True)
-        run_dirs.append(args.run_dir)
+        seeds = job.get('seeds')
+        if seeds is None:
+            seeds = [getattr(cli_args, 'seed', None)] if getattr(cli_args, 'seed', None) is not None else [None]
 
-    summary_path = Path('runs') / 'reports' / f'{job_kind}_summary.csv'
+        for seed in seeds:
+            job_config_path = job['config']
+            cfg = load_config(job_config_path)
+            args = config_to_args(cfg)
+            base_run_name = job.get('run_name') or job.get('name') or getattr(args, 'checkpoint_name', None)
+            args.run_name = base_run_name
+            args, cfg = finalize_args(args, cfg, cli_args)
+            if seed is not None:
+                args.seed = int(seed)
+                cfg.setdefault('training', {})['seed'] = int(seed)
+                args.run_name = f"{base_run_name}__s{seed}"
+                run_root = Path('runs')
+                args.run_dir = str((Path.cwd() / (run_root / args.run_name)).resolve())
+                args.checkpoint_name = args.run_name
+                args.checkpoints = args.run_dir
+
+            exp = run_train(args, cfg)
+            exp.test(load=True)
+            run_dirs.append(args.run_dir)
+
+    summary_path = Path('runs') / 'reports' / f'{job_kind}_summary_raw.csv'
     summary = summarize_runs(run_dirs, str(summary_path), job_kind)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return summary
@@ -285,24 +310,25 @@ def run_driver_jobs(driver_cfg, cli_args, job_kind):
 
 def run_pipeline(args, cfg, cli_args):
     run_dir = Path(args.run_dir)
-    data_path = cli_args.pipeline_output_csv or args.data_path
-
-    if cli_args.raw_input_csv:
-        build_portfolio_dataset(
-            input_csv=cli_args.raw_input_csv,
-            output_csv=data_path,
-            portfolio_id=cli_args.portfolio_id,
-            region_id=cli_args.region_id,
-        )
-        args.data_path = data_path
-        cfg.setdefault('data', {})['data_path'] = data_path
+    outputs = build_multi_portfolio_dataset(
+        nextgen_dir=cli_args.nextgen_dir,
+        act_weather_csv=cli_args.act_weather_csv,
+        rye_generation_csv=cli_args.rye_generation_csv,
+        rye_weather_csv=cli_args.rye_weather_csv,
+        output_dir=cli_args.output_dir,
+        portfolio_size=cli_args.portfolio_size,
+        target_penetration=cli_args.wind_penetration_target,
+        audit_year=cli_args.audit_year,
+        source_timezone=cli_args.source_timezone,
+        region_id=cli_args.region_id,
+        min_feature_availability=cli_args.min_feature_availability,
+    )
+    data_path = outputs['portfolio_dataset_for_training_csv']
+    args.data_path = data_path
+    cfg.setdefault('data', {})['data_path'] = data_path
 
     exp = run_train(args, cfg)
-    if args.model == 'PhysFormer':
-        preds, trues, metrics_array = exp.test(load=True, return_preds=True)
-        exp.save_metrics_json(_normalize_metrics_from_array(metrics_array))
-    else:
-        exp.test(load=True)
+    exp.test(load=True)
 
     export_path = run_export_forecast(args, str(run_dir / 'config_merged.yaml'))
     if cli_args.mapping_csv:
@@ -316,6 +342,7 @@ def add_common_run_args(parser):
     parser.add_argument('--run-dir', help='Explicit run directory')
     parser.add_argument('--resume', action='store_true', help='Resume training from checkpoint if supported')
     parser.add_argument('--gpu', type=int, help='GPU id override')
+    parser.add_argument('--seed', type=int, help='Random seed override')
     parser.add_argument('--print-config', action='store_true', help='Print effective args and exit')
     parser.add_argument('--epochs', type=int, help='Training epochs override')
     parser.add_argument('--lr', type=float, help='Learning rate override')
@@ -329,11 +356,18 @@ def build_parser():
     parser = argparse.ArgumentParser(description='Unified thesis runner')
     subparsers = parser.add_subparsers(dest='command', required=True)
 
-    build_dataset_parser = subparsers.add_parser('build-dataset', help='Build canonical portfolio dataset')
-    build_dataset_parser.add_argument('--input-csv', required=True)
-    build_dataset_parser.add_argument('--output-csv', required=True)
-    build_dataset_parser.add_argument('--portfolio-id', default='residential_dominant_01')
-    build_dataset_parser.add_argument('--region-id', default='region_a')
+    build_dataset_parser = subparsers.add_parser('build-dataset', help='Build the strict multi-portfolio benchmark dataset')
+    build_dataset_parser.add_argument('--region-id', default='act_canberra')
+    build_dataset_parser.add_argument('--nextgen-dir', default='data_raw/nextgen')
+    build_dataset_parser.add_argument('--act-weather-csv', default='data_raw/era5/act_canberra_hourly.csv')
+    build_dataset_parser.add_argument('--rye-generation-csv', default='data_raw/rye/rye_generation_and_load.csv')
+    build_dataset_parser.add_argument('--rye-weather-csv', default='data_raw/era5/rye_template_hourly.csv')
+    build_dataset_parser.add_argument('--output-dir', default='data_processed/multi_portfolio')
+    build_dataset_parser.add_argument('--portfolio-size', type=int, default=5)
+    build_dataset_parser.add_argument('--wind-penetration-target', type=float, default=0.15)
+    build_dataset_parser.add_argument('--audit-year', type=int, default=2018)
+    build_dataset_parser.add_argument('--source-timezone', default='Australia/Sydney')
+    build_dataset_parser.add_argument('--min-feature-availability', type=float, default=0.99)
 
     train_parser = subparsers.add_parser('train', help='Train one experiment')
     add_common_run_args(train_parser)
@@ -356,10 +390,17 @@ def build_parser():
 
     pipeline_parser = subparsers.add_parser('pipeline', help='Run thesis pipeline')
     add_common_run_args(pipeline_parser)
-    pipeline_parser.add_argument('--raw-input-csv', help='Optional raw input CSV to canonicalize before training')
-    pipeline_parser.add_argument('--pipeline-output-csv', help='Canonical dataset output path')
-    pipeline_parser.add_argument('--portfolio-id', default='residential_dominant_01')
-    pipeline_parser.add_argument('--region-id', default='region_a')
+    pipeline_parser.add_argument('--region-id', default='act_canberra')
+    pipeline_parser.add_argument('--nextgen-dir', default='data_raw/nextgen')
+    pipeline_parser.add_argument('--act-weather-csv', default='data_raw/era5/act_canberra_hourly.csv')
+    pipeline_parser.add_argument('--rye-generation-csv', default='data_raw/rye/rye_generation_and_load.csv')
+    pipeline_parser.add_argument('--rye-weather-csv', default='data_raw/era5/rye_template_hourly.csv')
+    pipeline_parser.add_argument('--output-dir', default='data_processed/multi_portfolio')
+    pipeline_parser.add_argument('--portfolio-size', type=int, default=5)
+    pipeline_parser.add_argument('--wind-penetration-target', type=float, default=0.15)
+    pipeline_parser.add_argument('--audit-year', type=int, default=2018)
+    pipeline_parser.add_argument('--source-timezone', default='Australia/Sydney')
+    pipeline_parser.add_argument('--min-feature-availability', type=float, default=0.99)
     pipeline_parser.add_argument('--mapping-csv', required=True)
 
     return parser

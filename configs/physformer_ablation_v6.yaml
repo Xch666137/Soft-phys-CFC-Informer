@@ -1,0 +1,5 @@
+_base_: physformer_default.yaml
+checkpoint:
+  name: physformer_ablation_no_future_weather
+ablation:
+  no_future_weather: true

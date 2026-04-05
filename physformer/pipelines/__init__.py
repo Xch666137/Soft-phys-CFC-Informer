@@ -2,7 +2,8 @@ from importlib import import_module
 
 
 __all__ = [
-    "build_portfolio_dataset",
+    "audit_nextgen_household_eligibility",
+    "build_multi_portfolio_dataset",
     "build_semisynthetic_vpp_dataset",
     "export_portfolio_forecasts",
     "fetch_era5_cds",
@@ -15,7 +16,6 @@ __all__ = [
 
 def __getattr__(name: str):
     if name in {
-        "build_portfolio_dataset",
         "export_portfolio_forecasts",
         "summarize_runs",
         "validate_portfolio_forecasts",
@@ -24,6 +24,8 @@ def __getattr__(name: str):
         return getattr(module, name)
 
     if name in {
+        "audit_nextgen_household_eligibility",
+        "build_multi_portfolio_dataset",
         "build_semisynthetic_vpp_dataset",
         "fetch_era5_cds",
         "fetch_nextgen",

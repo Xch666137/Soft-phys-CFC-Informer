@@ -2,7 +2,7 @@
 PhysFormer model registry.
 
 All time-series forecasting models:
-- PhysFormer: Physics-guided Transformer
+- PhysFormer: portfolio-level gray-box Transformer
 - Informer: ProbSparse attention Transformer
 - Autoformer: Autocorrelation Transformer
 - LSTM / GRU: Recurrent baselines
@@ -10,13 +10,15 @@ All time-series forecasting models:
 - DLinear: Linear baseline
 - PatchTST: Patch-based Transformer
 - iTransformer: Inverted Transformer
+- TiDE: Dense encoder-decoder baseline
+- TimeXer: Exogenous-aware Transformer baseline
+- TFT: Temporal Fusion Transformer baseline
 """
 
 __version__ = "1.0.0"
 __author__ = "XCH"
 
 from .physformer import PhysFormer
-from .causal_coupling import PhysicsGuidedCausalCoupling
 from .informer import Informer
 from .autoformer import Autoformer
 from .lstm import LSTM
@@ -25,6 +27,9 @@ from .pinn import PINN
 from .dlinear import DLinear
 from .patchtst import PatchTST
 from .itransformer import iTransformer
+from .tide import TiDE
+from .timexer import TimeXer
+from .tft import TFT
 
 MODEL_REGISTRY = {
     'PhysFormer': PhysFormer,
@@ -36,6 +41,9 @@ MODEL_REGISTRY = {
     'DLinear': DLinear,
     'PatchTST': PatchTST,
     'iTransformer': iTransformer,
+    'TiDE': TiDE,
+    'TimeXer': TimeXer,
+    'TFT': TFT,
 }
 
 
@@ -48,7 +56,6 @@ def get_model(model_name):
 
 __all__ = [
     'PhysFormer', 'Informer', 'Autoformer', 'LSTM', 'GRU',
-    'PINN', 'DLinear', 'PatchTST', 'iTransformer',
-    'PhysicsGuidedCausalCoupling',
+    'PINN', 'DLinear', 'PatchTST', 'iTransformer', 'TiDE', 'TimeXer', 'TFT',
     'get_model', 'MODEL_REGISTRY',
 ]

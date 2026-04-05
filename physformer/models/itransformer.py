@@ -57,6 +57,11 @@ class iTransformer(nn.Module):
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
         self.output_attention = getattr(configs, 'output_attention', False)
+        self.c_out = configs.c_out
+        self.target_dim = len(getattr(configs, "target_cols", [])) or self.c_out
+        self.known_future_num = len(
+            getattr(configs, "known_future_covariate_cols", getattr(configs, "covariate_cols", [])) or []
+        )
         
         # Inverted embedding: maps temporal sequence to embedding dimension
         self.enc_embedding = nn.Linear(configs.seq_len, configs.d_model)
@@ -78,6 +83,7 @@ class iTransformer(nn.Module):
         
         # Decoder 
         self.projector = nn.Linear(configs.d_model, configs.pred_len)
+        self.future_cov_projection = nn.Linear(self.known_future_num, self.c_out) if self.known_future_num > 0 else None
         
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # x_enc shape: [B, Seq, C]
@@ -95,6 +101,12 @@ class iTransformer(nn.Module):
         
         # Permute back to standard format: [B, C, pred_len] -> [B, pred_len, C]
         dec_out = dec_out.permute(0, 2, 1)
+
+        if self.future_cov_projection is not None and x_dec is not None:
+            cov_start = self.target_dim
+            cov_end = cov_start + self.known_future_num
+            future_cov = x_dec[:, -self.pred_len :, cov_start:cov_end]
+            dec_out = dec_out + self.future_cov_projection(future_cov)
         
         if self.output_attention:
             return dec_out, attns

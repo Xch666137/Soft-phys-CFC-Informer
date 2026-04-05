@@ -1,10 +1,11 @@
 model:
-  name: DLinear
+  name: TiDE
   enc_in: 6
-  c_out: 3
-  d_model: 512
-  d_ff: 2048
-  dropout: 0.05
+  c_out: 1
+  d_model: 256
+  d_ff: 1024
+  e_layers: 2
+  dropout: 0.10
 
 data:
   root_path: ./
@@ -18,12 +19,12 @@ data:
 
 training:
   seed: 2024
-  batch_size: 32
-  train_epochs: 50
-  learning_rate: 1.0e-4
-  weight_decay: 1.0e-4
-  patience: 5
-  use_amp: false
+  batch_size: 64
+  train_epochs: 100
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-5
+  patience: 10
+  use_amp: true
 
 hardware:
   use_gpu: true

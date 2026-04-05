@@ -1,0 +1,11 @@
+benchmark:
+  jobs:
+    - name: itransformer_net_injection
+      run_name: itransformer_net_injection
+      config: configs/baselines/itransformer_net_injection.yaml
+    - name: informer_net_injection
+      run_name: informer_net_injection
+      config: configs/baselines/informer_net_injection.yaml
+    - name: lstm_net_injection
+      run_name: lstm_net_injection
+      config: configs/baselines/lstm_net_injection.yaml

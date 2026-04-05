@@ -1,5 +1,5 @@
 _base_: physformer_default.yaml
 checkpoint:
-  name: PhysFormer_ablation_V5
+  name: physformer_ablation_no_soc_consistency
 ablation:
-  fixed_phys: true
+  no_soc_consistency: true

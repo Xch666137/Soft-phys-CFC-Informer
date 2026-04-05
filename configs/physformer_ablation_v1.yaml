@@ -1,5 +1,5 @@
 _base_: physformer_default.yaml
 checkpoint:
-  name: PhysFormer_ablation_V1
+  name: physformer_ablation_no_phys_stream
 ablation:
   no_phys_stream: true

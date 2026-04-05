@@ -1,4 +1,4 @@
-_base_: lstm.yaml
+_base_: tft.yaml
 
 model:
   enc_in: 6
@@ -18,4 +18,4 @@ data:
   aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
 
 checkpoint:
-  name: lstm_net_injection
+  name: tft_net_injection

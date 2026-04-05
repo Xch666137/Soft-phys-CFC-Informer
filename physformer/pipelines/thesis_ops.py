@@ -1,49 +1,9 @@
 import json
+import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-
-def build_portfolio_dataset(input_csv: str, output_csv: str, portfolio_id: str, region_id: str):
-    df = pd.read_csv(input_csv)
-    required = ['date', 'temperature', 'irradiance', 'wind_speed']
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {missing}")
-
-    if 'p_vpp_mw' in df.columns:
-        p_vpp = df['p_vpp_mw']
-    elif all(c in df.columns for c in ['load_mw', 'pv_mw', 'wind_mw']):
-        p_vpp = df['load_mw'] - df['pv_mw'] - df['wind_mw']
-    else:
-        raise ValueError(
-            "Input must contain either 'p_vpp_mw' or all of 'load_mw', 'pv_mw', 'wind_mw'."
-        )
-
-    out = pd.DataFrame({
-        'date': pd.to_datetime(df['date']),
-        'portfolio_id': portfolio_id,
-        'region_id': region_id,
-        'p_vpp_mw': p_vpp,
-        'temperature': df['temperature'],
-        'irradiance': df['irradiance'],
-        'wind_speed': df['wind_speed'],
-    })
-
-    optional_cols = {
-        'load_mw': 'p_load_mw',
-        'pv_mw': 'p_pv_mw',
-        'wind_mw': 'p_wind_mw',
-    }
-    for src, dst in optional_cols.items():
-        if src in df.columns:
-            out[dst] = df[src]
-
-    output_path = Path(output_csv)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    out.sort_values('date').reset_index(drop=True).to_csv(output_path, index=False)
-    return output_path
 
 
 def export_portfolio_forecasts(config_loader, config_to_args, data_provider, config_path: str, experiment_dir: str, output_csv: str):
@@ -244,7 +204,14 @@ def summarize_runs(run_dirs, output_path: str, kind: str):
             continue
         with open(metrics_path, 'r', encoding='utf-8') as f:
             metrics = json.load(f)
-        row = {'run_name': run_dir.name, 'run_dir': str(run_dir)}
+        run_name = run_dir.name
+        match = re.match(r"^(?P<base>.+)__s(?P<seed>\d+)$", run_name)
+        row = {
+            'run_name': run_name,
+            'run_dir': str(run_dir),
+            'experiment_name': match.group('base') if match else run_name,
+            'seed': int(match.group('seed')) if match else np.nan,
+        }
         row.update({k: v for k, v in metrics.items() if not isinstance(v, (dict, list))})
         rows.append(row)
 
@@ -252,4 +219,29 @@ def summarize_runs(run_dirs, output_path: str, kind: str):
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output, index=False)
-    return {'kind': kind, 'rows': int(len(df)), 'output_csv': str(output)}
+
+    grouped_output = output.with_name(output.stem.replace('_raw', '_grouped') + output.suffix)
+    if not df.empty:
+        metric_cols = [c for c in df.columns if c not in {'run_name', 'run_dir', 'experiment_name', 'seed'}]
+        summary_rows = []
+        for exp_name, group in df.groupby('experiment_name', sort=True):
+            row = {
+                'experiment_name': exp_name,
+                'num_runs': int(len(group)),
+                'seed_values': ','.join(str(int(s)) for s in group['seed'].dropna().tolist()),
+            }
+            for col in metric_cols:
+                if pd.api.types.is_numeric_dtype(group[col]):
+                    row[f'{col}_mean'] = float(group[col].mean())
+                    row[f'{col}_std'] = float(group[col].std(ddof=0)) if len(group) > 1 else 0.0
+            summary_rows.append(row)
+        grouped_df = pd.DataFrame(summary_rows).sort_values('experiment_name').reset_index(drop=True)
+    else:
+        grouped_df = pd.DataFrame()
+    grouped_df.to_csv(grouped_output, index=False)
+    return {
+        'kind': kind,
+        'rows': int(len(df)),
+        'output_csv': str(output),
+        'grouped_output_csv': str(grouped_output),
+    }

@@ -17,6 +17,10 @@ The build chain writes these files under `data_processed/` by default:
 - `nextgen_vpp_metadata.json`
 - `wind_template_lookup.csv`
 
+The thesis branch also supports a strict multi-portfolio benchmark layered on top of the household table. See:
+
+- `docs/multi_portfolio_benchmark.md`
+
 The aggregate table is designed for the thesis forecasting task:
 
 - `agg_load_kw`

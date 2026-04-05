@@ -4,7 +4,7 @@ import torch.nn as nn
 
 class GRU(nn.Module):
     def __init__(self, configs):
-        super(GRU, self).__init__()
+        super().__init__()
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
         self.enc_in = configs.enc_in
@@ -12,33 +12,30 @@ class GRU(nn.Module):
         self.d_model = configs.d_model
         self.n_layers = configs.e_layers
         self.dropout = configs.dropout
+        self.target_dim = len(getattr(configs, "target_cols", [])) or self.dec_out
+        self.known_future_num = len(
+            getattr(configs, "known_future_covariate_cols", getattr(configs, "covariate_cols", [])) or []
+        )
 
-        # GRU 编码器
         self.gru = nn.GRU(
             input_size=self.enc_in,
             hidden_size=self.d_model,
             num_layers=self.n_layers,
             batch_first=True,
-            dropout=self.dropout if self.n_layers > 1 else 0
+            dropout=self.dropout if self.n_layers > 1 else 0.0,
         )
-
-        # 投影层：将 GRU 最后一步的隐状态映射到预测序列长度
-        # 结构：Hidden_State -> Flatten -> Linear -> Reshape
         self.projection = nn.Linear(self.d_model, self.pred_len * self.dec_out)
+        self.future_cov_projection = nn.Linear(self.known_future_num, self.dec_out) if self.known_future_num > 0 else None
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
-        # x_enc: [Batch, Seq_Len, Enc_In]
-
-        # GRU 输出: out, h_n
-        # out: [Batch, Seq, Hidden]
-        # h_n: [Layers, Batch, Hidden]
         _, h_n = self.gru(x_enc)
-
-        # 取最后一层的隐状态 [Batch, Hidden]
         h_last = h_n[-1, :, :]
+        output = self.projection(h_last).view(x_enc.shape[0], self.pred_len, self.dec_out)
 
-        # 投影并重塑 [Batch, Pred_Len, C_Out]
-        output = self.projection(h_last)
-        output = output.view(x_enc.shape[0], self.pred_len, self.dec_out)
+        if self.future_cov_projection is not None and x_dec is not None:
+            cov_start = self.target_dim
+            cov_end = cov_start + self.known_future_num
+            future_cov = x_dec[:, -self.pred_len :, cov_start:cov_end]
+            output = output + self.future_cov_projection(future_cov)
 
         return output

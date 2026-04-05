@@ -1,17 +1,21 @@
 _base_: dlinear.yaml
 
 model:
-  enc_in: 4
+  enc_in: 6
   c_out: 1
 
 data:
-  data_path: data/portfolio_net_injection.csv
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
   time_col: date
   id_col: portfolio_id
   region_col: region_id
+  split_col: split
+  split_strategy: portfolio_manifest
   task_mode: net_injection
   target_cols: [p_vpp_mw]
-  covariate_cols: [temperature, irradiance, wind_speed]
+  known_future_covariate_cols: [temperature, irradiance, wind_speed]
+  history_state_cols: [p_battery_mw, e_battery_soc_mwh]
+  aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
 
 checkpoint:
   name: dlinear_net_injection

@@ -95,6 +95,15 @@ class BaseExperiment:
         np.save(path, value)
         self.logger.info(f"Saved numpy artifact to: {path}")
 
+    def save_npz(self, relative_path: str, value: Any):
+        path = self.run_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(value, dict):
+            np.savez_compressed(path, **value)
+        else:
+            np.savez_compressed(path, arr=value)
+        self.logger.info(f"Saved npz artifact to: {path}")
+
     def save_test_outputs(self, preds, trues, metrics: dict[str, Any], extras: dict[str, Any] | None = None):
         self.save_numpy('pred.npy', preds)
         self.save_numpy('true.npy', trues)
@@ -114,6 +123,8 @@ class BaseExperiment:
                 with open(out_path, 'w', encoding='utf-8') as f:
                     json.dump(self._to_serializable(value), f, indent=2, ensure_ascii=False)
                 self.logger.info(f"Saved JSON artifact to: {out_path}")
+            elif name.endswith('.npz'):
+                self.save_npz(str(Path('extras') / name), value)
             else:
                 self.save_numpy(str(Path('extras') / name), value)
 

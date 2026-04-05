@@ -568,6 +568,16 @@ def broadcast_weather_to_15min(weather_hourly: pd.DataFrame, full_index: pd.Date
     return mapped
 
 
+def reindex_households_to_full_index(household_df: pd.DataFrame, full_index: pd.DatetimeIndex):
+    frames = []
+    for household_id, group in household_df.groupby("household_id", sort=False):
+        aligned = group.set_index("date").reindex(full_index)
+        aligned["household_id"] = household_id
+        aligned = aligned.ffill()
+        frames.append(aligned.reset_index().rename(columns={"index": "date"}))
+    return pd.concat(frames, ignore_index=True)
+
+
 def _standardize_rye_generation_columns(df: pd.DataFrame):
     normalized = {_normalize_name(c): c for c in df.columns}
     time_col = None
@@ -757,9 +767,7 @@ def build_semisynthetic_vpp_dataset(
         tz="UTC",
     )
 
-    household_15 = household_15.set_index("date").groupby("household_id", group_keys=False).apply(
-        lambda df: df.reindex(full_index).assign(household_id=df["household_id"].iloc[0]).ffill()
-    ).reset_index().rename(columns={"index": "date"})
+    household_15 = reindex_households_to_full_index(household_15, full_index)
 
     for static_col in ["solar_capacity_kw", "battery_capacity_kwh", "battery_peak_power_kw"]:
         household_15[static_col] = household_15.groupby("household_id")[static_col].ffill().bfill()
@@ -874,4 +882,621 @@ def build_semisynthetic_vpp_dataset(
         "aggregate_csv": str(aggregate_path),
         "metadata_json": str(metadata_path),
         "wind_template_lookup_csv": str(wind_lookup_path),
+    }
+
+
+def build_reference_15min_index(
+    audit_year: int = 2018,
+    source_timezone: str = "Australia/Sydney",
+):
+    start_local = pd.Timestamp(f"{audit_year}-01-01 00:00:00", tz=source_timezone)
+    end_local = pd.Timestamp(f"{audit_year}-12-31 23:45:00", tz=source_timezone)
+    return pd.date_range(start_local, end_local, freq="15min").tz_convert("UTC")
+
+
+def _safe_zscore(series: pd.Series):
+    clean = pd.to_numeric(series, errors="coerce")
+    std = float(clean.std(ddof=0)) if len(clean) else 0.0
+    if std == 0.0 or math.isnan(std):
+        return pd.Series(np.zeros(len(clean)), index=clean.index, dtype=float)
+    return ((clean - float(clean.mean())) / std).astype(float)
+
+
+def _first_timestamp_from_group(group: pd.DataFrame):
+    dates = pd.to_datetime(group["date"], utc=True)
+    return pd.Timestamp(dates.min())
+
+
+def _last_timestamp_from_group(group: pd.DataFrame):
+    dates = pd.to_datetime(group["date"], utc=True)
+    return pd.Timestamp(dates.max())
+
+
+def audit_nextgen_household_eligibility(
+    nextgen_dir: str | Path,
+    output_dir: str | Path,
+    audit_year: int = 2018,
+    source_timezone: str = "Australia/Sydney",
+    min_coverage_ratio: float = 1.0,
+    min_feature_availability: float = 0.99,
+):
+    output_dir = _ensure_dir(output_dir)
+    full_index = build_reference_15min_index(audit_year=audit_year, source_timezone=source_timezone)
+    expected_rows = len(full_index)
+
+    nextgen = load_nextgen_households(nextgen_dir, source_timezone=source_timezone)
+    household_15 = resample_nextgen_to_15min(nextgen)
+
+    records = []
+    exclusion_counts = {}
+
+    for household_id, raw_group in nextgen.groupby("household_id", sort=True):
+        resampled_group = household_15.loc[household_15["household_id"] == household_id].copy()
+        resampled_group["date"] = pd.to_datetime(resampled_group["date"], utc=True)
+        resampled_group = resampled_group.sort_values("date")
+        resampled_index = pd.DatetimeIndex(resampled_group["date"])
+        aligned = resampled_group.set_index("date").reindex(full_index)
+
+        raw_start = _first_timestamp_from_group(raw_group)
+        raw_end = _last_timestamp_from_group(raw_group)
+        resampled_start = pd.Timestamp(resampled_index.min()) if len(resampled_index) else pd.NaT
+        resampled_end = pd.Timestamp(resampled_index.max()) if len(resampled_index) else pd.NaT
+
+        full_year_start_ok = bool(pd.notna(raw_start) and raw_start <= full_index[0])
+        full_year_end_ok = bool(pd.notna(raw_end) and raw_end >= full_index[-1])
+        present_rows = int(resampled_index.intersection(full_index).size)
+        coverage_ratio = float(present_rows / expected_rows) if expected_rows else 0.0
+
+        load_ratio = float(aligned["load_kw"].notna().mean())
+        solar_ratio = float(aligned["solar_kw"].notna().mean())
+        battery_power_ratio = float(aligned["battery_power_kw"].notna().mean())
+        battery_soc_ratio = float(aligned["battery_soc_kwh"].notna().mean())
+
+        exclusion_reasons = []
+        if not full_year_start_ok:
+            exclusion_reasons.append("starts_after_audit_window")
+        if not full_year_end_ok:
+            exclusion_reasons.append("ends_before_audit_window")
+        if coverage_ratio < min_coverage_ratio:
+            exclusion_reasons.append("missing_15min_bins")
+        if load_ratio < min_feature_availability:
+            exclusion_reasons.append("missing_load_kw")
+        if solar_ratio < min_feature_availability:
+            exclusion_reasons.append("missing_solar_kw")
+        if battery_power_ratio < min_feature_availability:
+            exclusion_reasons.append("missing_battery_power_kw")
+        if battery_soc_ratio < min_feature_availability:
+            exclusion_reasons.append("missing_battery_soc_kwh")
+
+        eligible = len(exclusion_reasons) == 0
+        for reason in exclusion_reasons:
+            exclusion_counts[reason] = exclusion_counts.get(reason, 0) + 1
+
+        records.append({
+            "household_id": household_id,
+            "raw_rows": int(len(raw_group)),
+            "raw_start_utc": raw_start.isoformat() if pd.notna(raw_start) else None,
+            "raw_end_utc": raw_end.isoformat() if pd.notna(raw_end) else None,
+            "resampled_rows_in_window": present_rows,
+            "resampled_start_utc": resampled_start.isoformat() if pd.notna(resampled_start) else None,
+            "resampled_end_utc": resampled_end.isoformat() if pd.notna(resampled_end) else None,
+            "expected_rows": int(expected_rows),
+            "coverage_ratio": coverage_ratio,
+            "load_available_ratio": load_ratio,
+            "solar_available_ratio": solar_ratio,
+            "battery_power_available_ratio": battery_power_ratio,
+            "battery_soc_available_ratio": battery_soc_ratio,
+            "full_year_start_ok": full_year_start_ok,
+            "full_year_end_ok": full_year_end_ok,
+            "eligible": eligible,
+            "exclusion_reason": ";".join(exclusion_reasons) if exclusion_reasons else "",
+        })
+
+    audit_df = pd.DataFrame(records).sort_values(["eligible", "household_id"], ascending=[False, True]).reset_index(drop=True)
+    eligible_ids = audit_df.loc[audit_df["eligible"], "household_id"].tolist()
+
+    exclusion_manifest = {
+        "audit_year": audit_year,
+        "source_timezone": source_timezone,
+        "expected_rows": int(expected_rows),
+        "min_coverage_ratio": float(min_coverage_ratio),
+        "min_feature_availability": float(min_feature_availability),
+        "raw_household_files": int(nextgen["household_id"].nunique()),
+        "eligible_households": len(eligible_ids),
+        "excluded_households": int(len(audit_df) - len(eligible_ids)),
+        "exclusion_counts": exclusion_counts,
+        "eligible_household_ids": eligible_ids,
+    }
+
+    audit_csv = output_dir / "household_eligibility.csv"
+    exclusion_json = output_dir / "household_exclusion_report.json"
+    audit_df.to_csv(audit_csv, index=False)
+    with open(exclusion_json, "w", encoding="utf-8") as f:
+        json.dump(exclusion_manifest, f, indent=2, ensure_ascii=False)
+
+    return audit_df, exclusion_manifest, full_index, audit_csv, exclusion_json
+
+
+def _prepare_filled_household_frame(
+    nextgen_dir: str | Path,
+    household_ids: list[str],
+    full_index: pd.DatetimeIndex,
+    source_timezone: str = "Australia/Sydney",
+):
+    nextgen = load_nextgen_households(nextgen_dir, source_timezone=source_timezone)
+    nextgen = nextgen.loc[nextgen["household_id"].isin(household_ids)].copy()
+    household_15 = resample_nextgen_to_15min(nextgen)
+
+    household_15 = reindex_households_to_full_index(household_15, full_index)
+
+    for static_col in ["solar_capacity_kw", "battery_capacity_kwh", "battery_peak_power_kw"]:
+        household_15[static_col] = household_15.groupby("household_id")[static_col].ffill().bfill()
+
+    household_15[["load_kw", "solar_kw", "battery_power_kw"]] = household_15[
+        ["load_kw", "solar_kw", "battery_power_kw"]
+    ].fillna(0.0)
+    household_15["battery_soc_kwh"] = household_15.groupby("household_id")["battery_soc_kwh"].ffill().bfill()
+    household_15["date"] = pd.to_datetime(household_15["date"], utc=True)
+
+    return household_15.sort_values(["household_id", "date"]).reset_index(drop=True)
+
+
+def compute_household_descriptors(
+    household_df_15min: pd.DataFrame,
+    solar_sign_audit: dict,
+    source_timezone: str = "Australia/Sydney",
+):
+    working = household_df_15min.copy()
+    working["local_date"] = pd.to_datetime(working["date"], utc=True).dt.tz_convert(source_timezone)
+    working["local_hour"] = working["local_date"].dt.hour
+
+    if solar_sign_audit.get("sign_convention") == "negative_is_generation":
+        working["solar_generation_kw"] = (-working["solar_kw"]).clip(lower=0.0)
+    else:
+        working["solar_generation_kw"] = working["solar_kw"].clip(lower=0.0)
+
+    grouped = working.groupby("household_id", sort=True)
+    descriptors = grouped.agg(
+        load_mean=("load_kw", "mean"),
+        load_std=("load_kw", "std"),
+        solar_capacity_kw=("solar_capacity_kw", "max"),
+        battery_capacity_kwh=("battery_capacity_kwh", "max"),
+        battery_peak_power_kw=("battery_peak_power_kw", "max"),
+        battery_abs_power_mean=("battery_power_kw", lambda s: float(np.mean(np.abs(s.to_numpy(dtype=float))))),
+        battery_soc_range=("battery_soc_kwh", lambda s: float(s.max() - s.min())),
+        total_load_kwh=("load_kw", lambda s: float(s.sum() * 0.25)),
+        total_solar_generation_kwh=("solar_generation_kw", lambda s: float(s.sum() * 0.25)),
+    ).reset_index()
+
+    evening = working.loc[(working["local_hour"] >= 17) & (working["local_hour"] < 21)]
+    evening_mean = evening.groupby("household_id")["load_kw"].mean().rename("evening_load_mean")
+    descriptors = descriptors.merge(evening_mean, on="household_id", how="left")
+    descriptors["evening_load_mean"] = descriptors["evening_load_mean"].fillna(descriptors["load_mean"])
+    descriptors["evening_peak_ratio"] = descriptors["evening_load_mean"] / descriptors["load_mean"].replace(0.0, np.nan)
+    descriptors["evening_peak_ratio"] = descriptors["evening_peak_ratio"].replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    descriptors["solar_generation_ratio"] = descriptors["total_solar_generation_kwh"] / descriptors["total_load_kwh"].replace(0.0, np.nan)
+    descriptors["solar_generation_ratio"] = descriptors["solar_generation_ratio"].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    descriptors["load_score"] = (
+        _safe_zscore(descriptors["load_mean"])
+        + 0.5 * _safe_zscore(descriptors["load_std"])
+        + 0.5 * _safe_zscore(descriptors["evening_peak_ratio"])
+    )
+    descriptors["der_score"] = (
+        _safe_zscore(descriptors["solar_capacity_kw"])
+        + _safe_zscore(descriptors["solar_generation_ratio"])
+    )
+    descriptors["flex_score"] = (
+        _safe_zscore(descriptors["battery_capacity_kwh"])
+        + 0.5 * _safe_zscore(descriptors["battery_peak_power_kw"])
+        + 0.5 * _safe_zscore(descriptors["battery_abs_power_mean"])
+        + 0.5 * _safe_zscore(descriptors["battery_soc_range"])
+    )
+
+    return descriptors.sort_values(["load_score", "household_id"], ascending=[False, True]).reset_index(drop=True)
+
+
+def _derive_split_portfolio_counts(num_portfolios: int):
+    if num_portfolios < 3:
+        raise ValueError("At least 3 portfolios are required to produce train/val/test splits.")
+    if num_portfolios == 5:
+        return {"train": 3, "val": 1, "test": 1}
+
+    train = max(1, int(round(num_portfolios * 0.6)))
+    val = max(1, int(round(num_portfolios * 0.2)))
+    test = max(1, num_portfolios - train - val)
+
+    while train + val + test > num_portfolios:
+        if train > val and train > 1:
+            train -= 1
+        elif val > 1:
+            val -= 1
+        elif test > 1:
+            test -= 1
+        else:
+            break
+
+    while train + val + test < num_portfolios:
+        train += 1
+
+    if val < 1 or test < 1:
+        raise ValueError("Portfolio split must retain at least one validation and one test portfolio.")
+    return {"train": train, "val": val, "test": test}
+
+
+def assign_households_to_splits(
+    descriptors: pd.DataFrame,
+    portfolio_size: int = 5,
+):
+    num_portfolios = len(descriptors) // portfolio_size
+    used_count = num_portfolios * portfolio_size
+    usable = descriptors.sort_values(["load_score", "household_id"], ascending=[False, True]).head(used_count).copy()
+    leftover = descriptors.iloc[used_count:].copy()
+
+    split_portfolio_counts = _derive_split_portfolio_counts(num_portfolios)
+    target_households = {k: v * portfolio_size for k, v in split_portfolio_counts.items()}
+    split_state = {
+        name: {
+            "rows": [],
+            "current_count": 0,
+            "current_load": 0.0,
+        }
+        for name in ["train", "val", "test"]
+    }
+
+    for row in usable.to_dict("records"):
+        candidates = [
+            name for name in ["train", "val", "test"]
+            if split_state[name]["current_count"] < target_households[name]
+        ]
+        chosen = min(
+            candidates,
+            key=lambda name: (
+                split_state[name]["current_load"],
+                split_state[name]["current_count"] / max(target_households[name], 1),
+                ["train", "val", "test"].index(name),
+            ),
+        )
+        split_state[chosen]["rows"].append(row)
+        split_state[chosen]["current_count"] += 1
+        split_state[chosen]["current_load"] += float(row["load_mean"])
+
+    split_frames = {}
+    for split_name, state in split_state.items():
+        split_frames[split_name] = pd.DataFrame(state["rows"]).reset_index(drop=True)
+        split_frames[split_name]["split"] = split_name
+
+    return split_frames, leftover, split_portfolio_counts
+
+
+def _feature_distance(row: pd.Series, members_df: pd.DataFrame):
+    if members_df.empty:
+        return 0.0
+    features = ["load_score", "der_score", "flex_score", "load_mean", "solar_generation_ratio", "battery_capacity_kwh"]
+    centroid = members_df[features].mean().to_numpy(dtype=float)
+    return float(np.linalg.norm(row[features].to_numpy(dtype=float) - centroid))
+
+
+def build_portfolios_for_split(
+    split_df: pd.DataFrame,
+    split_name: str,
+    num_portfolios: int,
+    portfolio_size: int = 5,
+):
+    if len(split_df) != num_portfolios * portfolio_size:
+        raise ValueError(f"Split '{split_name}' does not match the expected household count for {num_portfolios} portfolios.")
+
+    ordered = split_df.sort_values(["load_score", "household_id"], ascending=[False, True]).reset_index(drop=True)
+    portfolio_ids = [f"{split_name}_portfolio_{idx + 1:02d}" for idx in range(num_portfolios)]
+    buckets = {
+        pid: {
+            "rows": [],
+            "load_total": 0.0,
+        }
+        for pid in portfolio_ids
+    }
+
+    seed_rows = ordered.head(num_portfolios).to_dict("records")
+    for pid, row in zip(portfolio_ids, seed_rows):
+        buckets[pid]["rows"].append(row)
+        buckets[pid]["load_total"] += float(row["load_mean"])
+
+    for row in ordered.iloc[num_portfolios:].to_dict("records"):
+        candidates = [pid for pid in portfolio_ids if len(buckets[pid]["rows"]) < portfolio_size]
+        min_load_total = min(buckets[pid]["load_total"] for pid in candidates)
+        lightest = [pid for pid in candidates if buckets[pid]["load_total"] == min_load_total]
+
+        if len(lightest) == 1:
+            chosen = lightest[0]
+        else:
+            chosen = max(
+                lightest,
+                key=lambda pid: (
+                    _feature_distance(pd.Series(row), pd.DataFrame(buckets[pid]["rows"])),
+                    -portfolio_ids.index(pid),
+                ),
+            )
+
+        buckets[chosen]["rows"].append(row)
+        buckets[chosen]["load_total"] += float(row["load_mean"])
+
+    membership_rows = []
+    for pid in portfolio_ids:
+        members = pd.DataFrame(buckets[pid]["rows"]).sort_values("household_id").reset_index(drop=True)
+        members["portfolio_id"] = pid
+        members["split"] = split_name
+        membership_rows.append(members)
+
+    return pd.concat(membership_rows, ignore_index=True)
+
+
+def label_portfolios(portfolio_summary: pd.DataFrame):
+    out = portfolio_summary.copy()
+    load_z = _safe_zscore(out["load_score_mean"])
+    der_z = _safe_zscore(out["der_score_mean"])
+    flex_z = _safe_zscore(out["flex_score_mean"])
+    labels = []
+    for idx in out.index:
+        vals = {
+            "load_heavy": float(load_z.loc[idx]),
+            "der_heavy": float(der_z.loc[idx]),
+            "flex_heavy": float(flex_z.loc[idx]),
+        }
+        if max(abs(v) for v in vals.values()) <= 0.5:
+            labels.append("balanced")
+            continue
+        top_label, top_value = max(vals.items(), key=lambda kv: kv[1])
+        labels.append(top_label if top_value >= 0.75 else "mixed")
+    out["portfolio_label"] = labels
+    return out
+
+
+def build_time_generalization_training_table(training_df: pd.DataFrame, train_portfolio_ids: list[str]):
+    """
+    Build a second benchmark table that measures time generalization using only the
+    portfolios that belong to the composition benchmark train split.
+    """
+    df = training_df.loc[training_df["portfolio_id"].isin(train_portfolio_ids)].copy()
+    if df.empty:
+        raise ValueError("Cannot build time-generalization table without train portfolios.")
+
+    split_frames = []
+    for portfolio_id, portfolio_df in df.groupby("portfolio_id", sort=True):
+        portfolio_df = portfolio_df.sort_values("date").reset_index(drop=True)
+        n = len(portfolio_df)
+        n_train = int(n * 0.7)
+        n_test = int(n * 0.2)
+        n_val = n - n_train - n_test
+
+        split_labels = np.empty(n, dtype=object)
+        split_labels[:n_train] = "train"
+        split_labels[n_train:n_train + n_val] = "val"
+        split_labels[n_train + n_val:] = "test"
+
+        split_df = portfolio_df.copy()
+        split_df["split"] = split_labels
+        split_frames.append(split_df)
+
+    return pd.concat(split_frames, ignore_index=True).sort_values(["portfolio_id", "date"]).reset_index(drop=True)
+
+
+def build_multi_portfolio_dataset(
+    nextgen_dir: str | Path,
+    act_weather_csv: str | Path,
+    rye_generation_csv: str | Path,
+    rye_weather_csv: str | Path,
+    output_dir: str | Path,
+    portfolio_size: int = 5,
+    target_penetration: float = 0.15,
+    audit_year: int = 2018,
+    source_timezone: str = "Australia/Sydney",
+    region_id: str = "act_canberra",
+    min_feature_availability: float = 0.99,
+):
+    output_dir = _ensure_dir(output_dir)
+    audit_df, exclusion_manifest, full_index, audit_csv, exclusion_json = audit_nextgen_household_eligibility(
+        nextgen_dir=nextgen_dir,
+        output_dir=output_dir,
+        audit_year=audit_year,
+        source_timezone=source_timezone,
+        min_feature_availability=min_feature_availability,
+    )
+    eligible_ids = audit_df.loc[audit_df["eligible"], "household_id"].tolist()
+    if len(eligible_ids) < portfolio_size * 3:
+        raise ValueError(
+            f"Need at least {portfolio_size * 3} eligible households to create train/val/test portfolios. "
+            f"Got {len(eligible_ids)}."
+        )
+
+    household_15 = _prepare_filled_household_frame(
+        nextgen_dir=nextgen_dir,
+        household_ids=eligible_ids,
+        full_index=full_index,
+        source_timezone=source_timezone,
+    )
+    battery_audit = audit_battery_power_sign(household_15)
+    solar_audit = audit_generation_sign(
+        household_15["solar_kw"],
+        positive_label="positive_is_generation",
+        negative_label="negative_is_generation",
+    )
+
+    descriptors = compute_household_descriptors(
+        household_df_15min=household_15,
+        solar_sign_audit=solar_audit,
+        source_timezone=source_timezone,
+    )
+    split_frames, leftover_df, split_portfolio_counts = assign_households_to_splits(
+        descriptors=descriptors,
+        portfolio_size=portfolio_size,
+    )
+
+    membership_frames = []
+    for split_name, split_df in split_frames.items():
+        membership_frames.append(
+            build_portfolios_for_split(
+                split_df=split_df,
+                split_name=split_name,
+                num_portfolios=split_portfolio_counts[split_name],
+                portfolio_size=portfolio_size,
+            )
+        )
+    membership = pd.concat(membership_frames, ignore_index=True)
+    membership = membership[["portfolio_id", "split", "household_id"]].sort_values(
+        ["split", "portfolio_id", "household_id"]
+    ).reset_index(drop=True)
+
+    eligible_members = household_15.merge(membership, on="household_id", how="inner")
+    if eligible_members["household_id"].nunique() != len(membership["household_id"].unique()):
+        raise ValueError("Membership merge dropped some eligible households unexpectedly.")
+
+    act_weather_hourly = load_standardized_weather_csv(act_weather_csv)
+    rye_generation = load_rye_generation_csv(rye_generation_csv)
+    rye_weather_hourly = load_standardized_weather_csv(rye_weather_csv)
+    wind_models, wind_report = fit_hourly_wind_template(rye_generation, rye_weather_hourly)
+    act_weather_hourly_cf = apply_hourly_wind_template(act_weather_hourly, wind_models)
+    act_weather_15_cf = broadcast_weather_to_15min(act_weather_hourly_cf, full_index)
+
+    portfolio_ts_frames = []
+    summary_rows = []
+    descriptor_lookup = descriptors.set_index("household_id")
+
+    for portfolio_id, member_ts in eligible_members.groupby("portfolio_id", sort=True):
+        split_name = str(member_ts["split"].iloc[0])
+        aggregate_input = member_ts.drop(columns=["split"]).copy()
+        base_agg = aggregate_input.groupby("date", as_index=False)["load_kw"].sum().rename(columns={"load_kw": "agg_load_kw"})
+        portfolio_weather, scaling = scale_synthetic_wind_to_penetration(
+            act_weather_15_cf.copy(),
+            base_agg,
+            target_penetration=target_penetration,
+        )
+        aggregate_out, net_formula = build_aggregate_table(
+            household_df_15min=aggregate_input,
+            shared_weather_15min=portfolio_weather,
+            battery_sign_audit=battery_audit,
+            solar_sign_audit=solar_audit,
+        )
+        aggregate_out["portfolio_id"] = portfolio_id
+        aggregate_out["split"] = split_name
+        aggregate_out["region_id"] = region_id
+        aggregate_out["p_vpp_kw"] = aggregate_out["agg_net_load_kw"]
+        portfolio_ts_frames.append(aggregate_out)
+
+        member_ids = sorted(member_ts["household_id"].unique().tolist())
+        member_desc = descriptor_lookup.loc[member_ids]
+        summary_rows.append({
+            "portfolio_id": portfolio_id,
+            "split": split_name,
+            "region_id": region_id,
+            "household_count": int(len(member_ids)),
+            "member_households": ",".join(member_ids),
+            "load_score_mean": float(member_desc["load_score"].mean()),
+            "der_score_mean": float(member_desc["der_score"].mean()),
+            "flex_score_mean": float(member_desc["flex_score"].mean()),
+            "agg_load_mean_kw": float(aggregate_out["agg_load_kw"].mean()),
+            "agg_load_std_kw": float(aggregate_out["agg_load_kw"].std()),
+            "agg_net_load_mean_kw": float(aggregate_out["agg_net_load_kw"].mean()),
+            "agg_net_load_std_kw": float(aggregate_out["agg_net_load_kw"].std()),
+            "agg_solar_generation_mean_kw": float((-aggregate_out["agg_solar_kw"]).clip(lower=0.0).mean())
+            if solar_audit["sign_convention"] == "negative_is_generation"
+            else float(aggregate_out["agg_solar_kw"].clip(lower=0.0).mean()),
+            "agg_battery_abs_power_mean_kw": float(np.mean(np.abs(aggregate_out["agg_battery_power_kw"].to_numpy(dtype=float)))),
+            "wind_load_energy_ratio": float(scaling["synthetic_wind_energy_kwh"] / scaling["aggregate_load_energy_kwh"]),
+            "wind_penetration_target": float(scaling["wind_penetration_target"]),
+        })
+
+    multi_portfolio_ts = pd.concat(portfolio_ts_frames, ignore_index=True).sort_values(
+        ["portfolio_id", "date"]
+    ).reset_index(drop=True)
+    portfolio_summary = label_portfolios(pd.DataFrame(summary_rows).sort_values(["split", "portfolio_id"]).reset_index(drop=True))
+
+    training_df = pd.DataFrame({
+        "date": pd.to_datetime(multi_portfolio_ts["date"], utc=True),
+        "portfolio_id": multi_portfolio_ts["portfolio_id"],
+        "region_id": multi_portfolio_ts["region_id"],
+        "split": multi_portfolio_ts["split"],
+        "p_vpp_mw": multi_portfolio_ts["p_vpp_kw"] / 1000.0,
+        "temperature": multi_portfolio_ts["air_temperature_2m"],
+        "irradiance": multi_portfolio_ts["surface_solar_radiation"],
+        "wind_speed": multi_portfolio_ts["wind_speed_10m"],
+        "p_load_mw": multi_portfolio_ts["agg_load_kw"] / 1000.0,
+        "p_pv_mw": (
+            (-multi_portfolio_ts["agg_solar_kw"]).clip(lower=0.0)
+            if solar_audit["sign_convention"] == "negative_is_generation"
+            else multi_portfolio_ts["agg_solar_kw"].clip(lower=0.0)
+        ) / 1000.0,
+        "p_wind_mw": multi_portfolio_ts["synthetic_wind_kw"] / 1000.0,
+        "p_battery_mw": multi_portfolio_ts["agg_battery_power_kw"] / 1000.0,
+        "e_battery_soc_mwh": multi_portfolio_ts["agg_battery_soc_kwh"] / 1000.0,
+    }).sort_values(["portfolio_id", "date"]).reset_index(drop=True)
+
+    time_generalization_df = build_time_generalization_training_table(
+        training_df,
+        sorted(portfolio_summary.loc[portfolio_summary["split"] == "train", "portfolio_id"].tolist()),
+    )
+
+    timeseries_path = output_dir / "multi_portfolio_timeseries.csv"
+    membership_path = output_dir / "portfolio_membership.csv"
+    summary_path = output_dir / "portfolio_summary.csv"
+    training_path = output_dir / "portfolio_dataset_for_training.csv"
+    time_generalization_path = output_dir / "portfolio_dataset_for_time_generalization.csv"
+    metadata_path = output_dir / "multi_portfolio_metadata.json"
+
+    multi_portfolio_ts.to_csv(timeseries_path, index=False)
+    membership.to_csv(membership_path, index=False)
+    portfolio_summary.to_csv(summary_path, index=False)
+    training_df.to_csv(training_path, index=False)
+    time_generalization_df.to_csv(time_generalization_path, index=False)
+
+    metadata = {
+        "dataset_name": "NextGen multi-portfolio semi-synthetic VPP benchmark",
+        "classification": "single-climate multi-portfolio semi-synthetic VPP benchmark",
+        "audit_year": audit_year,
+        "source_site_timezone": source_timezone,
+        "region_id": region_id,
+        "portfolio_size": portfolio_size,
+        "min_feature_availability": float(min_feature_availability),
+        "split_portfolio_counts": split_portfolio_counts,
+        "eligible_households": int(len(eligible_ids)),
+        "leftover_eligible_households": int(len(leftover_df)),
+        "leftover_household_ids": leftover_df["household_id"].tolist(),
+        "assumptions": {
+            "shared_weather": SITE_REGISTRY["act_canberra"].name,
+            "cloud_cover_enabled": False,
+            "strict_household_disjoint": True,
+        },
+        "audits": {
+            "battery_power_audit": battery_audit,
+            "solar_sign_audit": solar_audit,
+        },
+        "wind_template_report": wind_report,
+        "aggregate_net_load_formula": net_formula,
+        "output_files": {
+            "household_eligibility_csv": str(audit_csv),
+            "household_exclusion_report_json": str(exclusion_json),
+            "multi_portfolio_timeseries_csv": str(timeseries_path),
+            "portfolio_membership_csv": str(membership_path),
+            "portfolio_summary_csv": str(summary_path),
+            "portfolio_dataset_for_training_csv": str(training_path),
+            "portfolio_dataset_for_time_generalization_csv": str(time_generalization_path),
+        },
+        "notes": [
+            "This benchmark evaluates composition-level generalization under a shared ACT weather driver.",
+            "Households are split into train/val/test before training use and are not reused across portfolios.",
+            "Cloud cover is retained in raw weather files but is not enabled as a v1 training covariate.",
+            "Time-generalization data is built only from train portfolios and split chronologically within each portfolio.",
+        ],
+    }
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    return {
+        "household_eligibility_csv": str(audit_csv),
+        "household_exclusion_report_json": str(exclusion_json),
+        "multi_portfolio_timeseries_csv": str(timeseries_path),
+        "portfolio_membership_csv": str(membership_path),
+        "portfolio_summary_csv": str(summary_path),
+        "portfolio_dataset_for_training_csv": str(training_path),
+        "portfolio_dataset_for_time_generalization_csv": str(time_generalization_path),
+        "multi_portfolio_metadata_json": str(metadata_path),
     }
