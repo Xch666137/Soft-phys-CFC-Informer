@@ -213,7 +213,7 @@ run_stage_a_single() {
   local config_path="${STAGE_A_CONFIG:-configs/physformer_default.yaml}"
   local run_name="${STAGE_A_RUN_NAME:-physformer_net_injection__s2024}"
 
-  run_stage_cmd "stage_a_train" "python run.py train --config '$config_path' --run-name '$run_name'"
+  run_stage_cmd "stage_a_train" "python run.py train --config '$config_path' --run-name '$run_name' --batch-size 128 --num-workers 12 --lr 1e-4 --patience 25 --epochs 100"
   run_stage_cmd "stage_a_test" "python run.py test --config '$config_path' --run-name '$run_name'"
 }
 

@@ -164,6 +164,8 @@ def apply_cli_overrides(args, cli_args):
     if cli_args.gpu is not None:
         args.gpu = cli_args.gpu
         args.device_ids = [cli_args.gpu]
+    if getattr(cli_args, 'num_workers', None) is not None:
+        args.num_workers = cli_args.num_workers
     if cli_args.patience is not None:
         args.patience = cli_args.patience
     if getattr(cli_args, 'seed', None) is not None:
@@ -436,6 +438,7 @@ def add_common_run_args(parser):
     parser.add_argument('--epochs', type=int, help='Training epochs override')
     parser.add_argument('--lr', type=float, help='Learning rate override')
     parser.add_argument('--batch-size', type=int, help='Batch size override')
+    parser.add_argument('--num-workers', type=int, help='Dataloader worker override')
     parser.add_argument('--patience', type=int, help='Early stopping patience override')
     parser.add_argument('--debug-nan', action='store_true', help='Enable anomaly detection')
     parser.add_argument('--save-gate-details', action='store_true', help='Save detailed gate values if model supports it')
