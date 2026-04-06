@@ -58,6 +58,7 @@ class PhysFormer(nn.Module):
         no_soc_consistency=False,
         no_future_weather=False,
         shared_query_only=False,
+        training_mode="net_first",
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -68,6 +69,7 @@ class PhysFormer(nn.Module):
         self.no_soc_consistency = no_soc_consistency
         self.no_future_weather = no_future_weather
         self.shared_query_only = shared_query_only
+        self.training_mode = training_mode
 
         self.register_buffer("target_mean", self._to_buffer(target_mean, 1, 0.0))
         self.register_buffer("target_std", self._to_buffer(target_std, 1, 1.0))
@@ -148,6 +150,16 @@ class PhysFormer(nn.Module):
         self.pv_head = self._make_head(head_input_dim, 1, dropout)
         self.wind_head = self._make_head(head_input_dim, 1, dropout)
         self.battery_head = self._make_head(2 * d_model + 2, 3, dropout)
+        self.load_confidence_head = self._make_head(head_input_dim, 1, dropout)
+        self.pv_confidence_head = self._make_head(head_input_dim, 1, dropout)
+        self.wind_confidence_head = self._make_head(head_input_dim, 1, dropout)
+        self.battery_confidence_head = self._make_head(2 * d_model + 2, 2, dropout)
+        self.load_attribution_head = self._make_head(head_input_dim, 1, dropout)
+        self.pv_attribution_head = self._make_head(head_input_dim, 1, dropout)
+        self.wind_attribution_head = self._make_head(head_input_dim, 1, dropout)
+        self.battery_attribution_head = self._make_head(2 * d_model + 2, 1, dropout)
+        self.operational_scale = nn.Parameter(torch.zeros(5))
+        self.operational_bias = nn.Parameter(torch.zeros(5))
 
     @staticmethod
     def _make_head(input_dim, output_dim, dropout):
@@ -212,6 +224,33 @@ class PhysFormer(nn.Module):
         refined = self.refinement_norm2[component_name](refined + self.refinement_ffn(refined))
         return refined
 
+    def freeze_backbone_for_operational_fit(self):
+        trainable_prefixes = (
+            "load_head",
+            "pv_head",
+            "wind_head",
+            "battery_head",
+            "load_confidence_head",
+            "pv_confidence_head",
+            "wind_confidence_head",
+            "battery_confidence_head",
+            "load_attribution_head",
+            "pv_attribution_head",
+            "wind_attribution_head",
+            "battery_attribution_head",
+            "operational_scale",
+            "operational_bias",
+        )
+        for name, parameter in self.named_parameters():
+            parameter.requires_grad = name.startswith(trainable_prefixes)
+
+    def operational_parameter_names(self):
+        names = []
+        for name, parameter in self.named_parameters():
+            if parameter.requires_grad:
+                names.append(name)
+        return names
+
     def forward(self, x_net_hist, x_weather_hist, x_battery_hist, x_weather_future, x_mark_enc, y_mark):
         if self.no_future_weather:
             x_weather_future = torch.zeros_like(x_weather_future)
@@ -272,6 +311,19 @@ class PhysFormer(nn.Module):
         pv_mod_raw = self.pv_head(pv_head_in)
         wind_mod_raw = self.wind_head(wind_head_in)
         battery_delta = self.battery_head(battery_head_in)
+        load_confidence = torch.sigmoid(self.load_confidence_head(load_head_in))
+        pv_confidence = torch.sigmoid(self.pv_confidence_head(pv_head_in))
+        wind_confidence = torch.sigmoid(self.wind_confidence_head(wind_head_in))
+        battery_confidence = torch.sigmoid(self.battery_confidence_head(battery_head_in))
+        attribution_logits = torch.cat(
+            [
+                self.load_attribution_head(load_head_in),
+                self.pv_attribution_head(pv_head_in),
+                self.wind_attribution_head(wind_head_in),
+                self.battery_attribution_head(battery_head_in),
+            ],
+            dim=-1,
+        )
 
         if self.no_phys_stream:
             load_pred_real = torch.nn.functional.softplus(load_delta)
@@ -307,7 +359,27 @@ class PhysFormer(nn.Module):
             ],
             dim=-1,
         )
+        if self.training_mode == "operational_fit":
+            scale = 1.0 + 0.1 * torch.tanh(self.operational_scale).view(1, 1, -1)
+            bias = self.operational_bias.view(1, 1, -1)
+            pred_aux_real = pred_aux_real * scale + bias
+            pred_aux_real[..., 0:3] = pred_aux_real[..., 0:3].clamp_min(0.0)
+            pred_aux_real[..., 4:5] = torch.minimum(
+                torch.maximum(pred_aux_real[..., 4:5], torch.zeros_like(battery_capacity)),
+                battery_capacity,
+            )
         pred_aux = self._norm_aux(pred_aux_real)
+        component_confidence = torch.cat(
+            [
+                load_confidence,
+                pv_confidence,
+                wind_confidence,
+                battery_confidence[..., 0:1],
+                battery_confidence[..., 1:2],
+            ],
+            dim=-1,
+        )
+        component_attribution = torch.softmax(attribution_logits, dim=-1)
 
         pred_net_real = (
             pred_aux_real[..., 0:1]
@@ -326,4 +398,6 @@ class PhysFormer(nn.Module):
             "pred_discharge_real": pred_discharge_real,
             "battery_eta_charge": physics_states["battery_eta_charge"],
             "battery_eta_discharge": physics_states["battery_eta_discharge"],
+            "component_confidence": component_confidence,
+            "component_attribution": component_attribution,
         }

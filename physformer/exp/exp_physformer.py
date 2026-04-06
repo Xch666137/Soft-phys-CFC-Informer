@@ -1,5 +1,6 @@
 import time
 import warnings
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -26,6 +27,8 @@ class Exp_PhysFormer(ForecastExperiment):
         self.scaler_params = None
         self.training_stats = None
         self.model = self._build_model().to(self.device)
+        self._configure_operational_fit()
+        self.trainable_parameters = [param for param in self.model.parameters() if param.requires_grad]
         self.criterion = self._select_criterion().to(self.device)
 
     def _ensure_train_dataset(self):
@@ -79,11 +82,45 @@ class Exp_PhysFormer(ForecastExperiment):
             no_soc_consistency=getattr(self.args, "ablation_no_soc_consistency", False),
             no_future_weather=getattr(self.args, "ablation_no_future_weather", False),
             shared_query_only=getattr(self.args, "ablation_shared_query_only", False),
+            training_mode=getattr(self.args, "training_mode", "net_first"),
         ).float()
+
+    def _configure_operational_fit(self):
+        training_mode = str(getattr(self.args, "training_mode", "net_first"))
+        if training_mode != "operational_fit":
+            return
+
+        init_from_run = getattr(self.args, "init_from_run", None)
+        if not init_from_run:
+            raise ValueError("operational_fit requires --init-from-run or training.init_from_run.")
+
+        init_path = Path(init_from_run)
+        checkpoint_path = init_path / "checkpoint.pth" if init_path.is_dir() else init_path
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Operational fit checkpoint not found: {checkpoint_path}")
+
+        state_dict = torch.load(checkpoint_path, map_location=self.device)
+        missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
+        self.logger.info(f"Initialized operational fit from: {checkpoint_path}")
+        if missing:
+            self.logger.info(f"Operational fit missing keys: {len(missing)}")
+        if unexpected:
+            self.logger.info(f"Operational fit unexpected keys: {len(unexpected)}")
+
+        if bool(getattr(self.args, "freeze_backbone", False)):
+            self.model.freeze_backbone_for_operational_fit()
+            trainable_names = self.model.operational_parameter_names()
+            preview = ", ".join(trainable_names[:8]) if trainable_names else "<none>"
+            self.logger.info(
+                "Operational fit backbone frozen | trainable_params=%d | preview=%s"
+                % (len(trainable_names), preview)
+            )
 
     def _select_optimizer(self):
         wd = self.args.weight_decay if self.args.weight_decay > 0 else 1e-4
-        return optim.AdamW(self.model.parameters(), lr=self.args.learning_rate, weight_decay=wd)
+        if not self.trainable_parameters:
+            raise ValueError("No trainable parameters available for optimizer.")
+        return optim.AdamW(self.trainable_parameters, lr=self.args.learning_rate, weight_decay=wd)
 
     def _select_criterion(self):
         self._ensure_train_dataset()
@@ -101,6 +138,8 @@ class Exp_PhysFormer(ForecastExperiment):
         return PhysLoss(
             base_loss_module=base_loss,
             total_epochs=getattr(self.args, "curriculum_total_epochs", self.args.train_epochs),
+            training_mode=getattr(self.args, "training_mode", "net_first"),
+            use_aux_supervision=getattr(self.args, "use_aux_supervision", False),
             no_aux_supervision=getattr(self.args, "ablation_no_aux_supervision", False),
             no_soc_consistency=getattr(self.args, "ablation_no_soc_consistency", False),
         )
@@ -251,12 +290,12 @@ class Exp_PhysFormer(ForecastExperiment):
                     if use_amp:
                         scaler.scale(loss).backward()
                         scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), getattr(self.args, "grad_clip", 1.0))
+                        torch.nn.utils.clip_grad_norm_(self.trainable_parameters, getattr(self.args, "grad_clip", 1.0))
                         scaler.step(optimizer)
                         scaler.update()
                     else:
                         loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), getattr(self.args, "grad_clip", 1.0))
+                        torch.nn.utils.clip_grad_norm_(self.trainable_parameters, getattr(self.args, "grad_clip", 1.0))
                         optimizer.step()
 
                     if step_idx % log_interval == 0 or step_idx == len(train_loader):
@@ -334,6 +373,8 @@ class Exp_PhysFormer(ForecastExperiment):
         discharge_preds = []
         eta_charge = []
         eta_discharge = []
+        component_confidence = []
+        component_attribution = []
 
         with torch.no_grad():
             for batch_data in test_loader:
@@ -348,6 +389,8 @@ class Exp_PhysFormer(ForecastExperiment):
                 discharge_preds.append(outputs["pred_discharge_real"].detach().cpu().numpy())
                 eta_charge.append(outputs["battery_eta_charge"].detach().cpu().numpy())
                 eta_discharge.append(outputs["battery_eta_discharge"].detach().cpu().numpy())
+                component_confidence.append(outputs["component_confidence"].detach().cpu().numpy())
+                component_attribution.append(outputs["component_attribution"].detach().cpu().numpy())
 
                 for name, value in outputs["physics_states"].items():
                     physics_states.setdefault(name, []).append(value.detach().cpu().numpy())
@@ -361,6 +404,8 @@ class Exp_PhysFormer(ForecastExperiment):
         discharge_preds = np.concatenate(discharge_preds, axis=0)
         eta_charge = np.concatenate(eta_charge, axis=0)
         eta_discharge = np.concatenate(eta_discharge, axis=0)
+        component_confidence = np.concatenate(component_confidence, axis=0)
+        component_attribution = np.concatenate(component_attribution, axis=0)
         physics_states = {name: np.concatenate(values, axis=0) for name, values in physics_states.items()}
 
         preds_real = self._denorm_target_np(preds)
@@ -378,6 +423,38 @@ class Exp_PhysFormer(ForecastExperiment):
         metrics["net_ramp_limit"] = float(self.training_stats.get("net_ramp_limit", 0.0))
         metrics["battery_ramp_limit"] = float(self.training_stats.get("battery_ramp_limit", 0.0))
         metrics["anti_overlap"] = float(np.mean(charge_preds * discharge_preds))
+        reconstructed_net = (
+            aux_preds_real[..., 0:1]
+            - aux_preds_real[..., 1:2]
+            - aux_preds_real[..., 2:3]
+            + aux_preds_real[..., 3:4]
+        )
+        metrics["component_net_consistency_residual"] = float(np.mean(np.abs(reconstructed_net - preds_real)))
+
+        attribution_names = ["load", "pv", "wind", "battery"]
+        diagnostic_summary = {
+            "training_mode": str(getattr(self.args, "training_mode", "net_first")),
+            "component_mae": metrics["component_mae"],
+            "battery_power_mae": metrics["battery_power_mae"],
+            "battery_soc_mae": metrics["battery_soc_mae"],
+            "component_net_consistency_residual": metrics["component_net_consistency_residual"],
+            "confidence_mean": {
+                name: float(component_confidence[..., idx].mean())
+                for idx, name in enumerate(self.AUX_NAMES)
+            },
+            "confidence_std": {
+                name: float(component_confidence[..., idx].std())
+                for idx, name in enumerate(self.AUX_NAMES)
+            },
+            "attribution_mean": {
+                name: float(component_attribution[..., idx].mean())
+                for idx, name in enumerate(attribution_names)
+            },
+            "attribution_dominant_fraction": {
+                name: float((component_attribution.argmax(axis=-1) == idx).mean())
+                for idx, name in enumerate(attribution_names)
+            },
+        }
 
         extras = {
             "component_preds.npz": {name: aux_preds_real[..., idx] for idx, name in enumerate(self.AUX_NAMES)},
@@ -389,7 +466,14 @@ class Exp_PhysFormer(ForecastExperiment):
                 "battery_discharge": discharge_preds[..., 0],
                 "last_soc": last_soc[..., 0],
             },
+            "component_confidence.npz": {
+                name: component_confidence[..., idx] for idx, name in enumerate(self.AUX_NAMES)
+            },
+            "component_attribution.npz": {
+                name: component_attribution[..., idx] for idx, name in enumerate(attribution_names)
+            },
             "physics_states.npz": physics_states,
+            "diagnostic_summary.json": diagnostic_summary,
         }
         self.save_test_outputs(preds_real, trues_real, metrics, extras=extras)
 

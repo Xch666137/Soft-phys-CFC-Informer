@@ -34,22 +34,22 @@ data:
   freq: t
 
 training:
-  training_mode: net_first
-  use_aux_supervision: false
-  freeze_backbone: false
+  training_mode: operational_fit
+  use_aux_supervision: true
+  freeze_backbone: true
   init_from_run: null
   seed: 2024
   batch_size: 64
-  train_epochs: 100
-  learning_rate: 1.0e-4
+  train_epochs: 30
+  learning_rate: 5.0e-5
   weight_decay: 1.0e-5
   grad_clip: 1.0
-  patience: 25
+  patience: 10
   use_amp: true
-  warmup_epochs: 5
+  warmup_epochs: 2
   warmup_start_factor: 0.2
   early_stop_metric: net_mse
-  early_stop_start_epoch: 10
+  early_stop_start_epoch: 5
 
 hardware:
   use_gpu: true
@@ -57,7 +57,7 @@ hardware:
   num_workers: 8
 
 checkpoint:
-  name: physformer_net_injection
+  name: physformer_operational_fit
   path: runs/
 
 ablation:

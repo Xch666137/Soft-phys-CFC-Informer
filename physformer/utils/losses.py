@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 class PhysAwareBaseLoss(nn.Module):
     COMPONENT_NAMES = ("load", "pv", "wind", "battery_power", "battery_soc")
+    ATTRIBUTION_NAMES = ("load", "pv", "wind", "battery")
 
     def __init__(
         self,
@@ -116,6 +117,40 @@ class PhysAwareBaseLoss(nn.Module):
 
         net_mae_real = F.l1_loss(pred_net_real, true_net_real)
         net_mse_real = F.mse_loss(pred_net_real, true_net_real)
+        operational_strong_loss = weighted_aux[..., [0, 1, 3, 4]].mean()
+        wind_loss = weighted_aux[..., 2:3].mean()
+        reconstructed_net_real = (
+            pred_aux_real[..., 0:1]
+            - pred_aux_real[..., 1:2]
+            - pred_aux_real[..., 2:3]
+            + pred_aux_real[..., 3:4]
+        )
+        component_net_consistency_residual = F.l1_loss(reconstructed_net_real, pred_net_real)
+
+        component_confidence = pred_dict.get("component_confidence")
+        component_attribution = pred_dict.get("component_attribution")
+        component_error_norm = torch.abs(pred_aux.detach() - y_aux.detach())
+        confidence_target = torch.exp(-component_error_norm)
+        if component_confidence is not None:
+            confidence_loss = F.mse_loss(component_confidence, confidence_target)
+        else:
+            confidence_loss = pred_net_real.new_tensor(0.0)
+
+        attribution_error = torch.abs(
+            pred_aux_real[..., [0, 1, 2, 3]].detach()
+            - true_aux_real[..., [0, 1, 2, 3]].detach()
+        )
+        attribution_sum = attribution_error.sum(dim=-1, keepdim=True)
+        uniform_target = torch.full_like(attribution_error, 1.0 / attribution_error.shape[-1])
+        attribution_target = torch.where(
+            attribution_sum > 1e-6,
+            attribution_error / attribution_sum.clamp_min(1e-6),
+            uniform_target,
+        )
+        if component_attribution is not None:
+            attribution_loss = F.mse_loss(component_attribution, attribution_target)
+        else:
+            attribution_loss = pred_net_real.new_tensor(0.0)
 
         terms = {
             "net_mse": net_mse,
@@ -124,6 +159,8 @@ class PhysAwareBaseLoss(nn.Module):
             "net_mse_real": net_mse_real,
             "component_loss": component_loss,
             "battery_state_loss": battery_state_loss,
+            "operational_strong_loss": operational_strong_loss,
+            "wind_loss": wind_loss,
             "net_ramp_penalty": net_ramp_penalty,
             "battery_ramp_penalty": battery_ramp_penalty,
             "battery_smoothness": battery_smoothness,
@@ -132,10 +169,15 @@ class PhysAwareBaseLoss(nn.Module):
             "anti_overlap_loss": anti_overlap_loss,
             "battery_power_mae": battery_power_mae,
             "battery_soc_mae": battery_soc_mae,
+            "component_net_consistency_residual": component_net_consistency_residual,
+            "confidence_loss": confidence_loss,
+            "attribution_loss": attribution_loss,
             "pred_net_real": pred_net_real,
             "true_net_real": true_net_real,
             "pred_aux_real": pred_aux_real,
             "true_aux_real": true_aux_real,
+            "confidence_target": confidence_target,
+            "attribution_target": attribution_target,
         }
         if collect_debug:
             terms["component_mae"] = {
@@ -157,6 +199,12 @@ class PhysLoss(nn.Module):
         overlap_weight=0.02,
         no_aux_supervision=False,
         no_soc_consistency=False,
+        training_mode="net_first",
+        use_aux_supervision=True,
+        wind_supervision_weight=0.25,
+        diagnostic_confidence_weight=0.05,
+        diagnostic_attribution_weight=0.05,
+        net_consistency_weight=1.0,
     ):
         super().__init__()
         self.base_loss = base_loss_module
@@ -168,6 +216,12 @@ class PhysLoss(nn.Module):
         self.overlap_weight = float(overlap_weight)
         self.no_aux_supervision = bool(no_aux_supervision)
         self.no_soc_consistency = bool(no_soc_consistency)
+        self.training_mode = str(training_mode)
+        self.use_aux_supervision = bool(use_aux_supervision)
+        self.wind_supervision_weight = float(wind_supervision_weight)
+        self.diagnostic_confidence_weight = float(diagnostic_confidence_weight)
+        self.diagnostic_attribution_weight = float(diagnostic_attribution_weight)
+        self.net_consistency_weight = float(net_consistency_weight)
 
     def _curriculum_weights(self, epoch):
         if epoch is None:
@@ -182,25 +236,47 @@ class PhysLoss(nn.Module):
         terms = self.base_loss.compute_terms(pred_dict, y_target, y_aux, batch_context, collect_debug=collect_debug)
         curriculum = self._curriculum_weights(epoch)
 
-        total_loss = terms["net_mse"]
-        if not self.no_aux_supervision:
-            total_loss = total_loss + curriculum["aux"] * (
-                self.aux_weight * terms["component_loss"]
-                + self.battery_weight * terms["battery_state_loss"]
+        if self.training_mode == "net_first":
+            total_loss = terms["net_mse"]
+        elif self.training_mode == "operational_fit":
+            total_loss = self.net_consistency_weight * terms["net_mse"]
+            if self.use_aux_supervision and not self.no_aux_supervision:
+                total_loss = total_loss + (
+                    self.aux_weight * terms["operational_strong_loss"]
+                    + self.wind_supervision_weight * terms["wind_loss"]
+                )
+            total_loss = total_loss + self.ramp_weight * (
+                terms["net_ramp_penalty"]
+                + terms["battery_ramp_penalty"]
+                + 0.5 * terms["battery_smoothness"]
+            )
+            total_loss = total_loss + self.overlap_weight * terms["anti_overlap_loss"]
+            if not self.no_soc_consistency:
+                total_loss = total_loss + self.soc_weight * (
+                    terms["soc_transition_loss"] + terms["soc_bounds_loss"]
+                )
+            total_loss = total_loss + self.diagnostic_confidence_weight * terms["confidence_loss"]
+            total_loss = total_loss + self.diagnostic_attribution_weight * terms["attribution_loss"]
+        else:
+            total_loss = terms["net_mse"]
+            if self.use_aux_supervision and not self.no_aux_supervision:
+                total_loss = total_loss + curriculum["aux"] * (
+                    self.aux_weight * terms["component_loss"]
+                    + self.battery_weight * terms["battery_state_loss"]
+                )
+
+            total_loss = total_loss + curriculum["physics"] * self.ramp_weight * (
+                terms["net_ramp_penalty"]
+                + terms["battery_ramp_penalty"]
+                + 0.5 * terms["battery_smoothness"]
             )
 
-        total_loss = total_loss + curriculum["physics"] * self.ramp_weight * (
-            terms["net_ramp_penalty"]
-            + terms["battery_ramp_penalty"]
-            + 0.5 * terms["battery_smoothness"]
-        )
+            total_loss = total_loss + curriculum["physics"] * self.overlap_weight * terms["anti_overlap_loss"]
 
-        total_loss = total_loss + curriculum["physics"] * self.overlap_weight * terms["anti_overlap_loss"]
-
-        if not self.no_soc_consistency:
-            total_loss = total_loss + curriculum["physics"] * self.soc_weight * (
-                terms["soc_transition_loss"] + terms["soc_bounds_loss"]
-            )
+            if not self.no_soc_consistency:
+                total_loss = total_loss + curriculum["physics"] * self.soc_weight * (
+                    terms["soc_transition_loss"] + terms["soc_bounds_loss"]
+                )
 
         debug = None
         if collect_debug:
@@ -220,8 +296,14 @@ class PhysLoss(nn.Module):
                 "anti_overlap_loss": float(terms["anti_overlap_loss"].detach().cpu()),
                 "battery_power_mae": float(terms["battery_power_mae"].detach().cpu()),
                 "battery_soc_mae": float(terms["battery_soc_mae"].detach().cpu()),
+                "operational_strong_loss": float(terms["operational_strong_loss"].detach().cpu()),
+                "wind_loss": float(terms["wind_loss"].detach().cpu()),
+                "component_net_consistency_residual": float(terms["component_net_consistency_residual"].detach().cpu()),
+                "confidence_loss": float(terms["confidence_loss"].detach().cpu()),
+                "attribution_loss": float(terms["attribution_loss"].detach().cpu()),
                 "curriculum_aux": float(curriculum["aux"]),
                 "curriculum_physics": float(curriculum["physics"]),
+                "training_mode": self.training_mode,
                 "component_mae": terms.get("component_mae", {}),
             }
         return total_loss, debug, terms

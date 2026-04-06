@@ -120,6 +120,12 @@ ssh -p <AUTODL_PORT> root@<AUTODL_HOST> -t "tmux attach -t autodl-thesis"
   - runs appendix benchmark drivers
 - `validate_powerflow`
   - requires explicit validation config, run name, and mapping CSV
+- `operational_fit`
+  - runs Stage B operational interface fitting from a Stage A checkpoint
+  - requires `--operational-init-run`
+- `export_operational`
+  - exports `portfolio_forecasts_operational.csv`
+  - requires `--validate-config` and `--validate-run-name`
 
 ## Result collection
 
@@ -140,6 +146,48 @@ The fetch script downloads:
 
 The AutoDL benchmark stages use 5090-specific driver configs with larger batch
 sizes and loader overrides. Base thesis configs remain unchanged.
+
+## Stage B Operational Interface
+
+To fit the non-black-box operational interface after Stage A has produced a
+best checkpoint, run only the Stage B path and point it at the Stage A run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT> `
+  -SkipDataUpload `
+  -Stages "verify,operational_fit" `
+  -RemoteArgs "--operational-init-run /root/autodl-tmp/Soft-phys-CFC-Informer/runs/physformer_net_injection__s2024 --operational-run-name physformer_operational_fit_s2024"
+```
+
+The Stage B config defaults to:
+
+- [physformer_operational_fit.yaml](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/configs/physformer_operational_fit.yaml)
+
+Outputs include:
+
+- `extras/component_preds.npz`
+- `extras/battery_state_preds.npz`
+- `extras/component_confidence.npz`
+- `extras/component_attribution.npz`
+- `extras/diagnostic_summary.json`
+
+To export the operational interface CSV after Stage B:
+
+```bash
+python run.py export-forecast \
+  --config configs/physformer_operational_fit.yaml \
+  --run-name physformer_operational_fit_s2024 \
+  --include-operational-interface
+```
+
+To summarize Stage B diagnostics:
+
+```bash
+python tools/analyze_operational_interface.py \
+  --run-dir runs/physformer_operational_fit_s2024
+```
 
 Downloaded files are written under:
 

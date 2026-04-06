@@ -9,6 +9,7 @@ param(
     [string]$RemoteUser = "root",
     [string]$RemoteProjectDir = "/root/autodl-tmp/Soft-phys-CFC-Informer",
     [string]$LocalOutputDir = "downloads/autodl",
+    [string[]]$AdditionalRunNames = @(),
     [switch]$IncludeAppendix,
     [switch]$DryRun
 )
@@ -234,7 +235,37 @@ foreach ($selection in $manifest.selected_runs) {
     Copy-RemoteFile -RemotePath "$remoteRunDir/metrics.json" -LocalPath (Join-Path $localRunDir "metrics.json") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/config_merged.yaml" -LocalPath (Join-Path $localRunDir "config_merged.yaml") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts.csv") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts_operational.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts_operational.csv") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/powerflow/powerflow_summary.json" -LocalPath (Join-Path $localRunDir "powerflow_summary.json") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/diagnostic_summary.json" -LocalPath (Join-Path $localRunDir "diagnostic_summary.json") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/component_confidence.npz" -LocalPath (Join-Path $localRunDir "component_confidence.npz") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/component_attribution.npz" -LocalPath (Join-Path $localRunDir "component_attribution.npz") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/battery_state_preds.npz" -LocalPath (Join-Path $localRunDir "battery_state_preds.npz") | Out-Null
+}
+
+foreach ($runName in $AdditionalRunNames) {
+    if ([string]::IsNullOrWhiteSpace($runName)) {
+        continue
+    }
+    $remoteRunDir = "$RemoteProjectDir/runs/$runName"
+    $localRunDir = Join-Path $localRunsDir $runName
+    Ensure-Dir $localRunDir
+
+    $manifest.selected_runs += @{
+        benchmark = "manual"
+        role = "additional_run"
+        experiment_name = $runName
+        run_name = $runName
+    }
+
+    Copy-RemoteFile -RemotePath "$remoteRunDir/metrics.json" -LocalPath (Join-Path $localRunDir "metrics.json") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/config_merged.yaml" -LocalPath (Join-Path $localRunDir "config_merged.yaml") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts.csv") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts_operational.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts_operational.csv") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/diagnostic_summary.json" -LocalPath (Join-Path $localRunDir "diagnostic_summary.json") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/component_confidence.npz" -LocalPath (Join-Path $localRunDir "component_confidence.npz") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/component_attribution.npz" -LocalPath (Join-Path $localRunDir "component_attribution.npz") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/extras/battery_state_preds.npz" -LocalPath (Join-Path $localRunDir "battery_state_preds.npz") | Out-Null
 }
 
 $manifestPath = Join-Path $localRoot "fetch_manifest.json"

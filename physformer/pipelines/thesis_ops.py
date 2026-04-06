@@ -6,7 +6,15 @@ import numpy as np
 import pandas as pd
 
 
-def export_portfolio_forecasts(config_loader, config_to_args, data_provider, config_path: str, experiment_dir: str, output_csv: str):
+def export_portfolio_forecasts(
+    config_loader,
+    config_to_args,
+    data_provider,
+    config_path: str,
+    experiment_dir: str,
+    output_csv: str,
+    include_operational_interface: bool = False,
+):
     cfg = config_loader(config_path)
     args = config_to_args(cfg)
     args.model = getattr(args, 'model', cfg.get('model', {}).get('name', 'Informer'))
@@ -22,6 +30,26 @@ def export_portfolio_forecasts(config_loader, config_to_args, data_provider, con
     true = np.load(run_dir / 'true.npy')
     target_name = args.target_cols[0]
 
+    component_preds = None
+    component_confidence = None
+    component_attribution = None
+    if include_operational_interface:
+        component_pred_path = run_dir / 'extras' / 'component_preds.npz'
+        component_confidence_path = run_dir / 'extras' / 'component_confidence.npz'
+        component_attribution_path = run_dir / 'extras' / 'component_attribution.npz'
+        missing = [
+            str(path) for path in [component_pred_path, component_confidence_path, component_attribution_path]
+            if not path.exists()
+        ]
+        if missing:
+            raise FileNotFoundError(
+                "Operational interface export requested, but required extras are missing: %s"
+                % ', '.join(missing)
+            )
+        component_preds = np.load(component_pred_path)
+        component_confidence = np.load(component_confidence_path)
+        component_attribution = np.load(component_attribution_path)
+
     if pred.shape[0] != len(dataset):
         raise ValueError(f"Prediction sample count mismatch: pred={pred.shape[0]}, dataset={len(dataset)}")
 
@@ -30,7 +58,7 @@ def export_portfolio_forecasts(config_loader, config_to_args, data_provider, con
         meta = dataset.get_prediction_metadata(sample_idx)
         timestamps = pd.to_datetime(meta['forecast_timestamps'])
         for horizon_idx, ts in enumerate(timestamps):
-            rows.append({
+            row = {
                 'date': ts,
                 'portfolio_id': meta['portfolio_id'],
                 'region_id': meta['region_id'],
@@ -38,7 +66,25 @@ def export_portfolio_forecasts(config_loader, config_to_args, data_provider, con
                 'horizon_index': horizon_idx,
                 f'pred_{target_name}': float(pred[sample_idx, horizon_idx, 0]),
                 f'true_{target_name}': float(true[sample_idx, horizon_idx, 0]),
-            })
+            }
+            if include_operational_interface:
+                row.update({
+                    'pred_p_load_mw': float(component_preds['load'][sample_idx, horizon_idx]),
+                    'pred_p_pv_mw': float(component_preds['pv'][sample_idx, horizon_idx]),
+                    'pred_p_wind_mw': float(component_preds['wind'][sample_idx, horizon_idx]),
+                    'pred_p_battery_mw': float(component_preds['battery_power'][sample_idx, horizon_idx]),
+                    'pred_e_battery_soc_mwh': float(component_preds['battery_soc'][sample_idx, horizon_idx]),
+                    'pred_conf_load': float(component_confidence['load'][sample_idx, horizon_idx]),
+                    'pred_conf_pv': float(component_confidence['pv'][sample_idx, horizon_idx]),
+                    'pred_conf_wind': float(component_confidence['wind'][sample_idx, horizon_idx]),
+                    'pred_conf_battery_power': float(component_confidence['battery_power'][sample_idx, horizon_idx]),
+                    'pred_conf_battery_soc': float(component_confidence['battery_soc'][sample_idx, horizon_idx]),
+                    'pred_attr_load': float(component_attribution['load'][sample_idx, horizon_idx]),
+                    'pred_attr_pv': float(component_attribution['pv'][sample_idx, horizon_idx]),
+                    'pred_attr_wind': float(component_attribution['wind'][sample_idx, horizon_idx]),
+                    'pred_attr_battery': float(component_attribution['battery'][sample_idx, horizon_idx]),
+                })
+            rows.append(row)
 
     out = pd.DataFrame(rows).sort_values(
         ['date', 'portfolio_id', 'sample_index', 'horizon_index']

@@ -109,6 +109,10 @@ def config_to_args(cfg):
     flat['early_stop_metric'] = training_cfg.get('early_stop_metric', 'loss')
     flat['early_stop_start_epoch'] = training_cfg.get('early_stop_start_epoch', 1)
     flat['curriculum_total_epochs'] = training_cfg.get('curriculum_total_epochs', flat['train_epochs'])
+    flat['training_mode'] = training_cfg.get('training_mode', 'net_first')
+    flat['use_aux_supervision'] = training_cfg.get('use_aux_supervision', False)
+    flat['freeze_backbone'] = training_cfg.get('freeze_backbone', False)
+    flat['init_from_run'] = training_cfg.get('init_from_run')
 
     hardware_cfg = cfg.get('hardware', {})
     flat['use_gpu'] = hardware_cfg.get('use_gpu', True)
@@ -168,6 +172,8 @@ def apply_cli_overrides(args, cli_args):
         args.run_name = cli_args.run_name
     if cli_args.run_dir is not None:
         args.run_dir = cli_args.run_dir
+    if getattr(cli_args, 'init_from_run', None) is not None:
+        args.init_from_run = cli_args.init_from_run
     if getattr(cli_args, 'resume', False):
         args.resume = True
     if getattr(cli_args, 'debug_nan', False):
@@ -262,8 +268,18 @@ def run_build_dataset(cli_args):
 
 def run_export_forecast(args, config_path):
     run_dir = Path(args.run_dir)
-    output_csv = run_dir / 'exports' / 'portfolio_forecasts.csv'
-    output_path = export_portfolio_forecasts(load_config, config_to_args, data_provider, config_path, str(run_dir), str(output_csv))
+    include_operational_interface = bool(getattr(args, 'include_operational_interface', False))
+    output_name = 'portfolio_forecasts_operational.csv' if include_operational_interface else 'portfolio_forecasts.csv'
+    output_csv = run_dir / 'exports' / output_name
+    output_path = export_portfolio_forecasts(
+        load_config,
+        config_to_args,
+        data_provider,
+        config_path,
+        str(run_dir),
+        str(output_csv),
+        include_operational_interface=include_operational_interface,
+    )
     print(f"Saved forecast export to: {output_path}")
     return output_path
 
@@ -327,6 +343,18 @@ def apply_job_overrides(args, cfg, job):
     if 'curriculum_total_epochs' in job:
         args.curriculum_total_epochs = int(job['curriculum_total_epochs'])
         cfg.setdefault('training', {})['curriculum_total_epochs'] = int(job['curriculum_total_epochs'])
+    if 'training_mode' in job:
+        args.training_mode = str(job['training_mode'])
+        cfg.setdefault('training', {})['training_mode'] = str(job['training_mode'])
+    if 'use_aux_supervision' in job:
+        args.use_aux_supervision = bool(job['use_aux_supervision'])
+        cfg.setdefault('training', {})['use_aux_supervision'] = bool(job['use_aux_supervision'])
+    if 'freeze_backbone' in job:
+        args.freeze_backbone = bool(job['freeze_backbone'])
+        cfg.setdefault('training', {})['freeze_backbone'] = bool(job['freeze_backbone'])
+    if 'init_from_run' in job:
+        args.init_from_run = job['init_from_run']
+        cfg.setdefault('training', {})['init_from_run'] = job['init_from_run']
     return args, cfg
 
 
@@ -411,6 +439,7 @@ def add_common_run_args(parser):
     parser.add_argument('--patience', type=int, help='Early stopping patience override')
     parser.add_argument('--debug-nan', action='store_true', help='Enable anomaly detection')
     parser.add_argument('--save-gate-details', action='store_true', help='Save detailed gate values if model supports it')
+    parser.add_argument('--init-from-run', help='Stage A run directory or checkpoint path for operational-fit initialization')
 
 
 def build_parser():
@@ -444,6 +473,7 @@ def build_parser():
 
     export_parser = subparsers.add_parser('export-forecast', help='Export forecast CSV from one run')
     add_common_run_args(export_parser)
+    export_parser.add_argument('--include-operational-interface', action='store_true')
 
     validate_parser = subparsers.add_parser('validate-powerflow', help='Validate forecast via pandapower/SimBench')
     add_common_run_args(validate_parser)

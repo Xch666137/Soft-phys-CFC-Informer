@@ -15,6 +15,7 @@ param(
     [string]$RemoteEnvName = "Soft-phys-CFC-Informer",
     [string]$LocalDataRoot = "data_raw",
     [string]$Stages = "verify,build_dataset,benchmark_main,benchmark_time",
+    [string]$RemoteArgs = "",
     [string]$SessionName = "autodl-thesis",
     [string]$PythonVersion = "3.10",
     [switch]$SkipGitSyncCheck,
@@ -295,11 +296,15 @@ rm -f $remoteUploadTar
 }
 
 $remoteTmuxRunnerPath = "/tmp/autodl_tmux_runner_$SessionName.sh"
+$remoteArgSuffix = ""
+if (-not [string]::IsNullOrWhiteSpace($RemoteArgs)) {
+    $remoteArgSuffix = " $RemoteArgs"
+}
 $remoteRunCommand = @"
 #!/bin/bash
 set +u
 cd $RemoteProjectDir
-bash scripts/autodl_remote_run.sh --project-dir $(Quote-Bash $RemoteProjectDir) --env-name $(Quote-Bash $RemoteEnvName) --python-version $(Quote-Bash $PythonVersion) --stages $(Quote-Bash $Stages)
+bash scripts/autodl_remote_run.sh --project-dir $(Quote-Bash $RemoteProjectDir) --env-name $(Quote-Bash $RemoteEnvName) --python-version $(Quote-Bash $PythonVersion) --stages $(Quote-Bash $Stages)$remoteArgSuffix
 runner_status=`$?
 echo
 echo "[autodl-submit] remote runner exited with status `$runner_status"

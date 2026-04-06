@@ -15,6 +15,9 @@ Options:
   --validate-config PATH
   --validate-run-name NAME
   --mapping-csv PATH
+  --operational-config PATH
+  --operational-init-run PATH
+  --operational-run-name NAME
   --force-rebuild-dataset
   --help
 
@@ -31,6 +34,9 @@ LOG_ROOT=""
 VALIDATE_CONFIG=""
 VALIDATE_RUN_NAME=""
 MAPPING_CSV=""
+OPERATIONAL_CONFIG=""
+OPERATIONAL_INIT_RUN=""
+OPERATIONAL_RUN_NAME=""
 FORCE_REBUILD_DATASET="false"
 
 while [[ $# -gt 0 ]]; do
@@ -65,6 +71,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mapping-csv)
       MAPPING_CSV="$2"
+      shift 2
+      ;;
+    --operational-config)
+      OPERATIONAL_CONFIG="$2"
+      shift 2
+      ;;
+    --operational-init-run)
+      OPERATIONAL_INIT_RUN="$2"
+      shift 2
+      ;;
+    --operational-run-name)
+      OPERATIONAL_RUN_NAME="$2"
       shift 2
       ;;
     --force-rebuild-dataset)
@@ -179,6 +197,21 @@ run_physformer_hparam_probe() {
   run_stage_cmd "probe_hparams_analyze" "python tools/analyze_physformer_probe.py --run-dir '$probe_run_dir' --warmup-epochs 5"
 }
 
+run_operational_fit() {
+  local config_path="${OPERATIONAL_CONFIG:-configs/physformer_operational_fit.yaml}"
+  local init_run="${OPERATIONAL_INIT_RUN:-}"
+  local run_name="${OPERATIONAL_RUN_NAME:-physformer_operational_fit}"
+
+  if [[ -z "$init_run" ]]; then
+    echo "[autodl-remote] operational_fit requires --operational-init-run" | tee -a "$MASTER_LOG"
+    exit 1
+  fi
+
+  run_stage_cmd "operational_fit_train" "python run.py train --config '$config_path' --init-from-run '$init_run' --run-name '$run_name'"
+  run_stage_cmd "operational_fit_test" "python run.py test --config '$config_path' --init-from-run '$init_run' --run-name '$run_name'"
+  run_stage_cmd "operational_fit_analyze" "python tools/analyze_operational_interface.py --run-dir '$PROJECT_DIR/runs/$run_name'"
+}
+
 ensure_conda_env() {
   local conda_bin=""
   local conda_base=""
@@ -285,6 +318,18 @@ for raw_stage in "${stage_array[@]}"; do
       ;;
     ablation)
       run_stage_cmd "ablation" "python run.py ablation --config configs/drivers/physformer_ablation.yaml"
+      ;;
+    operational_fit)
+      log "START stage=operational_fit"
+      run_operational_fit
+      log "DONE stage=operational_fit"
+      ;;
+    export_operational)
+      if [[ -z "$VALIDATE_CONFIG" || -z "$VALIDATE_RUN_NAME" ]]; then
+        echo "[autodl-remote] export_operational requires --validate-config and --validate-run-name" | tee -a "$MASTER_LOG"
+        exit 1
+      fi
+      run_stage_cmd "export_operational" "python run.py export-forecast --config '$VALIDATE_CONFIG' --run-name '$VALIDATE_RUN_NAME' --include-operational-interface"
       ;;
     appendix)
       run_stage_cmd "appendix_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix.yaml"
