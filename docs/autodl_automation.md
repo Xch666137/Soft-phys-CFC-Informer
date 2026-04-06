@@ -40,6 +40,7 @@ The scripts assume:
 Local submit:
 
 - [autodl_submit.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_submit.ps1)
+- [autodl_plan_a.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_plan_a.ps1)
 
 Remote execution:
 
@@ -109,6 +110,8 @@ ssh -p <AUTODL_PORT> root@<AUTODL_HOST> -t "tmux attach -t autodl-thesis"
   - runs `configs/drivers/benchmark_net_injection_5090.yaml`
 - `benchmark_time`
   - runs `configs/drivers/benchmark_net_injection_time_generalization_5090.yaml`
+- `stage_a_single`
+  - runs a single Stage A PhysFormer train+test pair
 - `probe_hparams`
   - runs a single-seed PhysFormer 10-epoch probe with the current 5090 tuning
   - writes a JSON and Markdown reasonableness summary under the probe run `reports/`
@@ -148,6 +151,28 @@ The AutoDL benchmark stages use 5090-specific driver configs with larger batch
 sizes and loader overrides. Base thesis configs remain unchanged.
 
 ## Stage B Operational Interface
+
+If you want the full Plan A chain with one command, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_plan_a.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT> `
+  -SkipDataUpload
+```
+
+This will run:
+
+- `verify`
+- `build_dataset`
+- `stage_a_single`
+- `operational_fit`
+- `export_operational`
+
+Default run names:
+
+- Stage A: `physformer_net_injection__s2024`
+- Stage B: `physformer_operational_fit_s2024`
 
 To fit the non-black-box operational interface after Stage A has produced a
 best checkpoint, run only the Stage B path and point it at the Stage A run:

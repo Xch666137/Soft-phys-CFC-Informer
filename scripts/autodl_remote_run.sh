@@ -15,6 +15,8 @@ Options:
   --validate-config PATH
   --validate-run-name NAME
   --mapping-csv PATH
+  --stage-a-config PATH
+  --stage-a-run-name NAME
   --operational-config PATH
   --operational-init-run PATH
   --operational-run-name NAME
@@ -34,6 +36,8 @@ LOG_ROOT=""
 VALIDATE_CONFIG=""
 VALIDATE_RUN_NAME=""
 MAPPING_CSV=""
+STAGE_A_CONFIG=""
+STAGE_A_RUN_NAME=""
 OPERATIONAL_CONFIG=""
 OPERATIONAL_INIT_RUN=""
 OPERATIONAL_RUN_NAME=""
@@ -71,6 +75,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mapping-csv)
       MAPPING_CSV="$2"
+      shift 2
+      ;;
+    --stage-a-config)
+      STAGE_A_CONFIG="$2"
+      shift 2
+      ;;
+    --stage-a-run-name)
+      STAGE_A_RUN_NAME="$2"
       shift 2
       ;;
     --operational-config)
@@ -197,10 +209,22 @@ run_physformer_hparam_probe() {
   run_stage_cmd "probe_hparams_analyze" "python tools/analyze_physformer_probe.py --run-dir '$probe_run_dir' --warmup-epochs 5"
 }
 
+run_stage_a_single() {
+  local config_path="${STAGE_A_CONFIG:-configs/physformer_default.yaml}"
+  local run_name="${STAGE_A_RUN_NAME:-physformer_net_injection__s2024}"
+
+  run_stage_cmd "stage_a_train" "python run.py train --config '$config_path' --run-name '$run_name'"
+  run_stage_cmd "stage_a_test" "python run.py test --config '$config_path' --run-name '$run_name'"
+}
+
 run_operational_fit() {
   local config_path="${OPERATIONAL_CONFIG:-configs/physformer_operational_fit.yaml}"
   local init_run="${OPERATIONAL_INIT_RUN:-}"
   local run_name="${OPERATIONAL_RUN_NAME:-physformer_operational_fit}"
+
+  if [[ -z "$init_run" && -n "$STAGE_A_RUN_NAME" ]]; then
+    init_run="$PROJECT_DIR/runs/$STAGE_A_RUN_NAME"
+  fi
 
   if [[ -z "$init_run" ]]; then
     echo "[autodl-remote] operational_fit requires --operational-init-run" | tee -a "$MASTER_LOG"
@@ -306,6 +330,11 @@ for raw_stage in "${stage_array[@]}"; do
     benchmark_time)
       run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization_5090.yaml"
       ;;
+    stage_a_single)
+      log "START stage=stage_a_single"
+      run_stage_a_single
+      log "DONE stage=stage_a_single"
+      ;;
     probe_hparams)
       log "START stage=probe_hparams"
       run_physformer_hparam_probe
@@ -325,11 +354,13 @@ for raw_stage in "${stage_array[@]}"; do
       log "DONE stage=operational_fit"
       ;;
     export_operational)
-      if [[ -z "$VALIDATE_CONFIG" || -z "$VALIDATE_RUN_NAME" ]]; then
-        echo "[autodl-remote] export_operational requires --validate-config and --validate-run-name" | tee -a "$MASTER_LOG"
+      validate_config="${VALIDATE_CONFIG:-${OPERATIONAL_CONFIG:-configs/physformer_operational_fit.yaml}}"
+      validate_run_name="${VALIDATE_RUN_NAME:-${OPERATIONAL_RUN_NAME:-physformer_operational_fit}}"
+      if [[ -z "$validate_config" || -z "$validate_run_name" ]]; then
+        echo "[autodl-remote] export_operational requires a config and run name" | tee -a "$MASTER_LOG"
         exit 1
       fi
-      run_stage_cmd "export_operational" "python run.py export-forecast --config '$VALIDATE_CONFIG' --run-name '$VALIDATE_RUN_NAME' --include-operational-interface"
+      run_stage_cmd "export_operational" "python run.py export-forecast --config '$validate_config' --run-name '$validate_run_name' --include-operational-interface"
       ;;
     appendix)
       run_stage_cmd "appendix_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix.yaml"
