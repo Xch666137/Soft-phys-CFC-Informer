@@ -83,6 +83,16 @@ powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
   -SkipDataUpload
 ```
 
+To run only the 10-epoch PhysFormer hyperparameter probe:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT> `
+  -SkipDataUpload `
+  -Stages "verify,probe_hparams"
+```
+
 6. Attach to the remote session if needed:
 
 ```bash
@@ -99,6 +109,9 @@ ssh -p <AUTODL_PORT> root@<AUTODL_HOST> -t "tmux attach -t autodl-thesis"
   - runs `configs/drivers/benchmark_net_injection_5090.yaml`
 - `benchmark_time`
   - runs `configs/drivers/benchmark_net_injection_time_generalization_5090.yaml`
+- `probe_hparams`
+  - runs a single-seed PhysFormer 10-epoch probe with the current 5090 tuning
+  - writes a JSON and Markdown reasonableness summary under the probe run `reports/`
 - `audit_batch`
   - runs 2-epoch batch-size audit sweeps for PhysFormer / DLinear / TiDE / TimeXer / TFT
 - `ablation`

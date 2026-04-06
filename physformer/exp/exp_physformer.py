@@ -100,7 +100,7 @@ class Exp_PhysFormer(ForecastExperiment):
         )
         return PhysLoss(
             base_loss_module=base_loss,
-            total_epochs=self.args.train_epochs,
+            total_epochs=getattr(self.args, "curriculum_total_epochs", self.args.train_epochs),
             no_aux_supervision=getattr(self.args, "ablation_no_aux_supervision", False),
             no_soc_consistency=getattr(self.args, "ablation_no_soc_consistency", False),
         )

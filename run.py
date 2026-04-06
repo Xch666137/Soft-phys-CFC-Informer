@@ -108,6 +108,7 @@ def config_to_args(cfg):
     flat['warmup_start_factor'] = training_cfg.get('warmup_start_factor', 0.2)
     flat['early_stop_metric'] = training_cfg.get('early_stop_metric', 'loss')
     flat['early_stop_start_epoch'] = training_cfg.get('early_stop_start_epoch', 1)
+    flat['curriculum_total_epochs'] = training_cfg.get('curriculum_total_epochs', flat['train_epochs'])
 
     hardware_cfg = cfg.get('hardware', {})
     flat['use_gpu'] = hardware_cfg.get('use_gpu', True)
@@ -323,6 +324,9 @@ def apply_job_overrides(args, cfg, job):
     if 'early_stop_start_epoch' in job:
         args.early_stop_start_epoch = int(job['early_stop_start_epoch'])
         cfg.setdefault('training', {})['early_stop_start_epoch'] = int(job['early_stop_start_epoch'])
+    if 'curriculum_total_epochs' in job:
+        args.curriculum_total_epochs = int(job['curriculum_total_epochs'])
+        cfg.setdefault('training', {})['curriculum_total_epochs'] = int(job['curriculum_total_epochs'])
     return args, cfg
 
 

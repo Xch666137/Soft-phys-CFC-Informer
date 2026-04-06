@@ -170,6 +170,15 @@ run_batch_audit() {
   audit_one_model "dlinear" "configs/baselines/dlinear_net_injection.yaml" 256 512
 }
 
+run_physformer_hparam_probe() {
+  local probe_run_name="physformer_hparam_probe_5090"
+  local probe_run_dir="$PROJECT_DIR/runs/$probe_run_name"
+  rm -rf "$probe_run_dir"
+
+  run_stage_cmd "probe_hparams_train" "python run.py train --config configs/physformer_probe_5090.yaml"
+  run_stage_cmd "probe_hparams_analyze" "python tools/analyze_physformer_probe.py --run-dir '$probe_run_dir' --warmup-epochs 5"
+}
+
 ensure_conda_env() {
   local conda_bin=""
   local conda_base=""
@@ -263,6 +272,11 @@ for raw_stage in "${stage_array[@]}"; do
       ;;
     benchmark_time)
       run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization_5090.yaml"
+      ;;
+    probe_hparams)
+      log "START stage=probe_hparams"
+      run_physformer_hparam_probe
+      log "DONE stage=probe_hparams"
       ;;
     audit_batch)
       log "START stage=audit_batch"
