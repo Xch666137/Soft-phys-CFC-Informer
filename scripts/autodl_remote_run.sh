@@ -217,6 +217,12 @@ run_stage_a_single() {
   run_stage_cmd "stage_a_test" "python run.py test --config '$config_path' --run-name '$run_name'"
 }
 
+print_stage_a_config() {
+  local config_path="${STAGE_A_CONFIG:-configs/physformer_default.yaml}"
+  local run_name="${STAGE_A_RUN_NAME:-physformer_net_injection__s2024}"
+  python run.py train --config "$config_path" --run-name "$run_name" --batch-size 128 --num-workers 12 --lr 1e-4 --patience 25 --epochs 100 --print-config
+}
+
 run_operational_fit() {
   local config_path="${OPERATIONAL_CONFIG:-configs/physformer_operational_fit.yaml}"
   local init_run="${OPERATIONAL_INIT_RUN:-}"
@@ -315,7 +321,7 @@ for raw_stage in "${stage_array[@]}"; do
   stage="$(echo "$raw_stage" | xargs)"
   case "$stage" in
     verify)
-      run_stage_cmd "verify" "python -c \"import sys; print(sys.executable)\" && python verify_imports.py && python run.py train --config configs/physformer_default.yaml --print-config"
+      run_stage_cmd "verify" "python -c \"import sys; print(sys.executable)\" && python verify_imports.py && print_stage_a_config"
       ;;
     build_dataset)
       if [[ "$FORCE_REBUILD_DATASET" != "true" ]] && dataset_ready; then

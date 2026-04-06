@@ -21,7 +21,7 @@ Set-StrictMode -Version Latest
 
 function Invoke-RemoteTail {
     param([string]$RemoteCommand)
-    & ssh --% -p $Port "${RemoteUser}@${RemoteHost}" $RemoteCommand
+    & ssh "-p" "$Port" "${RemoteUser}@${RemoteHost}" $RemoteCommand
 }
 
 switch ($Mode) {
