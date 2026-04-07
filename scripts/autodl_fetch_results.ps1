@@ -249,6 +249,8 @@ foreach ($selection in $manifest.selected_runs) {
 
     Copy-RemoteFile -RemotePath "$remoteRunDir/metrics.json" -LocalPath (Join-Path $localRunDir "metrics.json") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/config_merged.yaml" -LocalPath (Join-Path $localRunDir "config_merged.yaml") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/train.log" -LocalPath (Join-Path $localRunDir "train.log") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/training_state.pth" -LocalPath (Join-Path $localRunDir "training_state.pth") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts.csv") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts_operational.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts_operational.csv") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/powerflow/powerflow_summary.json" -LocalPath (Join-Path $localRunDir "powerflow_summary.json") | Out-Null
@@ -275,6 +277,8 @@ foreach ($runName in $normalizedAdditionalRunNames) {
 
     Copy-RemoteFile -RemotePath "$remoteRunDir/metrics.json" -LocalPath (Join-Path $localRunDir "metrics.json") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/config_merged.yaml" -LocalPath (Join-Path $localRunDir "config_merged.yaml") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/train.log" -LocalPath (Join-Path $localRunDir "train.log") | Out-Null
+    Copy-RemoteFile -RemotePath "$remoteRunDir/training_state.pth" -LocalPath (Join-Path $localRunDir "training_state.pth") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts.csv") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/exports/portfolio_forecasts_operational.csv" -LocalPath (Join-Path $localRunDir "portfolio_forecasts_operational.csv") | Out-Null
     Copy-RemoteFile -RemotePath "$remoteRunDir/extras/diagnostic_summary.json" -LocalPath (Join-Path $localRunDir "diagnostic_summary.json") | Out-Null
