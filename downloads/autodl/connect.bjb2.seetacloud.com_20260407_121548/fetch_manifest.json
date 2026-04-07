@@ -1,0 +1,23 @@
+﻿{
+    "host":  "connect.bjb2.seetacloud.com",
+    "port":  27779,
+    "remote_project_dir":  "/root/autodl-tmp/Soft-phys-CFC-Informer",
+    "local_output_dir":  "downloads\\autodl\\connect.bjb2.seetacloud.com_20260407_121548",
+    "fetched_reports":  [
+
+                        ],
+    "selected_runs":  [
+                          {
+                              "run_name":  "physformer_net_injection__s2024",
+                              "benchmark":  "manual",
+                              "experiment_name":  "physformer_net_injection__s2024",
+                              "role":  "additional_run"
+                          },
+                          {
+                              "run_name":  "physformer_operational_fit_s2024",
+                              "benchmark":  "manual",
+                              "experiment_name":  "physformer_operational_fit_s2024",
+                              "role":  "additional_run"
+                          }
+                      ]
+}

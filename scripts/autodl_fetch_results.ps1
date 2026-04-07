@@ -9,9 +9,11 @@ param(
     [string]$RemoteUser = "root",
     [string]$RemoteProjectDir = "/root/autodl-tmp/Soft-phys-CFC-Informer",
     [string]$LocalOutputDir = "downloads/autodl",
-    [string[]]$AdditionalRunNames = @(),
     [switch]$IncludeAppendix,
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$AdditionalRunNames = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -168,6 +170,19 @@ $manifest = [ordered]@{
     selected_runs = @()
 }
 
+$normalizedAdditionalRunNames = @()
+foreach ($rawName in $AdditionalRunNames) {
+    if ([string]::IsNullOrWhiteSpace($rawName)) {
+        continue
+    }
+    foreach ($piece in ($rawName -split ",")) {
+        $name = $piece.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($name)) {
+            $normalizedAdditionalRunNames += $name
+        }
+    }
+}
+
 foreach ($spec in $summarySpecs) {
     $rawResolved = Resolve-RemoteSummarySpec -PreferredPath $spec.RawPreferred -FallbackPath $spec.RawFallback
     $groupedResolved = Resolve-RemoteSummarySpec -PreferredPath $spec.GroupedPreferred -FallbackPath $spec.GroupedFallback
@@ -243,7 +258,7 @@ foreach ($selection in $manifest.selected_runs) {
     Copy-RemoteFile -RemotePath "$remoteRunDir/extras/battery_state_preds.npz" -LocalPath (Join-Path $localRunDir "battery_state_preds.npz") | Out-Null
 }
 
-foreach ($runName in $AdditionalRunNames) {
+foreach ($runName in $normalizedAdditionalRunNames) {
     if ([string]::IsNullOrWhiteSpace($runName)) {
         continue
     }
