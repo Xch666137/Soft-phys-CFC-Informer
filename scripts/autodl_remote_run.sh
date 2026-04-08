@@ -331,10 +331,10 @@ for raw_stage in "${stage_array[@]}"; do
       fi
       ;;
     benchmark_main)
-      run_stage_cmd "benchmark_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection_5090.yaml"
+      run_stage_cmd "benchmark_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml"
       ;;
     benchmark_time)
-      run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization_5090.yaml"
+      run_stage_cmd "benchmark_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization.yaml"
       ;;
     stage_a_single)
       log "START stage=stage_a_single"
@@ -369,8 +369,8 @@ for raw_stage in "${stage_array[@]}"; do
       run_stage_cmd "export_operational" "python run.py export-forecast --config '$validate_config' --run-name '$validate_run_name' --include-operational-interface"
       ;;
     appendix)
-      run_stage_cmd "appendix_main" "python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix.yaml"
-      run_stage_cmd "appendix_time" "python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix_time_generalization.yaml"
+      run_stage_cmd "appendix_main" "python run.py benchmark --config configs/legacy/drivers/benchmark_net_injection_appendix.yaml"
+      run_stage_cmd "appendix_time" "python run.py benchmark --config configs/legacy/drivers/benchmark_net_injection_appendix_time_generalization.yaml"
       ;;
     validate_powerflow)
       if [[ -z "$VALIDATE_CONFIG" || -z "$VALIDATE_RUN_NAME" || -z "$MAPPING_CSV" ]]; then

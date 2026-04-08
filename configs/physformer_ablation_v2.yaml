@@ -1,5 +1,0 @@
-_base_: physformer_default.yaml
-checkpoint:
-  name: physformer_ablation_shared_query_only
-ablation:
-  shared_query_only: true

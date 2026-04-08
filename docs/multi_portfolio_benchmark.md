@@ -5,36 +5,25 @@ built from the NextGen-based semi-synthetic dataset.
 
 ## What it evaluates
 
-- It is a **single-climate** benchmark under shared `ACT / Canberra` weather.
-- Its main question is **composition-level generalization** across held-out
-  portfolios.
-- It does **not** claim cross-region or cross-climate generalization.
+- single-climate portfolio forecasting under shared `ACT / Canberra` weather
+- held-out portfolio composition generalization
+- later-time evaluation on train portfolios via time generalization
+
+It does not claim cross-region or cross-climate generalization.
 
 ## Leakage rules
 
-- `household_id` values are audited for eligibility before benchmark creation.
-- `household_id` values are split into `train / val / test` before portfolio use.
-- A household is never reused across portfolios in v1.
-- The main benchmark uses `split_strategy=portfolio_manifest`, so held-out
-  portfolios stay fully unseen during training.
+- `household_id` eligibility is audited before benchmark creation
+- `household_id` is split into `train / val / test` before portfolio use
+- a household is never reused across portfolios in v1
+- the main benchmark uses `split_strategy=portfolio_manifest`
 
 ## Builder entry
 
-Unified runner entry:
+Canonical builder command:
 
 ```bash
 python run.py build-dataset \
-  --nextgen-dir data_raw/nextgen \
-  --act-weather-csv data_raw/era5/act_canberra_hourly.csv \
-  --rye-generation-csv data_raw/rye/rye_generation_and_load.csv \
-  --rye-weather-csv data_raw/era5/rye_template_hourly.csv \
-  --output-dir data_processed/multi_portfolio
-```
-
-Direct tool entry:
-
-```bash
-python tools/build_multi_portfolio_dataset.py \
   --nextgen-dir data_raw/nextgen \
   --act-weather-csv data_raw/era5/act_canberra_hourly.csv \
   --rye-generation-csv data_raw/rye/rye_generation_and_load.csv \
@@ -57,7 +46,7 @@ The builder writes:
 
 ## Training schema
 
-The canonical thesis training table contains:
+Canonical thesis table fields:
 
 - `date`
 - `portfolio_id`
@@ -73,62 +62,23 @@ The canonical thesis training table contains:
 - `p_battery_mw`
 - `e_battery_soc_mwh`
 
-`cloud_cover` is retained at the raw weather stage but is not enabled as a v1
-training covariate.
+`cloud_cover` remains excluded from the v1 training feature contract.
 
-## Benchmarks
+## Benchmark drivers
 
 Main benchmark:
-
-- File:
-  `portfolio_dataset_for_training.csv`
-- Split mode:
-  `portfolio_manifest`
-- Meaning:
-  held-out portfolio composition generalization
-
-Additional benchmark:
-
-- File:
-  `portfolio_dataset_for_time_generalization.csv`
-- Split mode:
-  `portfolio_manifest`
-- Meaning:
-  later-time evaluation on the train portfolios only
-
-## Typical training commands
-
-Baseline main benchmark:
-
-```bash
-python run.py train --config configs/baselines/tide_net_injection.yaml
-```
-
-PhysFormer main benchmark:
-
-```bash
-python run.py train --config configs/physformer_default.yaml
-```
-
-PhysFormer time generalization:
-
-```bash
-python run.py train --config configs/physformer_time_generalization.yaml
-```
-
-Main paper benchmark driver:
 
 ```bash
 python run.py benchmark --config configs/drivers/benchmark_net_injection.yaml
 ```
 
-AutoDL 5090 benchmark driver:
+Time generalization:
 
 ```bash
-python run.py benchmark --config configs/drivers/benchmark_net_injection_5090.yaml
+python run.py benchmark --config configs/drivers/benchmark_net_injection_time_generalization.yaml
 ```
 
-This driver compares:
+Main paper benchmark models:
 
 - `PhysFormer v2`
 - `DLinear`
@@ -136,31 +86,14 @@ This driver compares:
 - `TimeXer`
 - `TFT`
 
-The main driver runs `3 seeds` per model:
+Default seeds:
 
 - `2024`
 - `2025`
 - `2026`
 
-The default thesis driver writes:
+Appendix / legacy benchmark configs now live under:
 
-- raw per-run summary:
-  `runs/reports/benchmark_net_injection_summary_raw.csv`
-- grouped per-experiment summary with `mean/std`:
-  `runs/reports/benchmark_net_injection_summary_grouped.csv`
-
-The AutoDL 5090 driver writes:
-
-- raw per-run summary:
-  `runs/reports/benchmark_net_injection_5090_summary_raw.csv`
-- grouped per-experiment summary with `mean/std`:
-  `runs/reports/benchmark_net_injection_5090_summary_grouped.csv`
-
-Appendix benchmark driver:
-
-```bash
-python run.py benchmark --config configs/drivers/benchmark_net_injection_appendix.yaml
+```text
+configs/legacy/
 ```
-
-Appendix drivers stay single-seed unless you explicitly add `seeds` entries to
-the driver YAML.

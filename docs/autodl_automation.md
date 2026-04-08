@@ -1,70 +1,34 @@
 # AutoDL Automation
 
-This thesis branch includes a first-pass AutoDL automation path built around:
+This branch uses an SSH + `tmux` AutoDL flow. It does not depend on AutoDL enterprise APIs.
 
-- SSH key login
-- `tmux` for long-running jobs
-- local source archive upload by default
-- local tar packaging + `scp` upload for `data_raw/`
+Primary scripts:
 
-It does not depend on AutoDL enterprise APIs. This follows the official
-AutoDL guidance for SSH-based instance use and long-running terminal jobs:
-
-- SSH access:
-  [https://www.autodl.com/docs/ssh/](https://www.autodl.com/docs/ssh/)
-- Daemon / long-running shell sessions:
-  [https://api.autodl.com/docs/daemon/](https://api.autodl.com/docs/daemon/)
-- Git usage reference:
-  [https://www.autodl.com/docs/git/](https://www.autodl.com/docs/git/)
-- File transfer reference:
-  [https://api.autodl.com/docs/scp/](https://api.autodl.com/docs/scp/)
+- local submit:
+  [autodl_submit.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_submit.ps1)
+- remote runner:
+  [autodl_remote_run.sh](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_remote_run.sh)
+- local fetch:
+  [autodl_fetch_results.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_fetch_results.ps1)
+- local watch:
+  [autodl_watch.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_watch.ps1)
 
 ## Defaults
 
-The scripts assume:
-
-- remote user: `root`
+- remote user:
+  `root`
 - remote project dir:
   `/root/autodl-tmp/Soft-phys-CFC-Informer`
 - remote conda env:
   `Soft-phys-CFC-Informer`
-- default branch:
-  `codex/thesis-mainline`
-- default source sync mode:
+- default source sync:
   `upload`
 - default stages:
   `verify,build_dataset,benchmark_main,benchmark_time`
 
-## Scripts
+## Submit
 
-Local submit:
-
-- [autodl_submit.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_submit.ps1)
-- [autodl_plan_a.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_plan_a.ps1)
-
-Remote execution:
-
-- [autodl_remote_run.sh](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_remote_run.sh)
-
-Local fetch:
-
-- [autodl_fetch_results.ps1](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/scripts/autodl_fetch_results.ps1)
-
-## First run
-
-1. Make sure local SSH key login to the AutoDL instance already works.
-2. Make sure the GitHub HTTPS repo URL is correct.
-3. Make sure local source tree and local raw data are present.
-4. Start the remote chain with a dry-run first:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
-  -RemoteHost "<AUTODL_HOST>" `
-  -Port <AUTODL_PORT> `
-  -DryRun
-```
-
-5. Submit the real remote job:
+Default benchmark submission:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
@@ -72,9 +36,7 @@ powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
   -Port <AUTODL_PORT>
 ```
 
-If a previous submission already uploaded the source tree and `data_raw/`, and
-you only need to restart the remote runner after fixing something like a
-missing `tmux`, you can skip both uploads:
+Restart without re-uploading source or data:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
@@ -84,84 +46,17 @@ powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
   -SkipDataUpload
 ```
 
-To run only the 10-epoch PhysFormer hyperparameter probe:
+Run the full Stage A + Stage B preset:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
   -RemoteHost "<AUTODL_HOST>" `
   -Port <AUTODL_PORT> `
-  -SkipDataUpload `
-  -Stages "verify,probe_hparams"
-```
-
-6. Attach to the remote session if needed:
-
-```bash
-ssh -p <AUTODL_PORT> root@<AUTODL_HOST> -t "tmux attach -t autodl-thesis"
-```
-
-## Stage meanings
-
-- `verify`
-  - imports and config parsing only
-- `build_dataset`
-  - builds `data_processed/multi_portfolio`
-- `benchmark_main`
-  - runs `configs/drivers/benchmark_net_injection_5090.yaml`
-- `benchmark_time`
-  - runs `configs/drivers/benchmark_net_injection_time_generalization_5090.yaml`
-- `stage_a_single`
-  - runs a single Stage A PhysFormer train+test pair
-- `probe_hparams`
-  - runs a single-seed PhysFormer 10-epoch probe with the current 5090 tuning
-  - writes a JSON and Markdown reasonableness summary under the probe run `reports/`
-- `audit_batch`
-  - runs 2-epoch batch-size audit sweeps for PhysFormer / DLinear / TiDE / TimeXer / TFT
-- `ablation`
-  - runs `configs/drivers/physformer_ablation.yaml`
-- `appendix`
-  - runs appendix benchmark drivers
-- `validate_powerflow`
-  - requires explicit validation config, run name, and mapping CSV
-- `operational_fit`
-  - runs Stage B operational interface fitting from a Stage A checkpoint
-  - requires `--operational-init-run`
-- `export_operational`
-  - exports `portfolio_forecasts_operational.csv`
-  - requires `--validate-config` and `--validate-run-name`
-
-## Result collection
-
-Fetch the benchmark summaries and the default best runs:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\autodl_fetch_results.ps1 `
-  -RemoteHost "<AUTODL_HOST>" `
-  -Port <AUTODL_PORT>
-```
-
-The fetch script downloads:
-
-- main benchmark raw/grouped summaries
-- time benchmark raw/grouped summaries
-- the median-seed PhysFormer run for each benchmark
-- the median-seed strongest baseline for each benchmark
-
-The AutoDL benchmark stages use 5090-specific driver configs with larger batch
-sizes and loader overrides. Base thesis configs remain unchanged.
-
-## Stage B Operational Interface
-
-If you want the full Plan A chain with one command, use:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\autodl_plan_a.ps1 `
-  -RemoteHost "<AUTODL_HOST>" `
-  -Port <AUTODL_PORT> `
+  -Preset plan-a `
   -SkipDataUpload
 ```
 
-This will run:
+This preset runs:
 
 - `verify`
 - `build_dataset`
@@ -171,101 +66,87 @@ This will run:
 
 Default run names:
 
-- Stage A: `physformer_net_injection__s2024`
-- Stage B: `physformer_operational_fit_s2024`
+- Stage A:
+  `physformer_net_injection__s2024`
+- Stage B:
+  `physformer_operational_fit_s2024`
 
-To fit the non-black-box operational interface after Stage A has produced a
-best checkpoint, run only the Stage B path and point it at the Stage A run:
+## Stages
+
+- `verify`
+  - import and config parsing only
+- `build_dataset`
+  - builds `data_processed/multi_portfolio`
+- `benchmark_main`
+  - runs `configs/drivers/benchmark_net_injection.yaml`
+- `benchmark_time`
+  - runs `configs/drivers/benchmark_net_injection_time_generalization.yaml`
+- `stage_a_single`
+  - runs one Stage A PhysFormer train + test
+- `operational_fit`
+  - runs Stage B from a Stage A checkpoint
+- `export_operational`
+  - exports `portfolio_forecasts_operational.csv`
+- `ablation`
+  - runs `configs/drivers/physformer_ablation.yaml`
+- `appendix`
+  - runs legacy appendix drivers under `configs/legacy/drivers/`
+
+## Monitor
+
+Watch the current master log:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\autodl_submit.ps1 `
+powershell -ExecutionPolicy Bypass -File scripts\autodl_watch.ps1 `
   -RemoteHost "<AUTODL_HOST>" `
   -Port <AUTODL_PORT> `
-  -SkipDataUpload `
-  -Stages "verify,operational_fit" `
-  -RemoteArgs "--operational-init-run /root/autodl-tmp/Soft-phys-CFC-Informer/runs/physformer_net_injection__s2024 --operational-run-name physformer_operational_fit_s2024"
+  -Mode Master
 ```
 
-The Stage B config defaults to:
+Watch one run:
 
-- [physformer_operational_fit.yaml](/C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/configs/physformer_operational_fit.yaml)
-
-Outputs include:
-
-- `extras/component_preds.npz`
-- `extras/battery_state_preds.npz`
-- `extras/component_confidence.npz`
-- `extras/component_attribution.npz`
-- `extras/diagnostic_summary.json`
-
-To export the operational interface CSV after Stage B:
-
-```bash
-python run.py export-forecast \
-  --config configs/physformer_operational_fit.yaml \
-  --run-name physformer_operational_fit_s2024 \
-  --include-operational-interface
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_watch.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT> `
+  -Mode Run `
+  -RunName "physformer_net_injection__s2024"
 ```
 
-To summarize Stage B diagnostics:
+## Fetch
 
-```bash
-python tools/analyze_operational_interface.py \
-  --run-dir runs/physformer_operational_fit_s2024
+Fetch summaries and selected runs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_fetch_results.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT>
 ```
 
-Downloaded files are written under:
+Fetch additional runs explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\autodl_fetch_results.ps1 `
+  -RemoteHost "<AUTODL_HOST>" `
+  -Port <AUTODL_PORT> `
+  -AdditionalRunNames "physformer_net_injection__s2024,physformer_operational_fit_s2024"
+```
+
+Fetched artifacts include, when present:
+
+- `metrics.json`
+- `config_merged.yaml`
+- `train.log`
+- `training_state.pth`
+- `portfolio_forecasts.csv`
+- `portfolio_forecasts_operational.csv`
+- `diagnostic_summary.json`
+- `component_confidence.npz`
+- `component_attribution.npz`
+- `battery_state_preds.npz`
+
+Outputs are written under:
 
 ```text
 downloads/autodl/<host>_<timestamp>/
 ```
-
-## Summary file naming
-
-Benchmark summaries are written per driver, so main and time benchmarks do not
-overwrite each other.
-
-For AutoDL 5090 runs, the benchmark stages write:
-
-- `runs/reports/benchmark_net_injection_5090_summary_raw.csv`
-- `runs/reports/benchmark_net_injection_5090_summary_grouped.csv`
-- `runs/reports/benchmark_net_injection_time_generalization_5090_summary_raw.csv`
-- `runs/reports/benchmark_net_injection_time_generalization_5090_summary_grouped.csv`
-
-For non-5090 or legacy local runs, the default drivers still write:
-
-- `runs/reports/benchmark_net_injection_summary_raw.csv`
-- `runs/reports/benchmark_net_injection_summary_grouped.csv`
-- `runs/reports/benchmark_net_injection_time_generalization_summary_raw.csv`
-- `runs/reports/benchmark_net_injection_time_generalization_summary_grouped.csv`
-
-`autodl_fetch_results.ps1` now prefers the 5090 summary names and falls back to
-the legacy names automatically.
-
-## Failure handling
-
-- Default source sync mode is local upload, so the remote host does not need to
-  `git clone` the thesis branch.
-- If you switch to `-SourceSyncMode clone`, the submit script aborts when the
-  local branch is dirty or not pushed to `origin/<branch>`, unless you pass
-  `-SkipGitSyncCheck`.
-- If `data_raw/` has already been uploaded once, the submit script skips
-  re-upload unless you pass `-ForceDataUpload`.
-- If the remote project directory is already present and valid, you can skip
-  source re-upload with `-SkipSourceUpload`.
-- The submit script uses a local temporary tar archive plus `scp` instead of a
-  raw `tar | ssh | tar` pipeline because Windows PowerShell native binary
-  piping is less reliable for large archives.
-- You can still opt into remote clone with:
-
-```powershell
--SourceSyncMode clone -RepoUrl "https://github.com/<owner>/<repo>.git"
-```
-- If `tmux` is missing on the remote host, submission fails with a clear error
-  before training starts.
-- If `conda` is missing on the remote host, the remote script stops before any
-  build or training stage.
-- On AutoDL, `conda` may exist under `/root/miniconda3/` but not appear in
-  `PATH` for non-interactive shells. The remote runner now probes common AutoDL
-  locations and initializes conda explicitly before creating or activating the
-  project environment.

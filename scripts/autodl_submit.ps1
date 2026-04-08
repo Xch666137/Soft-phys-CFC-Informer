@@ -11,6 +11,8 @@ param(
     [string]$Branch = "codex/thesis-mainline",
     [ValidateSet("upload", "clone")]
     [string]$SourceSyncMode = "upload",
+    [ValidateSet("", "plan-a")]
+    [string]$Preset = "",
     [string]$RemoteProjectDir = "/root/autodl-tmp/Soft-phys-CFC-Informer",
     [string]$RemoteEnvName = "Soft-phys-CFC-Informer",
     [string]$LocalDataRoot = "data_raw",
@@ -18,6 +20,10 @@ param(
     [string]$RemoteArgs = "",
     [string]$SessionName = "autodl-thesis",
     [string]$PythonVersion = "3.10",
+    [string]$StageARunName = "physformer_net_injection__s2024",
+    [string]$StageAConfig = "configs/physformer_default.yaml",
+    [string]$StageBRunName = "physformer_operational_fit_s2024",
+    [string]$StageBConfig = "configs/physformer_operational_fit.yaml",
     [switch]$SkipGitSyncCheck,
     [switch]$SkipSourceUpload,
     [switch]$SkipDataUpload,
@@ -169,6 +175,23 @@ $remoteScriptPath = "$RemoteProjectDir/scripts/autodl_remote_run.sh"
 $remoteUploadStamp = "$remoteDataRoot/.autodl_upload_complete"
 $remoteUploadTar = "/tmp/soft_phys_cfc_informer_data_raw.tar"
 $remoteSourceTar = "/tmp/soft_phys_cfc_informer_source.tar"
+
+if ($Preset -eq "plan-a") {
+    if (-not $PSBoundParameters.ContainsKey("Stages")) {
+        $Stages = "verify,build_dataset,stage_a_single,operational_fit,export_operational"
+    }
+    $presetArgs = @(
+        "--stage-a-config $StageAConfig"
+        "--stage-a-run-name $StageARunName"
+        "--operational-config $StageBConfig"
+        "--operational-run-name $StageBRunName"
+    ) -join " "
+    if ([string]::IsNullOrWhiteSpace($RemoteArgs)) {
+        $RemoteArgs = $presetArgs
+    } else {
+        $RemoteArgs = "$presetArgs $RemoteArgs"
+    }
+}
 
 if ($SourceSyncMode -eq "clone" -and -not $SkipGitSyncCheck -and -not $DryRun) {
     Write-Step "Checking local git sync against origin/$Branch"

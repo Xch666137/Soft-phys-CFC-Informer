@@ -128,18 +128,18 @@ Ensure-Dir $localRunsDir
 $summarySpecs = @(
     @{
         Name = "benchmark_net_injection"
-        RawPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_5090_summary_raw.csv"
-        RawFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_raw.csv"
-        GroupedPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_5090_summary_grouped.csv"
-        GroupedFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_grouped.csv"
+        RawPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_raw.csv"
+        RawFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_5090_summary_raw.csv"
+        GroupedPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_summary_grouped.csv"
+        GroupedFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_5090_summary_grouped.csv"
         PhysFormer = "physformer_net_injection"
     },
     @{
         Name = "benchmark_net_injection_time_generalization"
-        RawPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_5090_summary_raw.csv"
-        RawFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_raw.csv"
-        GroupedPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_5090_summary_grouped.csv"
-        GroupedFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_grouped.csv"
+        RawPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_raw.csv"
+        RawFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_5090_summary_raw.csv"
+        GroupedPreferred = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_summary_grouped.csv"
+        GroupedFallback = "$RemoteProjectDir/runs/reports/benchmark_net_injection_time_generalization_5090_summary_grouped.csv"
         PhysFormer = "physformer_net_injection_time_generalization"
     }
 )

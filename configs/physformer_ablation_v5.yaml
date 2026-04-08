@@ -1,5 +1,0 @@
-_base_: physformer_default.yaml
-checkpoint:
-  name: physformer_ablation_no_soc_consistency
-ablation:
-  no_soc_consistency: true

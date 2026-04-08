@@ -1,5 +1,0 @@
-_base_: physformer_default.yaml
-checkpoint:
-  name: physformer_ablation_no_aux_supervision
-ablation:
-  no_aux_supervision: true

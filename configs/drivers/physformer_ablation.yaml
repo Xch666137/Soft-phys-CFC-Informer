@@ -3,21 +3,33 @@ ablation:
     - name: physformer_full
       run_name: physformer_full
       config: configs/physformer_default.yaml
-    - name: physformer_ablation_v1
+    - name: physformer_ablation_no_phys_stream
       run_name: physformer_ablation_no_phys_stream
-      config: configs/physformer_ablation_v1.yaml
-    - name: physformer_ablation_v2
+      config: configs/physformer_default.yaml
+      ablation:
+        no_phys_stream: true
+    - name: physformer_ablation_shared_query_only
       run_name: physformer_ablation_shared_query_only
-      config: configs/physformer_ablation_v2.yaml
-    - name: physformer_ablation_v3
+      config: configs/physformer_default.yaml
+      ablation:
+        shared_query_only: true
+    - name: physformer_ablation_no_battery_branch
       run_name: physformer_ablation_no_battery_branch
-      config: configs/physformer_ablation_v3.yaml
-    - name: physformer_ablation_v4
+      config: configs/physformer_default.yaml
+      ablation:
+        no_battery_branch: true
+    - name: physformer_ablation_no_aux_supervision
       run_name: physformer_ablation_no_aux_supervision
-      config: configs/physformer_ablation_v4.yaml
-    - name: physformer_ablation_v5
+      config: configs/physformer_default.yaml
+      ablation:
+        no_aux_supervision: true
+    - name: physformer_ablation_no_soc_consistency
       run_name: physformer_ablation_no_soc_consistency
-      config: configs/physformer_ablation_v5.yaml
-    - name: physformer_ablation_v6
+      config: configs/physformer_default.yaml
+      ablation:
+        no_soc_consistency: true
+    - name: physformer_ablation_no_future_weather
       run_name: physformer_ablation_no_future_weather
-      config: configs/physformer_ablation_v6.yaml
+      config: configs/physformer_default.yaml
+      ablation:
+        no_future_weather: true
