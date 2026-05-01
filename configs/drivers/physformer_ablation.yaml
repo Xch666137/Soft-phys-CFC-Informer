@@ -3,33 +3,40 @@ ablation:
     - name: physformer_full
       run_name: physformer_full
       config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
     - name: physformer_ablation_no_phys_stream
       run_name: physformer_ablation_no_phys_stream
       config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
       ablation:
         no_phys_stream: true
-    - name: physformer_ablation_shared_query_only
-      run_name: physformer_ablation_shared_query_only
-      config: configs/physformer_default.yaml
-      ablation:
-        shared_query_only: true
     - name: physformer_ablation_no_battery_branch
       run_name: physformer_ablation_no_battery_branch
       config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
       ablation:
         no_battery_branch: true
-    - name: physformer_ablation_no_aux_supervision
-      run_name: physformer_ablation_no_aux_supervision
-      config: configs/physformer_default.yaml
-      ablation:
-        no_aux_supervision: true
     - name: physformer_ablation_no_soc_consistency
       run_name: physformer_ablation_no_soc_consistency
       config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
       ablation:
         no_soc_consistency: true
     - name: physformer_ablation_no_future_weather
       run_name: physformer_ablation_no_future_weather
       config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
       ablation:
         no_future_weather: true
+    - name: physformer_ablation_no_battery_physics_loss
+      run_name: physformer_ablation_no_battery_physics_loss
+      config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
+      ablation:
+        no_battery_physics_loss: true
+    - name: physformer_ablation_flatten_head
+      run_name: physformer_ablation_flatten_head
+      config: configs/physformer_default.yaml
+      seeds: [2024, 2025, 2026]
+      ablation:
+        no_temporal_decoder: true

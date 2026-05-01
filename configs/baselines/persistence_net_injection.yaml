@@ -1,0 +1,36 @@
+model:
+  name: Persistence
+  enc_in: 6
+  c_out: 1
+
+data:
+  root_path: ./
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+  features: M
+  time_col: date
+  id_col: portfolio_id
+  region_col: region_id
+  split_col: split
+  split_strategy: portfolio_manifest
+  task_mode: net_injection
+  target_cols: [p_vpp_mw]
+  known_future_covariate_cols: [temperature, irradiance, wind_speed]
+  history_state_cols: [p_battery_mw, e_battery_soc_mwh]
+  seq_len: 672
+  label_len: 96
+  pred_len: 96
+  freq: t
+
+training:
+  seed: 2024
+  batch_size: 1
+  train_epochs: 0
+  learning_rate: 0.0
+  patience: 1
+
+hardware:
+  use_gpu: true
+  gpu: 0
+
+checkpoint:
+  name: persistence_net_injection

@@ -4,8 +4,10 @@ import torch.nn.functional as F
 
 
 class PhysAwareBaseLoss(nn.Module):
-    COMPONENT_NAMES = ("load", "pv", "wind", "battery_power", "battery_soc")
-    ATTRIBUTION_NAMES = ("load", "pv", "wind", "battery")
+    """Computes individual loss *terms* in real physical units.
+
+    The caller (PhysLoss) decides how to weight and combine them.
+    """
 
     def __init__(
         self,
@@ -15,10 +17,8 @@ class PhysAwareBaseLoss(nn.Module):
         aux_std,
         state_mean,
         state_std,
-        net_ramp_limit=0.0,
-        battery_ramp_limit=0.0,
         dt_hours=0.25,
-        component_weights=None,
+        battery_meta=None,
     ):
         super().__init__()
         self.register_buffer("target_mean", self._to_buffer(target_mean, 1, 0.0))
@@ -27,12 +27,13 @@ class PhysAwareBaseLoss(nn.Module):
         self.register_buffer("aux_std", self._to_buffer(aux_std, 5, 1.0))
         self.register_buffer("state_mean", self._to_buffer(state_mean, 2, 0.0))
         self.register_buffer("state_std", self._to_buffer(state_std, 2, 1.0))
-
-        weights = component_weights or [1.0, 1.0, 1.0, 1.0, 0.5]
-        self.register_buffer("component_weights", torch.as_tensor(weights, dtype=torch.float32).view(1, 1, -1))
-        self.net_ramp_limit = float(net_ramp_limit)
-        self.battery_ramp_limit = float(battery_ramp_limit)
         self.dt_hours = float(dt_hours)
+
+        if battery_meta and battery_meta.get("E_max") is not None:
+            self.register_buffer("_E_max", torch.tensor(battery_meta["E_max"]))
+            self._has_E_max = True
+        else:
+            self._has_E_max = False
 
     @staticmethod
     def _to_buffer(value, dim, default):
@@ -56,227 +57,125 @@ class PhysAwareBaseLoss(nn.Module):
         battery_hist_real = self.denorm_state(x_battery_hist)
         soc_hist = battery_hist_real[..., 1:2]
         last_soc_real = soc_hist[:, -1:, :]
-        capacity_real = soc_hist.amax(dim=1, keepdim=True).clamp_min(1e-6)
-        return {
-            "last_soc_real": last_soc_real,
-            "capacity_real": capacity_real,
-        }
+        if self._has_E_max:
+            capacity_real = self._E_max.view(1, 1, 1).expand_as(last_soc_real)
+        else:
+            capacity_real = soc_hist.amax(dim=1, keepdim=True).clamp_min(1e-6)
+        return {"last_soc_real": last_soc_real, "capacity_real": capacity_real}
 
-    def compute_terms(self, pred_dict, y_target, y_aux, batch_context, collect_debug=False):
+    def compute_terms(self, pred_dict, y_target, batch_context, y_aux=None, collect_debug=False):
         pred_net = pred_dict["pred_net"]
-        pred_aux = pred_dict["pred_aux"]
+        theory_net = pred_dict.get("theory_net", torch.zeros_like(pred_net))
+        physics_states = pred_dict.get("physics_states", {})
 
+        # -- primary --
         net_mse = F.mse_loss(pred_net, y_target)
         net_mae_norm = F.l1_loss(pred_net, y_target)
-
-        aux_error = (pred_aux - y_aux) ** 2
-        weighted_aux = aux_error * self.component_weights
-        component_loss = weighted_aux[..., :3].mean()
-        battery_state_loss = weighted_aux[..., 3:].mean()
-
         pred_net_real = self.denorm_target(pred_net)
         true_net_real = self.denorm_target(y_target)
-        pred_aux_real = self.denorm_aux(pred_aux)
-        true_aux_real = self.denorm_aux(y_aux)
-
-        pred_battery_power = pred_aux_real[..., 3:4]
-        pred_battery_soc = pred_aux_real[..., 4:5]
-        true_battery_power = true_aux_real[..., 3:4]
-        true_battery_soc = true_aux_real[..., 4:5]
-
-        pred_charge = pred_dict["pred_charge_real"]
-        pred_discharge = pred_dict["pred_discharge_real"]
-        eta_charge = pred_dict["battery_eta_charge"]
-        eta_discharge = pred_dict["battery_eta_discharge"]
-
-        if pred_net_real.shape[1] > 1:
-            net_diff = pred_net_real[:, 1:, :] - pred_net_real[:, :-1, :]
-            battery_diff = pred_battery_power[:, 1:, :] - pred_battery_power[:, :-1, :]
-            net_ramp_penalty = F.relu(torch.abs(net_diff) - self.net_ramp_limit).mean() if self.net_ramp_limit > 0 else torch.mean(torch.abs(net_diff))
-            battery_ramp_penalty = (
-                F.relu(torch.abs(battery_diff) - self.battery_ramp_limit).mean()
-                if self.battery_ramp_limit > 0
-                else torch.mean(torch.abs(battery_diff))
-            )
-            battery_smoothness = torch.mean(torch.abs(battery_diff))
-        else:
-            zero = pred_net_real.new_tensor(0.0)
-            net_ramp_penalty = zero
-            battery_ramp_penalty = zero
-            battery_smoothness = zero
-
-        last_soc_real = batch_context["last_soc_real"]
-        capacity_real = batch_context["capacity_real"]
-        implied_soc = torch.cumsum((eta_charge * pred_charge - pred_discharge / eta_discharge) * self.dt_hours, dim=1) + last_soc_real
-        soc_transition_loss = F.l1_loss(pred_battery_soc, implied_soc)
-        soc_bounds_loss = F.relu(-pred_battery_soc).mean() + F.relu(pred_battery_soc - capacity_real).mean()
-        anti_overlap_loss = torch.mean(pred_charge * pred_discharge)
-
-        battery_power_mae = F.l1_loss(pred_battery_power, true_battery_power)
-        battery_soc_mae = F.l1_loss(pred_battery_soc, true_battery_soc)
-
         net_mae_real = F.l1_loss(pred_net_real, true_net_real)
         net_mse_real = F.mse_loss(pred_net_real, true_net_real)
-        operational_strong_loss = weighted_aux[..., [0, 1, 3, 4]].mean()
-        wind_loss = weighted_aux[..., 2:3].mean()
-        reconstructed_net_real = (
-            pred_aux_real[..., 0:1]
-            - pred_aux_real[..., 1:2]
-            - pred_aux_real[..., 2:3]
-            + pred_aux_real[..., 3:4]
-        )
-        component_net_consistency_residual = F.l1_loss(reconstructed_net_real, pred_net_real)
 
-        component_confidence = pred_dict.get("component_confidence")
-        component_attribution = pred_dict.get("component_attribution")
-        component_error_norm = torch.abs(pred_aux.detach() - y_aux.detach())
-        confidence_target = torch.exp(-component_error_norm)
-        if component_confidence is not None:
-            confidence_loss = F.mse_loss(component_confidence, confidence_target)
-        else:
-            confidence_loss = pred_net_real.new_tensor(0.0)
+        # -- theory diagnostics (not optimised, just tracked) --
+        theory_net_real = self.denorm_target(theory_net)
+        theory_mae_real = F.l1_loss(theory_net_real, true_net_real)
+        residual_net_real = pred_net_real - theory_net_real
+        residual_std_real = residual_net_real.std()
 
-        attribution_error = torch.abs(
-            pred_aux_real[..., [0, 1, 2, 3]].detach()
-            - true_aux_real[..., [0, 1, 2, 3]].detach()
-        )
-        attribution_sum = attribution_error.sum(dim=-1, keepdim=True)
-        uniform_target = torch.full_like(attribution_error, 1.0 / attribution_error.shape[-1])
-        attribution_target = torch.where(
-            attribution_sum > 1e-6,
-            attribution_error / attribution_sum.clamp_min(1e-6),
-            uniform_target,
-        )
-        if component_attribution is not None:
-            attribution_loss = F.mse_loss(component_attribution, attribution_target)
+        # -- battery physics (from physics_states) --
+        last_soc_real = batch_context["last_soc_real"]
+        capacity_real = batch_context["capacity_real"]
+
+        soc = physics_states.get("battery_soc_theory_real")
+
+        if soc is not None:
+            # Direct penalty on SOC physical bounds violation.
+            soc_bounds_loss = F.relu(-soc).mean() + F.relu(soc - capacity_real).mean()
         else:
-            attribution_loss = pred_net_real.new_tensor(0.0)
+            soc_bounds_loss = pred_net_real.new_tensor(0.0)
+
+        # -- component supervision (only when y_aux is provided) --
+        battery_power_mae = pred_net_real.new_tensor(0.0)
+        component_theory_real = physics_states.get("component_theory_real")
+        if y_aux is not None and component_theory_real is not None:
+            y_aux_real = self.denorm_aux(y_aux)
+            # battery power MAE: theory vs ground-truth aux
+            batt_power_theory = physics_states.get("battery_power_theory_real")
+            if batt_power_theory is not None:
+                battery_power_mae = F.l1_loss(batt_power_theory, y_aux_real[..., 3:4])
+
+        # -- component theory diagnostics --
+        if component_theory_real is not None:
+            load_theory = component_theory_real[..., 0:1]
+            pv_theory = component_theory_real[..., 1:2]
+            wind_theory = component_theory_real[..., 2:3]
+            batt_power_theory = component_theory_real[..., 3:4]
+            batt_soc_theory = component_theory_real[..., 4:5]
+            theory_components = {
+                "load_theory_mean": load_theory.mean(),
+                "pv_theory_mean": pv_theory.mean(),
+                "wind_theory_mean": wind_theory.mean(),
+                "batt_power_theory_mean": batt_power_theory.mean(),
+                "batt_soc_theory_mean": batt_soc_theory.mean(),
+            }
+        else:
+            theory_components = {}
 
         terms = {
             "net_mse": net_mse,
             "net_mae_norm": net_mae_norm,
             "net_mae_real": net_mae_real,
             "net_mse_real": net_mse_real,
-            "component_loss": component_loss,
-            "battery_state_loss": battery_state_loss,
-            "operational_strong_loss": operational_strong_loss,
-            "wind_loss": wind_loss,
-            "net_ramp_penalty": net_ramp_penalty,
-            "battery_ramp_penalty": battery_ramp_penalty,
-            "battery_smoothness": battery_smoothness,
-            "soc_transition_loss": soc_transition_loss,
+            "theory_mae_real": theory_mae_real,
+            "residual_std_real": residual_std_real,
             "soc_bounds_loss": soc_bounds_loss,
-            "anti_overlap_loss": anti_overlap_loss,
             "battery_power_mae": battery_power_mae,
-            "battery_soc_mae": battery_soc_mae,
-            "component_net_consistency_residual": component_net_consistency_residual,
-            "confidence_loss": confidence_loss,
-            "attribution_loss": attribution_loss,
             "pred_net_real": pred_net_real,
             "true_net_real": true_net_real,
-            "pred_aux_real": pred_aux_real,
-            "true_aux_real": true_aux_real,
-            "confidence_target": confidence_target,
-            "attribution_target": attribution_target,
+            "theory_net_real": theory_net_real,
         }
+        terms.update(theory_components)
+
         if collect_debug:
-            terms["component_mae"] = {
-                name: float(F.l1_loss(pred_aux_real[..., idx], true_aux_real[..., idx]).detach().cpu())
-                for idx, name in enumerate(self.COMPONENT_NAMES)
-            }
+            terms["component_theory_real"] = component_theory_real
         return terms
 
 
 class PhysLoss(nn.Module):
+    """Single-stage loss: net MSE + SOC bounds penalty.
+
+    Removed terms (dual-draft audit):
+      - soc_transition_loss: redundant with soc_bounds_loss; both penalise
+        the same physical violation (SOC out of [0, capacity]).  soc_bounds
+        is a direct ReLU penalty that is simpler and more interpretable.
+      - anti_overlap_loss: identically zero by construction — charge and
+        discharge come from opposite ReLU sides of the same signed power,
+        so charge * discharge == 0 always.
+    """
+
     def __init__(
         self,
         base_loss_module,
-        total_epochs,
-        aux_weight=0.4,
-        battery_weight=0.4,
-        ramp_weight=0.1,
-        soc_weight=0.2,
-        overlap_weight=0.02,
-        no_aux_supervision=False,
+        soc_weight=0.1,
         no_soc_consistency=False,
-        training_mode="net_first",
-        use_aux_supervision=True,
-        wind_supervision_weight=0.25,
-        diagnostic_confidence_weight=0.05,
-        diagnostic_attribution_weight=0.05,
-        net_consistency_weight=1.0,
+        no_battery_physics_loss=False,
     ):
         super().__init__()
         self.base_loss = base_loss_module
-        self.total_epochs = max(int(total_epochs), 1)
-        self.aux_weight = float(aux_weight)
-        self.battery_weight = float(battery_weight)
-        self.ramp_weight = float(ramp_weight)
         self.soc_weight = float(soc_weight)
-        self.overlap_weight = float(overlap_weight)
-        self.no_aux_supervision = bool(no_aux_supervision)
         self.no_soc_consistency = bool(no_soc_consistency)
-        self.training_mode = str(training_mode)
-        self.use_aux_supervision = bool(use_aux_supervision)
-        self.wind_supervision_weight = float(wind_supervision_weight)
-        self.diagnostic_confidence_weight = float(diagnostic_confidence_weight)
-        self.diagnostic_attribution_weight = float(diagnostic_attribution_weight)
-        self.net_consistency_weight = float(net_consistency_weight)
+        self.no_battery_physics_loss = bool(no_battery_physics_loss)
 
-    def _curriculum_weights(self, epoch):
-        if epoch is None:
-            return {"aux": 1.0, "physics": 1.0}
+    def forward(self, pred_dict, y_target, batch_context, y_aux=None, collect_debug=False):
+        terms = self.base_loss.compute_terms(
+            pred_dict, y_target, batch_context, y_aux=y_aux, collect_debug=collect_debug,
+        )
 
-        progress = max(float(epoch), 0.0) / float(self.total_epochs)
-        aux = min(max((progress - 0.10) / 0.30, 0.0), 1.0)
-        physics = min(max((progress - 0.25) / 0.40, 0.0), 1.0)
-        return {"aux": aux, "physics": physics}
+        total_loss = terms["net_mse"]
 
-    def forward(self, pred_dict, y_target, y_aux, batch_context, epoch=None, collect_debug=False):
-        terms = self.base_loss.compute_terms(pred_dict, y_target, y_aux, batch_context, collect_debug=collect_debug)
-        curriculum = self._curriculum_weights(epoch)
-
-        if self.training_mode == "net_first":
-            total_loss = terms["net_mse"]
-        elif self.training_mode == "operational_fit":
-            total_loss = self.net_consistency_weight * terms["net_mse"]
-            if self.use_aux_supervision and not self.no_aux_supervision:
-                total_loss = total_loss + (
-                    self.aux_weight * terms["operational_strong_loss"]
-                    + self.wind_supervision_weight * terms["wind_loss"]
-                )
-            total_loss = total_loss + self.ramp_weight * (
-                terms["net_ramp_penalty"]
-                + terms["battery_ramp_penalty"]
-                + 0.5 * terms["battery_smoothness"]
-            )
-            total_loss = total_loss + self.overlap_weight * terms["anti_overlap_loss"]
+        if not self.no_battery_physics_loss:
             if not self.no_soc_consistency:
-                total_loss = total_loss + self.soc_weight * (
-                    terms["soc_transition_loss"] + terms["soc_bounds_loss"]
-                )
-            total_loss = total_loss + self.diagnostic_confidence_weight * terms["confidence_loss"]
-            total_loss = total_loss + self.diagnostic_attribution_weight * terms["attribution_loss"]
-        else:
-            total_loss = terms["net_mse"]
-            if self.use_aux_supervision and not self.no_aux_supervision:
-                total_loss = total_loss + curriculum["aux"] * (
-                    self.aux_weight * terms["component_loss"]
-                    + self.battery_weight * terms["battery_state_loss"]
-                )
-
-            total_loss = total_loss + curriculum["physics"] * self.ramp_weight * (
-                terms["net_ramp_penalty"]
-                + terms["battery_ramp_penalty"]
-                + 0.5 * terms["battery_smoothness"]
-            )
-
-            total_loss = total_loss + curriculum["physics"] * self.overlap_weight * terms["anti_overlap_loss"]
-
-            if not self.no_soc_consistency:
-                total_loss = total_loss + curriculum["physics"] * self.soc_weight * (
-                    terms["soc_transition_loss"] + terms["soc_bounds_loss"]
-                )
+                total_loss = total_loss + self.soc_weight * terms["soc_bounds_loss"]
 
         debug = None
         if collect_debug:
@@ -286,24 +185,9 @@ class PhysLoss(nn.Module):
                 "net_mae_norm": float(terms["net_mae_norm"].detach().cpu()),
                 "net_mae_real": float(terms["net_mae_real"].detach().cpu()),
                 "net_mse_real": float(terms["net_mse_real"].detach().cpu()),
-                "component_loss": float(terms["component_loss"].detach().cpu()),
-                "battery_state_loss": float(terms["battery_state_loss"].detach().cpu()),
-                "net_ramp_penalty": float(terms["net_ramp_penalty"].detach().cpu()),
-                "battery_ramp_penalty": float(terms["battery_ramp_penalty"].detach().cpu()),
-                "battery_smoothness": float(terms["battery_smoothness"].detach().cpu()),
-                "soc_transition_loss": float(terms["soc_transition_loss"].detach().cpu()),
+                "theory_mae_real": float(terms["theory_mae_real"].detach().cpu()),
+                "residual_std_real": float(terms["residual_std_real"].detach().cpu()),
                 "soc_bounds_loss": float(terms["soc_bounds_loss"].detach().cpu()),
-                "anti_overlap_loss": float(terms["anti_overlap_loss"].detach().cpu()),
                 "battery_power_mae": float(terms["battery_power_mae"].detach().cpu()),
-                "battery_soc_mae": float(terms["battery_soc_mae"].detach().cpu()),
-                "operational_strong_loss": float(terms["operational_strong_loss"].detach().cpu()),
-                "wind_loss": float(terms["wind_loss"].detach().cpu()),
-                "component_net_consistency_residual": float(terms["component_net_consistency_residual"].detach().cpu()),
-                "confidence_loss": float(terms["confidence_loss"].detach().cpu()),
-                "attribution_loss": float(terms["attribution_loss"].detach().cpu()),
-                "curriculum_aux": float(curriculum["aux"]),
-                "curriculum_physics": float(curriculum["physics"]),
-                "training_mode": self.training_mode,
-                "component_mae": terms.get("component_mae", {}),
             }
         return total_loss, debug, terms

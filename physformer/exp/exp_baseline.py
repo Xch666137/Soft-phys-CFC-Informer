@@ -19,6 +19,7 @@ from ..models.itransformer import iTransformer
 from ..models.lstm import LSTM
 from ..models.patchtst import PatchTST
 from ..models.pinn import PINN
+from ..models.persistence import Persistence
 from ..models.tft import TFT
 from ..models.tide import TiDE
 from ..models.timexer import TimeXer
@@ -45,6 +46,7 @@ class BaselineExperiment(ForecastExperiment):
             "TFT": TFT,
             "TiDE": TiDE,
             "TimeXer": TimeXer,
+            "Persistence": Persistence,
         }
         if self.args.model not in model_dict:
             raise ValueError(f"Model {self.args.model} not implemented")
@@ -149,6 +151,10 @@ class BaselineExperiment(ForecastExperiment):
         return float((loss_total / max(steps, 1)).detach().cpu()) if steps else 0.0
 
     def train(self):
+        if self.args.model == "Persistence":
+            torch.save(self.model.state_dict(), self.checkpoint_path())
+            self.logger.info("Persistence baseline: training skipped (no learnable parameters).")
+            return self.model
         train_data, train_loader = self._get_data(flag="train")
         _, vali_loader = self._get_data(flag="val")
 

@@ -17,8 +17,8 @@ model:
   film_scale: 0.5
 
 data:
-  root_path: ./
-  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+  root_path: /root/autodl-tmp
+  data_path: physformer/data_processed/multi_portfolio/portfolio_dataset_for_training.csv
   features: M
   target: null
   time_col: date
@@ -53,10 +53,11 @@ training:
 hardware:
   use_gpu: true
   gpu: 0
-  num_workers: 8
+  num_workers: 4
+  pin_memory: true
 
 checkpoint:
-  name: physformer_net_injection
+  name: physformer_v3
   path: runs/
 
 ablation:

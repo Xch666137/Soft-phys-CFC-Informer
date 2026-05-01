@@ -29,6 +29,7 @@ from .patchtst import PatchTST
 from .itransformer import iTransformer
 from .tide import TiDE
 from .timexer import TimeXer
+from .persistence import Persistence
 from .tft import TFT
 
 MODEL_REGISTRY = {
@@ -44,6 +45,7 @@ MODEL_REGISTRY = {
     'TiDE': TiDE,
     'TimeXer': TimeXer,
     'TFT': TFT,
+    'Persistence': Persistence,
 }
 
 

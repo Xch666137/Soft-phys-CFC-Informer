@@ -1,26 +1,27 @@
 model:
-  name: PhysFormer
+  name: Informer
   enc_in: 6
-  d_model: 256
+  dec_in: 6
+  c_out: 1
+  d_model: 512
   n_heads: 8
-  e_layers: 2
-  d_ff: 512
+  e_layers: 3
+  d_layers: 2
+  d_ff: 2048
   factor: 5
   dropout: 0.10
-  attn: full
+  attn: prob
   embed: custom
   activation: gelu
   use_rope: true
   rope_base: 10000
-  distil: false
-  use_temporal_decoder: true
-  film_scale: 0.5
+  distil: true
+  output_attention: false
 
 data:
   root_path: ./
   data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
   features: M
-  target: null
   time_col: date
   id_col: portfolio_id
   region_col: region_id
@@ -32,23 +33,18 @@ data:
   history_state_cols: [p_battery_mw, e_battery_soc_mwh]
   aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
   seq_len: 672
+  label_len: 96
   pred_len: 96
   freq: t
 
 training:
-  batch_size: 64
+  seed: 2024
+  batch_size: 32
   train_epochs: 100
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5
-  grad_clip: 1.0
-  patience: 25
-  use_amp: true
-  warmup_epochs: 5
-  warmup_start_factor: 0.2
-  early_stop_metric: net_mse
-  early_stop_start_epoch: 10
-  soc_weight: 0.1
-  seed: 2024
+  patience: 10
+  use_amp: false
 
 hardware:
   use_gpu: true
@@ -56,13 +52,4 @@ hardware:
   num_workers: 8
 
 checkpoint:
-  name: physformer_net_injection
-  path: runs/
-
-ablation:
-  no_phys_stream: false
-  no_battery_branch: false
-  no_soc_consistency: false
-  no_future_weather: false
-  no_battery_physics_loss: false
-  no_temporal_decoder: false
+  name: informer_net_injection

@@ -222,6 +222,10 @@ class VPPDataset(Dataset):
                 raise ValueError(
                     f"split_strategy='portfolio_manifest' requires at least one train row in split column '{self.split_col}'."
                 )
+            if self.id_col and self.id_col in train_frame.columns:
+                self._train_portfolio_ids = [str(gid) for gid in sorted(train_frame[self.id_col].unique())]
+            else:
+                self._train_portfolio_ids = None
             train_feature_frames.append(train_frame[self.feature_cols])
             if self.aux_target_cols:
                 train_aux_frames.append(train_frame[self.aux_target_cols])
@@ -422,6 +426,48 @@ class PhysFormerDataset(VPPDataset):
         if self.aux_target_num < 1:
             raise ValueError("PhysFormerDataset requires auxiliary component/battery targets.")
 
+        # Build portfolio→index mapping using sorted global portfolio IDs.
+        # Sorting guarantees consistent indices across train/val/test splits,
+        # preventing embedding corruption when splits have different orderings.
+        if self.split_strategy == "portfolio_manifest" and self.id_col:
+            # Use train portfolio IDs stored by parent; fall back to sorted group_ids
+            train_ids = getattr(self, "_train_portfolio_ids", None)
+            if train_ids:
+                all_portfolios = sorted(train_ids)
+            else:
+                all_portfolios = sorted(self.group_ids)
+        else:
+            all_portfolios = sorted(self.group_ids)
+        self._portfolio_id_to_idx = {str(gid): i for i, gid in enumerate(all_portfolios)}
+        self._per_portfolio_stats = {}
+        if self.scale and self.feature_scaler is not None:
+            weather_start = self.target_num
+            weather_end = weather_start + self.known_future_num
+            state_start = weather_end
+            state_end = state_start + self.history_state_num
+            for group_idx, group_id in enumerate(self.group_ids):
+                x = self.group_x_tensors[group_idx].numpy()
+                group_stats = {
+                    "target_mean": x[:, : self.target_num].mean(axis=0),
+                    "target_std": x[:, : self.target_num].std(axis=0) + 1e-6,
+                    "weather_mean": x[:, weather_start:weather_end].mean(axis=0),
+                    "weather_std": x[:, weather_start:weather_end].std(axis=0) + 1e-6,
+                    "state_mean": x[:, state_start:state_end].mean(axis=0),
+                    "state_std": x[:, state_start:state_end].std(axis=0) + 1e-6,
+                }
+                if self.aux_target_num and self.group_aux_tensors[group_idx].numel():
+                    aux_x = self.group_aux_tensors[group_idx].numpy()
+                    group_stats["aux_mean"] = aux_x.mean(axis=0)
+                    group_stats["aux_std"] = aux_x.std(axis=0) + 1e-6
+                else:
+                    group_stats["aux_mean"] = self.aux_scaler.mean_.copy() if self.aux_scaler else np.zeros(self.aux_target_num)
+                    group_stats["aux_std"] = self.aux_scaler.scale_.copy() if self.aux_scaler else np.ones(self.aux_target_num)
+                self._per_portfolio_stats[group_id] = group_stats
+
+    @property
+    def portfolio_id_to_idx(self):
+        return dict(self._portfolio_id_to_idx)
+
     def get_scaler_params(self):
         if not self.scale or self.feature_scaler is None:
             return {
@@ -448,6 +494,7 @@ class PhysFormerDataset(VPPDataset):
             "state_std": self.feature_scaler.scale_[state_start:state_end].copy(),
             "aux_mean": self.aux_scaler.mean_.copy() if self.aux_scaler is not None else None,
             "aux_std": self.aux_scaler.scale_.copy() if self.aux_scaler is not None else None,
+            "per_portfolio": dict(self._per_portfolio_stats),
         }
 
     def get_training_statistics(self):
@@ -468,6 +515,30 @@ class PhysFormerDataset(VPPDataset):
             stats["battery_ramp_limit"] = 0.0
 
         return stats
+
+    def get_battery_metadata(self):
+        """Extract battery hardware parameters from full training-set statistics.
+
+        Returns dict with keys ``P_max`` (MW) and ``E_max`` (MWh), or ``None``
+        if the training aux frame is unavailable.
+
+        Unlike the per-batch ``capacity = hist_soc.amax()`` in the loss, this
+        sees the *entire* training corpus, so partial-cycle windows do not
+        systematically underestimate the true nameplate capacity.
+        """
+        meta = None
+        if self._train_aux_frame is not None and self.aux_target_cols:
+            aux_df = self._train_aux_frame
+            try:
+                battery_power_idx = self.aux_target_cols.index("p_battery_mw")
+                battery_soc_idx = self.aux_target_cols.index("e_battery_soc_mwh")
+            except ValueError:
+                return None
+            P_max = float(aux_df.iloc[:, battery_power_idx].abs().max())
+            E_max = float(aux_df.iloc[:, battery_soc_idx].max())
+            if P_max > 0 and E_max > 0:
+                meta = {"P_max": P_max, "E_max": E_max}
+        return meta
 
     def __getitem__(self, index):
         group_idx, s_begin = self.sample_index[index]
@@ -494,11 +565,15 @@ class PhysFormerDataset(VPPDataset):
         x_mark_enc = self.group_stamp_tensors[group_idx][s_begin:s_end]
         y_mark = self.group_stamp_tensors[group_idx][r_end - self.pred_len : r_end]
 
+        portfolio_id = self.group_ids[group_idx]
+        portfolio_idx = self._portfolio_id_to_idx.get(portfolio_id, 0)
+        portfolio_idx = torch.tensor(portfolio_idx, dtype=torch.long)
+
         if self.set_type == 0 and self.noise_level > 0:
             x_weather_hist = x_weather_hist.clone() + torch.randn_like(x_weather_hist) * self.noise_level
             x_weather_future = x_weather_future.clone() + torch.randn_like(x_weather_future) * self.noise_level
 
-        return x_net_hist, x_weather_hist, x_battery_hist, x_weather_future, y_target, y_aux, x_mark_enc, y_mark
+        return x_net_hist, x_weather_hist, x_battery_hist, x_weather_future, y_target, y_aux, x_mark_enc, y_mark, portfolio_idx
 
 
 def data_provider(args, flag):

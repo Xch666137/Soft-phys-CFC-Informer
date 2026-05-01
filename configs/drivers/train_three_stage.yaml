@@ -1,0 +1,50 @@
+benchmark:
+  jobs:
+    - name: stage0_physics_warmup
+      run_name: physformer_three_stage_warmup
+      config: configs/physformer_physics_warmup.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 64
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: stageA_net_first
+      run_name: physformer_three_stage_net
+      config: configs/physformer_default.yaml
+      init_from_job: stage0_physics_warmup
+      seeds: [2024, 2025, 2026]
+      batch_size: 128
+      lr: 1.0e-4
+      patience: 25
+      warmup_epochs: 5
+      warmup_start_factor: 0.2
+      early_stop_metric: net_mse
+      early_stop_start_epoch: 10
+      phys_layer_lr_scale: 0.1
+      aux_weight_stageA: 0.2
+      soc_weight_stageA: 0.1
+      overlap_weight_stageA: 0.01
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: stageB_operational_fit
+      run_name: physformer_three_stage_opfit
+      config: configs/physformer_operational_fit.yaml
+      init_from_job: stageA_net_first
+      seeds: [2024, 2025, 2026]
+      batch_size: 64
+      lr: 5.0e-5
+      patience: 10
+      warmup_epochs: 2
+      warmup_start_factor: 0.2
+      early_stop_metric: net_mse
+      early_stop_start_epoch: 5
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50

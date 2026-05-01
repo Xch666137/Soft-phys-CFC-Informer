@@ -1,10 +1,10 @@
 model:
   name: PhysFormer
   enc_in: 6
-  d_model: 256
+  d_model: 512
   n_heads: 8
-  e_layers: 2
-  d_ff: 512
+  e_layers: 3
+  d_ff: 2048
   factor: 5
   dropout: 0.10
   attn: full
@@ -13,8 +13,6 @@ model:
   use_rope: true
   rope_base: 10000
   distil: false
-  use_temporal_decoder: true
-  film_scale: 0.5
 
 data:
   root_path: ./
@@ -36,19 +34,25 @@ data:
   freq: t
 
 training:
+  training_mode: physics_warmup
+  use_aux_supervision: false
+  freeze_backbone: false
+  init_from_run: null
+  seed: 2024
   batch_size: 64
-  train_epochs: 100
-  learning_rate: 1.0e-4
+  train_epochs: 15
+  learning_rate: 3.0e-4
   weight_decay: 1.0e-5
   grad_clip: 1.0
-  patience: 25
+  patience: 15
   use_amp: true
-  warmup_epochs: 5
-  warmup_start_factor: 0.2
-  early_stop_metric: net_mse
-  early_stop_start_epoch: 10
-  soc_weight: 0.1
-  seed: 2024
+  warmup_epochs: 0
+  warmup_start_factor: 1.0
+  early_stop_metric: loss
+  early_stop_start_epoch: 1
+  theory_aux_weight: 1.0
+  theory_soc_weight: 0.5
+  theory_overlap_weight: 0.02
 
 hardware:
   use_gpu: true
@@ -56,13 +60,13 @@ hardware:
   num_workers: 8
 
 checkpoint:
-  name: physformer_net_injection
+  name: physformer_physics_warmup
   path: runs/
 
 ablation:
   no_phys_stream: false
   no_battery_branch: false
+  no_aux_supervision: false
   no_soc_consistency: false
   no_future_weather: false
-  no_battery_physics_loss: false
-  no_temporal_decoder: false
+  shared_query_only: false

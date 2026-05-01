@@ -11,10 +11,10 @@ from .config import config_to_args, finalize_args, load_config, materialize_reso
 ABLATON_JOB_TO_ARG = {
     "no_phys_stream": "ablation_no_phys_stream",
     "no_battery_branch": "ablation_no_battery_branch",
-    "no_aux_supervision": "ablation_no_aux_supervision",
     "no_soc_consistency": "ablation_no_soc_consistency",
     "no_future_weather": "ablation_no_future_weather",
-    "shared_query_only": "ablation_shared_query_only",
+    "no_battery_physics_loss": "ablation_no_battery_physics_loss",
+    "no_temporal_decoder": "ablation_no_temporal_decoder",
 }
 
 
@@ -65,21 +65,18 @@ def apply_job_overrides(args, cfg, job):
     if "early_stop_start_epoch" in job:
         args.early_stop_start_epoch = int(job["early_stop_start_epoch"])
         training_cfg["early_stop_start_epoch"] = int(job["early_stop_start_epoch"])
-    if "curriculum_total_epochs" in job:
-        args.curriculum_total_epochs = int(job["curriculum_total_epochs"])
-        training_cfg["curriculum_total_epochs"] = int(job["curriculum_total_epochs"])
-    if "training_mode" in job:
-        args.training_mode = str(job["training_mode"])
-        training_cfg["training_mode"] = str(job["training_mode"])
-    if "use_aux_supervision" in job:
-        args.use_aux_supervision = bool(job["use_aux_supervision"])
-        training_cfg["use_aux_supervision"] = bool(job["use_aux_supervision"])
-    if "freeze_backbone" in job:
-        args.freeze_backbone = bool(job["freeze_backbone"])
-        training_cfg["freeze_backbone"] = bool(job["freeze_backbone"])
-    if "init_from_run" in job:
-        args.init_from_run = job["init_from_run"]
-        training_cfg["init_from_run"] = job["init_from_run"]
+    if "soc_weight" in job:
+        args.soc_weight = float(job["soc_weight"])
+        training_cfg["soc_weight"] = float(job["soc_weight"])
+    if "overlap_weight" in job:
+        args.overlap_weight = float(job["overlap_weight"])
+        training_cfg["overlap_weight"] = float(job["overlap_weight"])
+    if "use_temporal_decoder" in job:
+        args.use_temporal_decoder = bool(job["use_temporal_decoder"])
+        cfg.setdefault("model", {})["use_temporal_decoder"] = bool(job["use_temporal_decoder"])
+    if "film_scale" in job:
+        args.film_scale = float(job["film_scale"])
+        cfg.setdefault("model", {})["film_scale"] = float(job["film_scale"])
 
     if "ablation" in job:
         ablation_cfg = cfg.setdefault("ablation", {})
@@ -92,13 +89,28 @@ def apply_job_overrides(args, cfg, job):
     return args, cfg
 
 
-def _prepare_job_args(job, cli_args):
+def _prepare_job_args(job, cli_args, completed_jobs=None, current_seed=None):
     cfg = load_config(job["config"])
     args = config_to_args(cfg)
     base_run_name = job.get("run_name") or job.get("name") or getattr(args, "checkpoint_name", None)
     args.run_name = base_run_name
     args, cfg = finalize_args(args, cfg, cli_args)
     args, cfg = apply_job_overrides(args, cfg, job)
+
+    if "init_from_job" in job and completed_jobs is not None:
+        ref_name = job["init_from_job"]
+        if ref_name not in completed_jobs:
+            raise ValueError(f"init_from_job references '{ref_name}' but it has not completed yet.")
+        ref_runs = completed_jobs[ref_name]
+        if current_seed is not None and int(current_seed) in ref_runs:
+            resolved = ref_runs[int(current_seed)]
+        elif current_seed is not None and None in ref_runs:
+            resolved = ref_runs[None]
+        else:
+            resolved = next(iter(ref_runs.values()))
+        args.init_from_run = resolved
+        cfg.setdefault("training", {})["init_from_run"] = resolved
+
     return args, cfg, base_run_name
 
 
@@ -126,13 +138,16 @@ def run_driver_jobs(driver_cfg, cli_args, job_kind):
         return {"status": "print_config_only", "jobs": len(jobs)}
 
     run_dirs = []
+    completed_jobs = {}
     for job in jobs:
+        job_name = job.get("run_name") or job.get("name")
         seeds = job.get("seeds")
         if seeds is None:
             seeds = [getattr(cli_args, "seed", None)] if getattr(cli_args, "seed", None) is not None else [None]
 
+        job_run_dirs = {}
         for seed in seeds:
-            args, cfg, base_run_name = _prepare_job_args(job, cli_args)
+            args, cfg, base_run_name = _prepare_job_args(job, cli_args, completed_jobs, current_seed=seed)
             if seed is not None:
                 args.seed = int(seed)
                 cfg.setdefault("training", {})["seed"] = int(seed)
@@ -144,6 +159,13 @@ def run_driver_jobs(driver_cfg, cli_args, job_kind):
             exp = run_train(args, cfg)
             exp.test(load=True)
             run_dirs.append(args.run_dir)
+            if seed is not None:
+                job_run_dirs[int(seed)] = args.run_dir
+            else:
+                job_run_dirs[None] = args.run_dir
+
+        if job_name:
+            completed_jobs[job_name] = job_run_dirs
 
     driver_stem = Path(cli_args.config).stem
     summary_path = Path("runs") / "reports" / f"{driver_stem}_summary_raw.csv"

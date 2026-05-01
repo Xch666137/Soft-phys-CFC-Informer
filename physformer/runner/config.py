@@ -23,6 +23,9 @@ MODEL_KEYS = (
     "rope_base",
     "distil",
     "output_attention",
+    "use_temporal_decoder",
+    "film_scale",
+    "decoder_n_heads",
 )
 
 DATA_KEYS = (
@@ -52,7 +55,6 @@ TRAINING_KEYS = (
     "train_epochs",
     "learning_rate",
     "weight_decay",
-    "physics_prior_weight",
     "grad_clip",
     "patience",
     "use_amp",
@@ -62,11 +64,7 @@ TRAINING_KEYS = (
     "warmup_start_factor",
     "early_stop_metric",
     "early_stop_start_epoch",
-    "curriculum_total_epochs",
-    "training_mode",
-    "use_aux_supervision",
-    "freeze_backbone",
-    "init_from_run",
+    "soc_weight",
 )
 
 HARDWARE_KEYS = (
@@ -92,10 +90,10 @@ LIST_KEYS = {
 ABLATION_KEY_MAP = {
     "no_phys_stream": "ablation_no_phys_stream",
     "no_battery_branch": "ablation_no_battery_branch",
-    "no_aux_supervision": "ablation_no_aux_supervision",
     "no_soc_consistency": "ablation_no_soc_consistency",
     "no_future_weather": "ablation_no_future_weather",
-    "shared_query_only": "ablation_shared_query_only",
+    "no_battery_physics_loss": "ablation_no_battery_physics_loss",
+    "no_temporal_decoder": "ablation_no_temporal_decoder",
 }
 
 
@@ -134,6 +132,9 @@ def config_to_args(cfg):
 
     model_cfg = cfg.get("model", {})
     flat["model"] = model_cfg.get("name", "PhysFormer")
+    flat["use_temporal_decoder"] = model_cfg.get("use_temporal_decoder", True)
+    flat["film_scale"] = model_cfg.get("film_scale", 0.5)
+    flat["decoder_n_heads"] = model_cfg.get("decoder_n_heads", None)
     _set_from_cfg(flat, model_cfg, MODEL_KEYS)
 
     data_cfg = cfg.get("data", {})
@@ -148,7 +149,6 @@ def config_to_args(cfg):
     flat["train_epochs"] = training_cfg.get("train_epochs", 100)
     flat["learning_rate"] = training_cfg.get("learning_rate", 3e-4)
     flat["weight_decay"] = training_cfg.get("weight_decay", 1e-5)
-    flat["physics_prior_weight"] = training_cfg.get("physics_prior_weight", 0.1)
     flat["grad_clip"] = training_cfg.get("grad_clip", 1.0)
     flat["patience"] = training_cfg.get("patience", 10)
     flat["use_amp"] = training_cfg.get("use_amp", True)
@@ -156,13 +156,9 @@ def config_to_args(cfg):
     flat["log_interval"] = training_cfg.get("log_interval", 50)
     flat["warmup_epochs"] = training_cfg.get("warmup_epochs", 0)
     flat["warmup_start_factor"] = training_cfg.get("warmup_start_factor", 0.2)
-    flat["early_stop_metric"] = training_cfg.get("early_stop_metric", "loss")
-    flat["early_stop_start_epoch"] = training_cfg.get("early_stop_start_epoch", 1)
-    flat["curriculum_total_epochs"] = training_cfg.get("curriculum_total_epochs", flat["train_epochs"])
-    flat["training_mode"] = training_cfg.get("training_mode", "net_first")
-    flat["use_aux_supervision"] = training_cfg.get("use_aux_supervision", False)
-    flat["freeze_backbone"] = training_cfg.get("freeze_backbone", False)
-    flat["init_from_run"] = training_cfg.get("init_from_run")
+    flat["early_stop_metric"] = training_cfg.get("early_stop_metric", "net_mse")
+    flat["early_stop_start_epoch"] = training_cfg.get("early_stop_start_epoch", 10)
+    flat["soc_weight"] = training_cfg.get("soc_weight", 0.1)
 
     hardware_cfg = cfg.get("hardware", {})
     flat["use_gpu"] = hardware_cfg.get("use_gpu", True)
