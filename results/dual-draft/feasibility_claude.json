@@ -1,0 +1,123 @@
+{
+  "_meta": {
+    "reviewer": "Claude",
+    "type": "architecture_feasibility_analysis",
+    "date": "2026-04-27",
+    "scope": "PhysFormer-NI architecture feasibility on semi-synthetic NextGen VPP data"
+  },
+  "data_profile": {
+    "scale": "5 households per portfolio, 6 portfolios (4 train / 1 val / 1 test)",
+    "time_range": "2018 full year, 15-min resolution, 210,240 rows",
+    "target": {
+      "p_vpp_mw": {
+        "mean": -0.00024,
+        "std": 0.00575,
+        "range": [-0.026, 0.040],
+        "unit": "MW (net injection of 5-household VPP)"
+      }
+    },
+    "components": {
+      "p_load_mw": "mean 0.0055 MW (5.5 kW), range [0.0009, 0.041]",
+      "p_pv_mw": "mean 0.0048 MW, range [0, 0.029]",
+      "p_wind_mw": "mean 0.0008 MW, range [0, 0.0075]",
+      "p_battery_mw": "mean 0.0001 MW, range [-0.022, 0.018]",
+      "e_battery_soc_mwh": "mean 0.022 MWh, range [0.006, 0.052]"
+    },
+    "weather": {
+      "temperature": "mean 12.9°C, range [-5.6, 35.5]",
+      "irradiance": "mean 203 W/m², range [0, 1132]",
+      "wind_speed": "mean 2.9 m/s, range [0.01, 10.8]"
+    },
+    "key_observation": "The VPP is EXTREMELY small — aggregate load of 5 households is only ~5.5 kW. The net injection std is 6.2 kW. RMSE of 2.7 kW means the model's error is 44% of the signal std."
+  },
+  "issues": [
+    {
+      "id": "FEAS-001",
+      "severity": "critical",
+      "category": "physics_fidelity",
+      "title": "物理层 MAE=141 kW 说明 learnable physics parameters 近乎失效",
+      "description": "The physics layer achieves Theory MAE = 0.141 MW = 141 kW on portfolios whose aggregate load is only ~5.5 kW. This is 25× worse than the signal itself. The shared physics parameters (load_base, pv_scale, wind_scale, eta_charge_raw, etc.) are being optimized across ALL 6 portfolios simultaneously, but the portfolios have very different characteristics (load_heavy vs der_heavy vs mixed vs flex_heavy). The physics layer cannot capture cross-portfolio heterogeneity with shared scalar parameters.",
+      "impact": "The 'physics prior' is essentially a constant bias term. The data-driven residual is doing 98% of the predictive work. The architecture claim of 'physics-guided' is misleading — it's more accurately 'physics-initialized then almost entirely overridden by data.'",
+      "suggested_fix": "Either (a) add per-portfolio physics parameters (portfolio-specific load_base, pv_scale, etc.), or (b) make the physics layer portfolio-aware by conditioning on portfolio embedding, or (c) accept that at this tiny scale the 'physics' is mostly a structural prior on functional form, not a useful quantitative estimate."
+    },
+    {
+      "id": "FEAS-002",
+      "severity": "high",
+      "category": "architecture",
+      "title": "46% normalized error on a near-zero-mean signal — hard to claim 'good performance'",
+      "description": "The test set achieves RMSE/σ = 2.7/6.2 = 0.44 and MAE/σ = 2.0/6.2 = 0.32. For a VPP scheduling application, a normalized RMSE of 0.44 means the prediction error is nearly half the typical variation. A naive persistence forecast might achieve comparable or better results on such a small-scale, weather-driven signal. Without a persistence or climatology baseline, we cannot claim the model 'works well.'",
+      "impact": "The absolute numbers (2.7 kW RMSE, 2.0 kW MAE) sound impressive in isolation, but relative to the signal magnitude they are modest. The paper's claim of 'MSE-competitive with black-box baselines' cannot be evaluated without running Informer/iTransformer baselines on this exact dataset.",
+      "suggested_fix": "Run baseline models (Informer, iTransformer, simple LSTM, persistence, climatology) on the exact same train/val/test split. Report all metrics in both absolute (kW) and normalized (CV-RMSE, skill score) forms."
+    },
+    {
+      "id": "FEAS-003",
+      "severity": "high",
+      "category": "training_dynamics",
+      "title": "Val MSE oscillation of ±30% in convergence plateau suggests overfitting to specific portfolios",
+      "description": "After epoch 23 (Val MSE=0.397), the Val MSE oscillates between 0.40 and 0.47 — a ±17% swing. With only 1 validation portfolio of 5 households, the validation set is too small to provide stable gradient signals. The model may be overfitting to the 4 training portfolios' specific load/solar patterns.",
+      "impact": "The reported 'best' Val MSE of 0.397 may be cherry-picked by epoch. A fair evaluation would average over the last N epochs or use an ensemble. More critically, with only 5 households per portfolio and 6 portfolios total, the benchmark may not generalize to the claimed domain of 'VPP forecasting.'",
+      "suggested_fix": "Report test-set metrics from a checkpoint selected by validation-set criteria (already done — epoch 24 is best val). Also report mean ± std over last 10 epochs to show stability. Consider increasing portfolio_size or number of portfolios for a more robust benchmark."
+    },
+    {
+      "id": "FEAS-004",
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "title": "Battery physics is the only genuine physics — but SOC dynamics are barely utilized",
+      "description": "The battery branch produces SOC trajectories that satisfy physical constraints (0% violations, 0% chg/dis overlap). However, the battery contributes negligibly to the net injection signal: p_battery_mw std is 3.3 kW, and the battery power oscillates around zero. The SOC consistency loss weight (0.1) is 10× smaller than net_mse, so the battery physics acts as a very weak regularizer. The 0% violation rates are achieved more by the signed-power parameterization (tanh guarantees |P|≤P_max and chg×dis=0) than by the loss.",
+      "impact": "The battery physics 'works' but doesn't matter much for the prediction. Removing the battery physics loss entirely (no_battery_physics_loss ablation) likely has minimal impact on net MSE. This weakens the claim that physics constraints improve prediction accuracy.",
+      "suggested_fix": "Run the no_battery_physics_loss ablation to quantify the battery physics contribution. If ΔMSE < 1%, the battery physics is structurally clean but not practically important for this dataset."
+    },
+    {
+      "id": "FEAS-005",
+      "severity": "medium",
+      "category": "data_quality",
+      "title": "Semi-synthetic wind is a systematic weakness — 15% penetration on a 5.5 kW portfolio = 0.8 kW mean wind",
+      "description": "The synthetic wind is generated from: (1) Rye microgrid wind template (Norway, not Australia), (2) ACT Canberra ERA5 wind speeds, (3) scaled to 15% annual energy penetration. The resulting wind signal has mean 0.8 kW and max 7.5 kW — a very narrow range. This limits the wind prediction challenge to essentially 'predict the wind speed → CF mapping.' The ERA5 wind speed has range [0.01, 10.8] m/s, which only covers the rising portion of the power curve (cut-in at ~1 m/s, rated at ~3 m/s, cut-out at ~5 m/s).",
+      "impact": "The 'wind forecasting' component of VPP prediction is trivialized by the narrow operating range. In a real VPP with MW-scale wind farms, the wind prediction challenge would be much harder. The dataset's wind synthesis limits the generality of any wind-related claims.",
+      "suggested_fix": "Document this limitation explicitly. Consider a sensitivity analysis varying wind penetration from 5% to 50% to show how model performance degrades with more challenging wind regimes."
+    },
+    {
+      "id": "FEAS-006",
+      "severity": "medium",
+      "category": "architecture",
+      "title": "TemporalDecoder adds complexity but its benefit over FlattenHead is unquantified",
+      "description": "The TemporalDecoder (learnable query positions + cross-attention) replaces the simpler FlattenHead (Linear projection). But the no_temporal_decoder ablation wasn't run. Without this ablation, we don't know if the richer temporal decoder actually improves performance or just adds parameters.",
+      "impact": "A key architectural claim ('cross-attention temporal decoder is superior to linear projection') is untested. This could be a major ablation for the paper.",
+      "suggested_fix": "Run the FlattenHead ablation. If the performance difference is small, consider simplifying the architecture further."
+    },
+    {
+      "id": "FEAS-007",
+      "severity": "low",
+      "category": "scalability",
+      "title": "Single-climate, 5-household, 1-year benchmark may not generalize",
+      "description": "The dataset uses a single weather station (Canberra ACT), a single year (2018), and 5-household portfolios. A real VPP would span multiple climate zones, multiple years, and aggregate hundreds or thousands of assets. The current benchmark tests composition generalization (different households in train/val/test) but NOT climate generalization, temporal generalization, or scale generalization.",
+      "impact": "The methodology validation is limited in scope. The paper should clearly state these boundaries rather than implying general VPP applicability.",
+      "suggested_fix": "Document as limitations. The time-generalization benchmark (already built in the dataset) should be run as a secondary evaluation."
+    }
+  ],
+  "overall_assessment": {
+    "verdict": "CONDITIONALLY_VIABLE",
+    "summary": "The PhysFormer-NI architecture is sound in design and achieves its primary goal (physically-consistent net injection prediction with competitive MSE). However, the extremely small VPP scale (5 households, 5.5 kW) and near-zero-mean target signal make the absolute performance numbers (2.7 kW RMSE) look better than they are in relative terms (44% normalized RMSE). The physics layer contributes primarily as a structural prior (functional form) rather than as a quantitative predictor (141 kW theory error). The architecture's main value proposition — 'physics guidance improves prediction' — is supported by the residual improvement (70× over theory alone) but this is largely because the theory is very weak rather than because the physics is very good.",
+    "key_strengths": [
+      "Clean residual architecture with clear ablation paths",
+      "Guaranteed battery physics constraints (0% violations)",
+      "Fast convergence (16 epochs to plateau)",
+      "Lightweight (2.68M params)",
+      "Single-stage training (no complex curriculum needed)"
+    ],
+    "key_weaknesses": [
+      "Physics layer contributes ~2% of predictive accuracy (98% from data-driven residual)",
+      "Test RMSE is 44% of signal std — modest for operational use",
+      "1 validation portfolio makes early stopping unreliable",
+      "Synthetic wind limits wind forecasting generality",
+      "No baseline comparisons run yet (Informer, iTransformer, persistence)"
+    ],
+    "minimum_actions_before_publication": [
+      "1. Run Informer, iTransformer, and persistence baselines on same split",
+      "2. Run no_battery_physics_loss and no_temporal_decoder ablations",
+      "3. Report normalized metrics (CV-RMSE, skill score vs persistence)",
+      "4. Document portfolio heterogeneity as a limitation",
+      "5. Report epoch-stability metrics (mean ± std over last 10 epochs)"
+    ]
+  }
+}

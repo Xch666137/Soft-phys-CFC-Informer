@@ -1,0 +1,138 @@
+{
+  "reviewer": "codex",
+  "file": "physformer/models/physformer.py",
+  "issues": [
+    {
+      "location": "physformer/models/physformer.py:27,335-346",
+      "line_start": 27,
+      "line_end": 346,
+      "severity": "high",
+      "category": "scalability",
+      "description": "The architecture hard-codes four aggregate component tokens and has no asset, portfolio, region, topology, or capacity conditioning.",
+      "original_snippet": "COMPONENT_NAMES = (\"load\", \"pv\", \"wind\", \"battery\")\n...\ncomp_tokens = torch.stack([load_latent, pv_latent, wind_latent, battery_latent], dim=2)\ncomp_flat = comp_tokens.reshape(B * P, 4, D)",
+      "suggested_fix": "Represent VPPs as sets/graphs of assets with type embeddings, static metadata embeddings, capacity/Pmax/Emax inputs, and a Set Transformer/GNN/hierarchical aggregator before portfolio-level net reconstruction.",
+      "rationale": "Aggregating all assets into four tokens loses heterogeneity and operational constraints; it will degrade when the VPP contains many PV sites, turbines, batteries, or regions with different behavior."
+    },
+    {
+      "location": "physformer/models/flatten_head.py:26-38",
+      "line_start": 26,
+      "line_end": 38,
+      "severity": "high",
+      "category": "architecture",
+      "description": "The forecasting head is a channel-independent linear map from history length to forecast length, creating a temporal bottleneck.",
+      "original_snippet": "self.linear = nn.Linear(seq_len, pred_len)\n...\nx = x.permute(0, 2, 1)\nx = self.linear(x)\nx = self.dropout(x)",
+      "suggested_fix": "Replace or augment FlattenHead with horizon-token self-attention, patch/multi-scale temporal blocks, temporal convolution/state-space layers, or an encoder-decoder that models dependencies among forecast steps.",
+      "rationale": "A single shared SeqLen-to-PredLen projection cannot express rich intra-horizon dynamics, ramp events, delayed weather effects, or multi-day periodicity needed for longer VPP forecasts."
+    },
+    {
+      "location": "physformer/models/physformer.py:238-248,363-366",
+      "line_start": 238,
+      "line_end": 366,
+      "severity": "high",
+      "category": "architecture",
+      "description": "Physics is injected only as scalar theory features at the final heads; it does not guide the latent attention/refinement representation.",
+      "original_snippet": "query = self.component_query_adapters[component_name](coarse_future + type_embed)\nattn_out, _ = self.refinement_attn(query, future_context, future_context, need_weights=False)\n...\nload_head_in = torch.cat([load_latent, load_theory, load_type], dim=-1)",
+      "suggested_fix": "Embed component_theory_norm and physical states into refinement queries/keys via FiLM/gated residual adapters, physics-conditioned cross-attention, or a constrained residual block where neural outputs explicitly correct physical trajectories.",
+      "rationale": "The Transformer can learn features without seeing the physical state until the last MLP, so physical priors have weak control over representation learning and may be ignored by high-capacity heads."
+    },
+    {
+      "location": "physformer/models/physformer.py:62,114,402-409; physformer/models/physical_layer.py:254-270",
+      "line_start": 62,
+      "line_end": 409,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "description": "Battery charge/discharge exclusivity and SOC dynamics are not enforced by construction, and the mode gate is disabled by default.",
+      "original_snippet": "no_mode_gate=True\n...\nuse_mode_gate=not no_mode_gate\n...\npred_charge_real = torch.nn.functional.relu(battery_charge_theory + battery_delta[..., 0:1])\npred_discharge_real = torch.nn.functional.relu(battery_discharge_theory + battery_delta[..., 1:2])\nbattery_soc_pred_real = torch.minimum(torch.maximum(battery_soc_theory + battery_delta[..., 2:3], torch.zeros_like(battery_capacity)), battery_capacity)",
+      "suggested_fix": "Use a signed bounded battery-power parameterization or always-on mode/magnitude gate, derive SOC recursively from predicted charge/discharge, and add terminal SOC/reserve constraints instead of predicting SOC as an independent residual.",
+      "rationale": "Simultaneous charge and discharge can cancel in net power while corrupting SOC, which is physically invalid and especially harmful for storage-heavy VPP forecasts."
+    },
+    {
+      "location": "physformer/models/physformer.py:420-428,455-458; physformer/utils/losses.py:97-123",
+      "line_start": 420,
+      "line_end": 458,
+      "severity": "high",
+      "category": "implementation",
+      "description": "Operational-fit affine calibration changes battery power/SOC in pred_aux_real but returns uncalibrated charge/discharge for SOC losses and diagnostics.",
+      "original_snippet": "pred_aux_real = pred_aux_real * scale + bias\n...\npred_aux_real[..., 4:5] = torch.minimum(torch.maximum(pred_aux_real[..., 4:5], torch.zeros_like(battery_capacity)), battery_capacity)\n...\n\"pred_charge_real\": pred_charge_real,\n\"pred_discharge_real\": pred_discharge_real",
+      "suggested_fix": "Apply operational calibration at the constrained battery state-transition level, then recompute battery_power, SOC, charge, and discharge consistently before returning outputs and computing losses.",
+      "rationale": "Stage B can output a calibrated battery_power/SOC pair that is no longer consistent with the returned charge/discharge trajectory, weakening the physical guarantees of the final deployed model."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:28,245-270",
+      "line_start": 28,
+      "line_end": 270,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "Battery integration uses fixed-step explicit Euler plus hard clipping, and power magnitude can exceed the nominal limit by 1.5x.",
+      "original_snippet": "dt_hours=0.25\n...\npower_mag = power_limit * torch.clamp(..., min=0.0, max=1.5)\n...\nsoc_next = soc_prev + (eta_charge * charge - discharge / eta_discharge) * self.dt_hours\nsoc_next = torch.minimum(torch.maximum(soc_next, torch.zeros_like(capacity)), capacity)",
+      "suggested_fix": "Derive dt from y_mark or data frequency, enforce exact P/E bounds with differentiable bounded parameterizations, and use smooth barrier penalties or projected integration that preserves gradients near limits.",
+      "rationale": "Fixed dt and hard clamps hide integration errors; over long horizons small battery energy-balance errors accumulate and can produce infeasible dispatch trajectories."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:299-321; physformer/models/physformer.py:398-401",
+      "line_start": 299,
+      "line_end": 401,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "PV and wind physics are overly coarse and the neural correction is restricted to a 0.5x-1.5x multiplicative band.",
+      "original_snippet": "solar_energy = (weather_real[..., 1:2].clamp_min(0.0) / 3600000.0).clamp_min(0.0)\npv_theory = F.softplus(self.pv_scale + self.pv_capacity) * solar_energy * pv_temp_factor\n...\nwind_theory = F.softplus(self.wind_scale + self.wind_capacity) * wind_curve * running_mask\n...\npv_scale = 1.0 + 0.5 * torch.tanh(pv_mod_raw)",
+      "suggested_fix": "Add solar geometry, panel orientation/capacity, inverter clipping/curtailment, wind hub-height correction, air-density/turbine-curve metadata, and allow bounded additive residuals or capacity-factor heads conditioned on asset metadata.",
+      "rationale": "Renewable output errors are often driven by site-specific capacity, orientation, curtailment, and weather transformations; a global scalar physical model plus narrow multiplier cannot correct large systematic bias."
+    },
+    {
+      "location": "physformer/models/physformer.py:78-83,303-307; physformer/layers/revin.py:11-77",
+      "line_start": 78,
+      "line_end": 307,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "description": "RevIN exists in the codebase but PhysFormer uses only fixed global normalization buffers, leaving the neural stream exposed to non-stationarity.",
+      "original_snippet": "self.register_buffer(\"target_mean\", self._to_buffer(target_mean, 1, 0.0))\nself.register_buffer(\"target_std\", self._to_buffer(target_std, 1, 1.0))\n...\nhistory_input = torch.cat([x_net_hist, x_weather_hist, x_battery_hist], dim=-1)\nstat_hist = self.stat_embedding(history_input, x_mark_enc)",
+      "suggested_fix": "Apply RevIN or adaptive instance normalization to the neural history/residual stream while keeping the explicit physics layer in calibrated real units; denormalize only the learned residual/output path.",
+      "rationale": "Portfolio load and renewable distributions shift by season, region, and asset mix; fixed training-set statistics are brittle under VPP composition or weather-regime changes."
+    },
+    {
+      "location": "physformer/models/physformer.py:175-182,372-440; physformer/utils/losses.py:175-180",
+      "line_start": 175,
+      "line_end": 440,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "description": "The confidence and attribution heads are diagnostics, not calibrated predictive uncertainty.",
+      "original_snippet": "load_confidence = torch.sigmoid(self.load_confidence_head(load_head_in))\n...\ncomponent_attribution = torch.softmax(attribution_logits, dim=-1)\n...\nconfidence_target = torch.exp(-component_error_norm)",
+      "suggested_fix": "Add quantile outputs with pinball/CRPS loss, heteroscedastic Gaussian or Student-t heads, or scenario generation conditioned on weather uncertainty; evaluate calibration with coverage and reliability metrics.",
+      "rationale": "VPP scheduling and market participation require P10/P50/P90 or scenario forecasts; exp(-error) confidence trained on detached realized errors does not provide forecast intervals or risk-aware dispatch signals."
+    },
+    {
+      "location": "physformer/utils/losses.py:266-287,290-325; configs/drivers/train_three_stage.yaml:13-45",
+      "line_start": 266,
+      "line_end": 325,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "Curriculum hooks are effectively unused: total_epochs and epoch are accepted but no loss weights are scheduled within PhysLoss.",
+      "original_snippet": "self.total_epochs = max(int(total_epochs), 1)\n...\ndef forward(self, pred_dict, y_target, y_aux, batch_context, epoch=None, collect_debug=False):\n    terms = self.base_loss.compute_terms(...)\n    if self.training_mode == \"physics_warmup\":\n        ...\n    elif self.training_mode == \"net_first\":\n        total_loss = terms[\"net_mse\"]",
+      "suggested_fix": "Implement epoch-dependent schedules for aux, SOC, overlap, ramp, and theory losses; gradually unfreeze physics/backbone modules and consider GradNorm/uncertainty weighting for multi-task balance.",
+      "rationale": "Net MSE, component supervision, and physical penalties have conflicting gradients; abrupt stage changes and early stopping on net_mse can favor short-term accuracy while eroding physical consistency."
+    },
+    {
+      "location": "physformer/models/physformer.py:34,86-98; physformer/layers/encoder.py:104-110",
+      "line_start": 34,
+      "line_end": 110,
+      "severity": "medium",
+      "category": "scalability",
+      "description": "The ProbSparse factor argument in PhysFormer is not passed into Encoder/Attention, and default configs use full attention with distillation disabled.",
+      "original_snippet": "factor=5\n...\nattn_cls = ProbAttention if attn == \"prob\" else FullAttention\nself.encoder = Encoder(...)\n...\nattn_cls(d_model, n_heads, dropout, use_rope=use_rope, rope_base=rope_base)",
+      "suggested_fix": "Thread factor through Encoder and EncoderLayer into ProbAttention, expose efficient attention backends, and enable patching/distillation or memory-efficient attention for long histories.",
+      "rationale": "With longer histories or more frequent telemetry, full attention grows quadratically; the intended ProbSparse control knob is currently ineffective."
+    },
+    {
+      "location": "physformer/models/physformer.py:187-195,386-391",
+      "line_start": 187,
+      "line_end": 391,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "Zero-initialized final heads combined with ReLU can create dead outputs when no_phys_stream=True.",
+      "original_snippet": "nn.init.zeros_(head[-1].weight)\nnn.init.zeros_(head[-1].bias)\n...\nif self.no_phys_stream:\n    load_pred_real = torch.nn.functional.relu(load_delta)\n    pv_pred_real = torch.nn.functional.relu(pv_mod_raw)",
+      "suggested_fix": "Use Softplus with small positive bias, nonzero final-layer initialization, or bypass zero initialization for no-physics ablations so gradients flow from the first step.",
+      "rationale": "PyTorch ReLU has zero gradient at exactly zero; the no-physics ablation can start with zero predictions and fail to train component heads, invalidating comparisons."
+    }
+  ]
+}

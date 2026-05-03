@@ -63,6 +63,7 @@ class PhysFormer(nn.Module):
         film_scale=0.5,
         decoder_n_heads=None,
         num_portfolios=0,
+        time_feat_dim=8,
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -83,7 +84,8 @@ class PhysFormer(nn.Module):
 
         # --- encoder ---
         self.stat_embedding = DataEmbedding(
-            c_in=enc_in, d_model=d_model, embed_type=embed, freq=freq, dropout=dropout
+            c_in=enc_in, d_model=d_model, embed_type=embed, freq=freq, dropout=dropout,
+            time_enc_in=time_feat_dim,
         )
         attn_cls = ProbAttention if attn == "prob" else FullAttention
         self.encoder = Encoder(
@@ -103,7 +105,7 @@ class PhysFormer(nn.Module):
         if use_temporal_decoder:
             self.temporal_decoder = TemporalDecoder(
                 seq_len=seq_len, pred_len=pred_len, d_model=d_model,
-                n_heads=dec_heads, dropout=dropout,
+                n_heads=dec_heads, dropout=dropout, time_enc_in=time_feat_dim,
             )
         else:
             self.temporal_decoder = None
@@ -111,7 +113,7 @@ class PhysFormer(nn.Module):
 
         # --- weather fusion ---
         self.weather_fusion = WeatherFusion(
-            d_model=d_model, weather_dim=3, time_dim=8,
+            d_model=d_model, weather_dim=3, time_dim=time_feat_dim,
             n_heads=dec_heads, dropout=dropout,
         )
 
@@ -120,7 +122,7 @@ class PhysFormer(nn.Module):
             d_model=d_model,
             weather_dim=3,
             battery_state_dim=2,
-            time_feat_dim=8,
+            time_feat_dim=time_feat_dim,
             weather_mean=weather_mean,
             weather_std=weather_std,
             state_mean=state_mean,

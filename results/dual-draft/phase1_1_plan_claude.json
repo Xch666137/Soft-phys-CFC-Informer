@@ -1,0 +1,61 @@
+{
+  "reviewer": "claude",
+  "file": "Phase 1.1 fix plan — V4 critical fixes",
+  "context": {
+    "goal": "Review the Phase 1.1 plan for correctness, completeness, and risk before implementation",
+    "preconditions": "V4 training completed, dual-draft identified loss mismatch, TemporalDecoder gap, and training schedule issues",
+    "v4_metrics": "Theory MAE -21.8%, final MAE +2.3%, Val MSE 0.381 at epoch 11, WarmRestarts ineffective, component_load_mae=14.7kW vs wind=0.83kW"
+  },
+  "issues": [
+    {
+      "location": "Fix 1 — Loss normalization approach",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "implementation",
+      "description": "Fix 1 方案（用 aux_std 归一化理论分量）是正确的方向，但有一个微妙问题：`component_theory_real` 和 `y_aux` 的归一化统计量来自不同的 scaler——component_theory 使用的是 target scaler（通过 `_denorm_target` 得到），而 y_aux 使用的是 aux scaler。这两个 scaler 各自由 StandardScaler 独立拟合。如果 component_theory_real 的分布与 y_aux_real 的分布差异很大（例如 Load 的均值远大于 net injection），即使归一化后它们在同一空间，MAE 的量级仍可能不同。建议：在两个 scaler 空间都做归一化验证——确保 aux_std 在 Load 维度上的值与 net injection 的 target_std 在同一数量级。",
+      "suggested_fix": "在 compute_terms() 中添加 `component_load_mae_normalized` 到 debug dict 用于运行时监控；首次训练后检查归一化后的 MAE 是否在 0.05-2 范围（与 net_mse ~0.4 可比）。",
+      "rationale": "归一化消除单位不匹配，但不保证量级匹配。如果某个 aux_std 极小（如 battery_soc 的 std ~ 0.01），归一化后 MAE 会爆炸。"
+    },
+    {
+      "location": "Fix 2 — TemporalDecoder time projection initialization",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P3",
+      "category": "implementation",
+      "description": "`time_proj` 是一个新的 nn.Linear(10, d_model) 层，默认使用 Kaiming 初始化。`query_pos` 是一个 nn.Parameter 从 N(0,1) 初始化。两者相加后，如果 time_proj 的初始输出幅度与 query_pos 不同，可能会导致 cross-attention 的 query 分布偏移。在训练的 epoch 1，解码器输出会有短暂的退化。",
+      "suggested_fix": "对 time_proj 使用较小的初始化（例如 `nn.init.xavier_uniform_(self.time_proj.weight, gain=0.1)`）或使用零初始化使 y_mark 的影响在训练初期为中性。",
+      "rationale": "从 V4 checkpoint 恢复训练时（V4 的解码器 query_pos 已训练过），新加的 time_proj 如果随机初始化可能破坏已有的解码器行为。建议从零初始化开始逐步学习时间模式。"
+    },
+    {
+      "location": "Fix 3 — early_stop_start_epoch=20 可能过激",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "V4 的最优在 epoch 11。如果 early_stop_start_epoch=20，意味着 epoch 20 之前即使 9 个 epoch 无改善也不会触发早停计数。这确实给了 WarmRestarts 更多空间。但 V4 的 epoch 12-20 全部无改善（counter 从 1 数到了 9 但未触发因为 start_epoch=10），实际在 epoch 20 WarmRestart 时 counter=9/25。提高到 20 后 epoch 20 的 restart 仍有 35-(20-11)=26 个 epoch 的空间——这应该足够了。",
+      "suggested_fix": "保持 early_stop_start_epoch=20。额外建议：在论文中报告 best epoch=11, early_stop_start=20, 总 epoch=100, patience=35。",
+      "rationale": "实验设计需要可复现。固定 schedule 参数确保论文结果的透明性。"
+    },
+    {
+      "location": "Fix 2 — TemporalDecoder 是否需要 time_enc_in 默认值",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P3",
+      "category": "implementation",
+      "description": "TemporalDecoder.__init__ 新增 `time_enc_in` 参数，默认值应为 10（当前 time_feat_dim）。但如果有其他调用者（如 baseline 模型）使用 TemporalDecoder 且不传此参数，默认 10 会导致 shape 不匹配（如果他们的 time_features 输出不是 10 维）。不过当前代码中 TemporalDecoder 仅在 PhysFormer 中使用。",
+      "suggested_fix": "设置默认值 `time_enc_in=10`，但在 baseline 模型中也更新 TemporalDecoder 构造。或设为 `time_enc_in=None` 并在 forward 中检查——如果 time_proj 不存在，跳过 y_mark 注入（保持向后兼容）。",
+      "rationale": "向后兼容性。当前看似不必要但能防止将来的事故。"
+    },
+    {
+      "location": "Fix 3 — 是否需要从 V4 checkpoint 恢复训练",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "training_dynamics",
+      "description": "Loss 归一化改变了 total_loss 的组成——component_loss_weight 从 0.05（MW 空间）变为 0.02（归一化空间），component MAE 的量级也变了。如果从 V4 checkpoint 恢复，optimizer 和 scheduler 状态来自旧的 loss landscape。新的 loss landscape 可能与旧的不连续，导致 epoch 12 出现 loss 突变。",
+      "suggested_fix": "两种方案：(A) 从 V4 epoch 11 checkpoint 恢复模型权重但重置 optimizer 和 scheduler；(B) 从头训练（清空 checkpoint，让新 loss 自然收敛）。推荐方案 A：保留已训练的物理参数，仅重置优化器状态。在 exp_physformer 中添加 `--reset-optimizer` CLI 选项。",
+      "rationale": "Loss 函数变更后继续使用旧 optimizer momentum/velocity 状态（如 Adam 的 m/v）会导致更新方向错误。重置 optimizer 是必须的。"
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "reviewer": "claude",
+  "file": "runs/physformer_v3 — V3 test results analysis",
+  "context": {
+    "goal": "评估 V3 修复效果：7 项架构修复 + WarmRestarts scheduler + film_scale 0.5 + theory_net 投影 + Loss 简化",
+    "mechanism": "每项修复→机制→Val MSE 改善；WarmRestarts 打破 plateau",
+    "metric": "Test MSE (首要), Theory MAE (次要), residual_std_real_mw, SOC violation",
+    "baseline": "V2 (CosineAnnealing, film_scale=0.2, 冗余 loss 项, 无 theory 投影, boolean wind gates)",
+    "v2_results": "Test MSE=9.0e-6, MAE=2.21kW, RMSE=2.96kW, Theory MAE=17.01kW, Val MSE=0.420",
+    "v3_results": "Test MSE=7.5e-6, MAE=1.93kW, RMSE=2.73kW, Theory MAE=4.87kW, Val MSE=0.387"
+  },
+  "issues": [
+    {
+      "location": "V3 results — WarmRestarts effectiveness",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "WarmRestarts 3 次重启的边际收益递减：restart #1 改善 3.2%（0.405→0.392），restart #2 改善 1.3%（0.392→0.387），restart #3 改善 <0%（反而变差）。这符合理论预期（每次重启探索的 loss landscape 区域愈发平坦），但存在一个方法论文本：如果仅报告 best=0.387 而不说明是通过 3 次重启达成的，读者无法评估 restart 的实际贡献。实验报告中应 (a) 标注 best epoch 和 restart 次数，(b) 报告 CosineAnnealing baseline 的 best（即 epoch 13 的 0.405）作为 ablative reference。",
+      "suggested_fix": "论文实验部分报告三者：(1) CosineAnnealing baseline 0.405 (epoch 13), (2) WarmRestarts best 0.387 (epoch 37, restart #2), (3) 各 restart 周期的最佳值。告知读者 WarmRestarts 贡献了 0.405→0.387 ≈ 4.4% 的 Val MSE 改善。",
+      "rationale": "不区分 restart 贡献 vs 架构修复贡献会导致归因混淆——读者无法判断 0.420→0.387 的总改善中多少来自调度器，多少来自架构修改。"
+    },
+    {
+      "location": "V3 results — Theory MAE improvement attribution",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "target_misalignment",
+      "description": "Theory MAE 从 17.01kW→4.87kW（71.3%）是 V3 最显著的改善项，但目前无法归因到具体修复。可能的贡献者：(a) film_scale 0.2→0.5 — 物理特征对 latent 的调制增强；(b) theory_net 32-dim 投影 — 更多参数用于表达物理修正；(c) portfolio embedding 跨 split 一致性 — 先前 val/test 的 portfolio 索引错乱导致 theory_net 在 val/test 上表现差；(d) soft wind gates — 梯度传导使阈值参数可学习；(e) PV 温度系数对称化 — 低温场景物理正确。没有单项消融就无法区分——这是一个 P1 问题，因为 'physical guidance effectiveness' 是论文核心 claim。",
+      "suggested_fix": "运行 3 个关键消融：(1) film_scale=0.2 vs 0.5, (2) theory_proj_dim=1 vs 32, (3) old boolean wind vs soft sigmoid。每个消融单独跑 25 epoch 比较 theory_mae。这可以产生论文的 ablation table。",
+      "rationale": "71% theory_mae 改善太显著，审稿人会问 '哪个修复贡献了多少'。无法回答意味着论文的核心贡献（物理引导效果）无法被严谨支持。"
+    },
+    {
+      "location": "V3 results — Test MSE vs Val MSE ratio",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "metric_validity",
+      "description": "Val MSE=0.387 (归一化空间) → Test MSE=7.5e-6 MW²。需要验证 denorm 一致性：Val MSE 是归一化空间的 mse_loss(pred_norm, true_norm)，Test MSE 是 denorm 后的 np.mean((pred_real - true_real)²)。两者理论上应满足 Test MSE ≈ Val MSE × target_std²。若 target_std ≈ 0.00575 MW，则 Val MSE × target_std² = 0.387 × 3.3e-5 = 1.28e-5。实测 Test MSE=7.5e-6。差异约 41%——可能由于 (a) test/val 分布不同，(b) val loss 是 per-batch 平均而 test 是全局平均，(c) 数据划分策略导致的 split 差异。应显式计算 Val MSE 在 real scale 的值以确认一致性。",
+      "suggested_fix": "在 vali() 中同时计算 denorm 后的 val_mse_real，与 test_mse 直接比较。如差异>20%，需要说明是 split 分布差异（portfolio_manifest 策略下不同 split 含不同 portfolio 组合）。",
+      "rationale": "Val→Test 的 MSE 缩放不一致可能导致读者质疑 test 结果是否来自正确的 checkpoint 或 denorm pipeline。"
+    },
+    {
+      "location": "V3 results — residual_std_real_mw interpretation",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P3",
+      "category": "metric_validity",
+      "description": "residual_std_real_mw=0.00655 MW (6.55W) — 这是一个非常小的值：仅 6.55W，而 target MAE=1.93kW。residual_std / MAE ≈ 0.34%。这意味着残差修正的幅度极小，最终预测几乎完全由 theory_net 主导。但这与 theory_mae=4.87kW 矛盾——如果 theory_net 误差 4.87kW 而 residual 修正仅 6.55W std，那么 pred_net 应该在 4.87kW 附近，而非 1.93kW。检查发现：residual_std_real_mw 是在原始残差（theory_net - pred_net 在归一化空间）denorm 后计算的，而 theory_net 和 pred_net 在归一化空间都经过了相同的 denorm。怀疑 std 计算使用了错误的 residual（归一化空间的 residual 而非 real 空间的 residual）。",
+      "suggested_fix": "验证 residual_std_real_mw = np.std(preds_real - theory_real) 的计算路径。确认 residuals（归一化空间）和 residual_std_real_mw（MW 空间）的 denorm 链一致。当前代码在 test() 中: residual_std_real_mw = np.std(preds_real - theory_real)，这应该是正确的。如果值确实是 6.55W，需要在论文中解释为什么 residual 修正如此之小但 theory_mae 达 4.87kW（可能的解释：residual 修正是系统性的偏置修正而非逐点波动，std 小但均值偏置大）。",
+      "rationale": "6.55W 的 residual std 和 1.93kW 的 MAE 之间存在 295 倍的差距，审稿人会质疑物理引导模型的工作原理。"
+    },
+    {
+      "location": "V3 results — Epoch 1 Val MSE 从 331,843 降到 2.95",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "V3 epoch 1 Val MSE=2.95 vs V2 epoch 1 Val MSE=331,843——这是 10 万倍的改善。主要原因可能是：(a) Loss 简化去掉了 soc_transition_loss 和 anti_overlap_loss——V2 中这些项在 epoch 1 贡献了大量噪声；(b) film_scale=0.5 让物理特征在 epoch 1 就有更强的调制信号；(c) theory_net 投影增加了初始表达能力。但这个改善太大，需要确认 V2 和 V3 的 epoch 1 是否在相同条件下比较（相同的 seed、相同的初始化策略、相同的 batch 顺序）。如果 seed 或初始化不同，10 万倍改善可能是随机种子效应。",
+      "suggested_fix": "用 V3 的代码和配置，但设置 film_scale=0.2（V2 原值）跑 1 个 epoch，确认 epoch 1 Val MSE。如果仍然是 ~3（而不是 331,843），则 epoch 1 改善主要来自 loss 简化，非 film_scale。这可以作为一个额外的消融数据点。",
+      "rationale": "Epoch 1 的 10 万倍改善过于惊人，如果归因错误（比如声称是 film_scale 的效果但实际上来自 loss 简化），审稿人会质疑。"
+    },
+    {
+      "location": "V3 results — 缺少 Val MSE 在 real scale 的 tracking",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P3",
+      "category": "metric_validity",
+      "description": "训练日志中 Val Loss 和 Val MSE 始终完全相等（差异 < 1e-6），说明 soc_bounds_loss（soc_weight=0.1）在归一化空间中对总 loss 的贡献极小。这表明物理约束 loss 在当前权重下对模型选择几乎没有影响。虽然是设计意图（MSE 优先），但论文中可能需要说明物理约束的权重设置和其对模型选择的影响程度。",
+      "suggested_fix": "在论文中报告 Val Loss vs Val MSE 的差异，说明 soc_weight=0.1 时物理约束占总 loss <0.1%，并通过 no_battery_physics_loss 消融验证其对最终 MSE 的影响。",
+      "rationale": "审稿人会检查物理约束 loss 是否真正参与了训练。如果 soc_weight 太小以至于对 Val 指标无影响，需要明确说明这是设计选择（物理约束是结构性先验，不是训练目标）而非疏忽。"
+    }
+  ]
+}

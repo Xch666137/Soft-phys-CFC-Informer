@@ -1,0 +1,116 @@
+{
+  "reviewer": "claude",
+  "file": "~/.claude/skills/train-review/SKILL.md",
+  "issues": [
+    {
+      "location": "SKILL.md: Layer 1-3 boundary definitions",
+      "line_start": 45,
+      "line_end": 130,
+      "severity": "medium",
+      "category": "methodology",
+      "description": "Layer 1（数据流完整性）和 Layer 3（设计幻觉）的边界模糊。'装饰性物理约束'（L3 幻觉类型）本质上是 gradient disconnect 的特例——这恰恰是 Layer 1 在检查的内容。类似地，Layer 1 的 '物理层梯度连通性'(1c) 和 Layer 3 的 '梯度寄生' 检测的是同一个东西。用户执行 review 时会在两个 layer 之间纠结归属，降低效率。",
+      "original_snippet": "Layer 1: 数据流完整性 → data_flow_break\nLayer 3: 设计幻觉 → design_hallucination (含 '装饰性物理约束'、'梯度寄生')",
+      "suggested_fix": "明确 Layer 1 和 Layer 3 的判定标准：Layer 1 关注 '代码是否正确执行了计算'（syntactic correctness of data flow），Layer 3 关注 '计算是否实现了声称的语义'（semantic fidelity）。或者在 schema 中合并 data_flow_break 和 gradient_pathology 为单一类别。",
+      "rationale": "如果 Claude 和 Codex 对同一问题归入不同 layer，aggregate.py 无法匹配为 Consensus，削弱交叉验证的价值。"
+    },
+    {
+      "location": "SKILL.md: 审查前的必要澄清问题",
+      "line_start": 165,
+      "line_end": 175,
+      "severity": "high",
+      "category": "usability",
+      "description": "5 个前置问题被埋在文档末尾，且没有强制执行机制。实际使用中 Claude 很可能跳过提问直接开始审查（尤其是用户说 'review 一下这个文件' 时），导致 Layer 2 和 Layer 3 的审查缺少关键上下文。",
+      "original_snippet": "## 审查前的必要澄清问题\n\n开始审查前，若用户未提供，必须向用户确认：\n1. 这次改动的目标是什么？...",
+      "suggested_fix": "1) 将前置问题移到三层方法论之前，标注为 GATE（不回答则不进入审查）；2) 增加 '快速模式' 选项——若用户不提供假设，则仅执行 Layer 1 并明确标注 'Layer 2/3 因缺少目标假设而跳过'。",
+      "rationale": "方法论的价值取决于正确使用。如果最关键的前置步骤容易被跳过，Layer 2/3 的产出将是猜测而非分析。"
+    },
+    {
+      "location": "SKILL.md: 可视化代码审查 (V)",
+      "line_start": 140,
+      "line_end": 155,
+      "severity": "high",
+      "category": "completeness",
+      "description": "可视化审查 (V) 和指标审查 (M) 被降级为'额外审查维度'，用平铺 checklist 而非三层方法论审查。这意味着它们不受 Layer 2（目标对齐）和 Layer 3（设计幻觉）的覆盖。但实际上可视化代码中的设计幻觉非常常见——例如 '硬编码参数画出的物理曲线可能来自不同实验版本，曲线看起来合理但数值不对'。这恰恰是 Layer 3 的典型场景。",
+      "original_snippet": "### V. 可视化代码审查\n\n当改动涉及 visualization/ 时启用：\n| # | 检查项 | 要点 |\n|---|--------|------|\n| V1 | 数据泄露 | ...",
+      "suggested_fix": "将 V 和 M 提升为 Layer 2/3 的子维度，增加对应的设计幻觉类型：'绘图幻觉'（可视化声称展示 X 实验但实际数据来自 Y checkpoint）、'指标漂移'（metrics.py 中的计算与论文中定义偏离）。在 schema 中增加 'visualization_issue' 和 'metric_drift' 两个 category 或至少一个 subcategory 字段。",
+      "rationale": "可视化是论文的最终呈现——可视化中的设计幻觉直接导致虚假的实验结论被发表。当前设计将其视为二等审查，是方法论的结构性盲区。"
+    },
+    {
+      "location": "SKILL.md: 与 dual-draft 集成",
+      "line_start": 85,
+      "line_end": 110,
+      "severity": "medium",
+      "category": "integration",
+      "description": "Severity 值使用 P0/P1/P2/P3，与 dual-draft 标准 schema 的 high/medium/low 不一致。aggregate.py 不做 severity 验证所以不会崩溃，但同一仓库中两种 severity 体系并存会导致：1) 跨 review 类型对比困难（paper review 的 'high' 和 train review 的 'P1' 等价吗？）；2) 未来若 aggregate.py 增加 severity-based 分组，会出错。",
+      "original_snippet": "severity: P0 (BLOCKING) | P1 (HIGH) | P2 (MEDIUM) | P3 (LOW)",
+      "suggested_fix": "两种方案：A) 统一为 high/medium/low 保持与 dual-draft 一致；B) 保留 P0-P3（因为训练代码需要更细粒度的分级），但在 schema 中明确映射关系：P0→high, P1→high, P2→medium, P3→low，并在 aggregate 阶段按此映射做匹配。推荐 B。",
+      "rationale": "两种 severity 体系并存会在 cross-review 场景中制造混乱，尤其是当同一 PR 同时包含 paper text 和 training code 的修改时。"
+    },
+    {
+      "location": "SKILL.md: 设计幻觉分类学",
+      "line_start": 78,
+      "line_end": 118,
+      "severity": "medium",
+      "category": "schema_design",
+      "description": "设计幻觉有 8 个子类型（装饰性物理约束、空转 ablation、假 curriculum 等），但 JSON schema 只有一个 design_hallucination category。这意味着：1) 聚合时无法区分 '发现装饰性物理约束' 和 '发现假 curriculum'——它们被当作同一类 issue；2) 长期统计无法追踪哪类幻觉最常见。",
+      "original_snippet": "| 装饰性物理约束 | Loss 中有物理项，但... |\n| 空转 ablation | Ablation flag 设为 True 但... |\n... (8 types total)",
+      "suggested_fix": "在 JSON schema 中增加可选的 subcategory 字段：'subcategory: 'decorative_physics' | 'dead_ablation' | 'fake_curriculum' | 'metric_laundering' | 'normalization_confusion' | 'dimensional_illusion' | 'gradient_parasitism' | 'config_drift''。aggregate.py 在匹配时忽略 subcategory（仅用 category），但人工阅读时可利用 subcategory 快速定位问题类型。",
+      "rationale": "8 种幻觉类型的检测信号完全不同，不应被压缩为单一标签。subcategory 提供结构化信息且不破坏现有聚合逻辑。"
+    },
+    {
+      "location": "SKILL.md: Layer 2 因果链校验",
+      "line_start": 62,
+      "line_end": 70,
+      "severity": "high",
+      "category": "completeness",
+      "description": "Layer 2 的因果链校验要求画出 '改动 → 机制 → 指标' 链条，但缺少一个关键检查：**多机制混杂**。在 PhysFormer 这种多 loss 联合训练的场景中，一个指标的变化可能来自多个机制的叠加效果。例如 'BVR 下降' 可能同时来自 ramp penalty（直接约束）和更好的 component 分解（间接约束）。如果只验证了 ramp penalty 的梯度路径，就声称 'BVR 下降归因于 ramp penalty'，这是归因幻觉。",
+      "original_snippet": "2a. 因果链校验: 画出 '改动 → 机制 → 指标' 的因果链。链条上的每一环在代码中是否都存在？",
+      "suggested_fix": "在 2a 之后增加 2a-bis '归因排他性检查'：是否存在其他机制也能解释同一指标变化？如果存在，改动是否做了消融实验来隔离？至少要在 review 报告中标注 '可能存在混杂因素'。",
+      "rationale": "这是物理引导 ML 论文的核心方法论陷阱——声称 '物理约束有效' 但实际上是数据驱动的 encoder 在起作用。"
+    },
+    {
+      "location": "SKILL.md: 整体 token 预算",
+      "line_start": 1,
+      "line_end": 200,
+      "severity": "medium",
+      "category": "usability",
+      "description": "SKILL.md 约 200 行，加载时消耗 ~2500 tokens。对于 'review 一下这个 20 行的改动' 的场景，skill 本身比被审查的代码还长。没有提供 '快速模式' 或 '最小审查' 的入口。",
+      "original_snippet": "(entire SKILL.md, ~200 lines)",
+      "suggested_fix": "在文档开头增加模式选择：'## 快速审查（<50 行改动）→ 仅 Layer 1 关键项：1a, 1c, 1e'。完整审查保留当前三层流程。触发时 Claude 根据改动规模自动选择模式。",
+      "rationale": "审查工具的摩擦成本必须低于审查收益。如果小改动也要完整三层流程，用户会绕过 skill 直接让 Claude 看代码，skill 形同虚设。"
+    },
+    {
+      "location": "SKILL.md: 配置一致性 (E) 维度",
+      "line_start": 96,
+      "line_end": 105,
+      "severity": "low",
+      "category": "completeness",
+      "description": "E 维度（配置一致性）仅覆盖了三阶段 config 之间的 struct 一致性，但缺少 config→代码的交叉验证。例如 YAML 中 `no_battery_branch: true` 被设置，但代码中 PhysFormer.__init__ 的默认值是 `False`，如果 YAML → argparse.Namespace → model init 的传递链有一处断裂，config 设置就静默失效。",
+      "original_snippet": "| E2 | 三阶段超参数一致性 | warmup → net_first → operational_fit 三个 config 之间的...",
+      "suggested_fix": "增加 E5 '配置→代码传递链验证'：对每个关键 ablation flag，追踪其在 YAML → config_to_args → finalize_args → model.__init__ → model.forward() 五步传递中的每一环，确认中间没有默认值覆盖。",
+      "rationale": "YAML config 是 PhysFormer 实验管理的核心。一个静默失效的 flag 意味着 ablation 实验的结论完全错误——这是 P0 级问题但当前未被覆盖。"
+    },
+    {
+      "location": "templates/train_review.txt: 文件路径硬编码",
+      "line_start": 7,
+      "line_end": 12,
+      "severity": "low",
+      "category": "template_quality",
+      "description": "Codex 模板硬编码了 PhysFormer 项目的文件路径（physformer/models/physical_layer.py, physformer/utils/losses.py 等）。如果该 skill 被复用到其他项目或 PhysFormer 重构了目录结构，模板将指向不存在的文件。",
+      "original_snippet": "Also read these supporting files to understand the full training pipeline:\n- physformer/models/physformer.py\n- physformer/models/physical_layer.py\n...",
+      "suggested_fix": "将这些路径作为模板变量（{{SUPPORTING_FILES}}）而非硬编码。或者在 SKILL.md 中维护一个 '关键文件清单'，让 codex_review.sh 的调用者指定 --var SUPPORTING_FILES='...'。短期内可接受，因为这是项目专用 skill。",
+      "rationale": "模板硬编码降低了 skill 的可移植性。虽当前仅服务于 PhysFormer 项目，但值得在文档中注明此限制。"
+    },
+    {
+      "location": "SKILL.md: Layer 3 检测方法",
+      "line_start": 120,
+      "line_end": 130,
+      "severity": "medium",
+      "category": "completeness",
+      "description": "Layer 3 的检查方法缺少一个关键步骤：**数值实验验证**。对于疑似装饰性物理约束的问题，仅仅 trace 代码路径是不够的——需要建议一个微型数值实验来确认。例如 '将 phys_layer 参数随机化 ±50%，看 loss 是否变化 >1%'。当前方法全是被动的代码阅读，无法区分 '正常但看起来可疑的代码' 和 '真正有问题的代码'。",
+      "original_snippet": "1. 声明-代码对照：逐条列出 paper/methodology 中的声明...\n2. ablations 反推法：每个 ablation flag 设为 True vs False...\n3. checkpoint 加载审计...\n4. 梯度流审计...",
+      "suggested_fix": "增加检测方法 5：'微型数值验证'。对每个疑似幻觉，设计一个 ≤10 行的验证脚本（如 register_hook 检查梯度、随机化参数观察 loss 变化），在 review 报告中建议用户执行。这不是让 reviewer 运行实验，而是给出可操作的验证步骤。",
+      "rationale": "代码静态分析有天花板。某些设计幻觉只有运行时才能确认。提供验证脚本让 review 从 '我发现了一个可疑点' 升级为 '我发现了可疑点，运行这个 3 行脚本即可确认'。"
+    }
+  ]
+}

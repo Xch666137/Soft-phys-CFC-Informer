@@ -26,6 +26,7 @@ MODEL_KEYS = (
     "use_temporal_decoder",
     "film_scale",
     "decoder_n_heads",
+    "time_feat_dim",
 )
 
 DATA_KEYS = (
@@ -65,6 +66,9 @@ TRAINING_KEYS = (
     "early_stop_metric",
     "early_stop_start_epoch",
     "soc_weight",
+    "component_loss_weight",
+    "restart_t0",
+    "restart_t_mult",
 )
 
 HARDWARE_KEYS = (
@@ -135,6 +139,7 @@ def config_to_args(cfg):
     flat["use_temporal_decoder"] = model_cfg.get("use_temporal_decoder", True)
     flat["film_scale"] = model_cfg.get("film_scale", 0.5)
     flat["decoder_n_heads"] = model_cfg.get("decoder_n_heads", None)
+    flat["time_feat_dim"] = model_cfg.get("time_feat_dim", 8)
     _set_from_cfg(flat, model_cfg, MODEL_KEYS)
 
     data_cfg = cfg.get("data", {})
@@ -159,6 +164,7 @@ def config_to_args(cfg):
     flat["early_stop_metric"] = training_cfg.get("early_stop_metric", "net_mse")
     flat["early_stop_start_epoch"] = training_cfg.get("early_stop_start_epoch", 10)
     flat["soc_weight"] = training_cfg.get("soc_weight", 0.1)
+    flat["component_loss_weight"] = training_cfg.get("component_loss_weight", 0.05)
 
     hardware_cfg = cfg.get("hardware", {})
     flat["use_gpu"] = hardware_cfg.get("use_gpu", True)

@@ -100,20 +100,10 @@ class DataEmbedding(nn.Module):
     """
     综合嵌入层: 支持自动识别是“查表模式”还是“线性投影模式”
     """
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1, time_enc_in=8):
         super(DataEmbedding, self).__init__()
 
-        # 1. 数值嵌入 (Load, Wind, Solar...)
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
-
-        # 2. 时间嵌入 (自动判断)
-        # 如果 embed_type 被我们标记为 'custom' 或者我们检测到新的用法
-        # 这里建议通过 embed_type 参数来控制
-        # 默认 Informer 代码中 embed_type='timeF' 代表旧的查表模式
-
-        # 我们约定: 如果 embed_type='timeF'，且后续输入是 int，用旧的
-        # 但为了明确，我们修改 run.py 传入 embed='custom' 或类似标记
-        # 或者更简单的：同时初始化，forward 里根据输入维度判断（稍微费点内存但最省心）
 
         self.position_embedding = PositionalEncoding(d_model=d_model)
 
@@ -122,9 +112,7 @@ class DataEmbedding(nn.Module):
         if embed_type == 'timeF' or embed_type == 'fixed':
             self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
         else:
-            # 假设使用 Sin/Cos 编码 (8个特征: Month,Day,Week,Hour Sin/Cos)
-            # 这里的 time_enc_in=8 对应 data_factory 生成的列数
-            self.temporal_embedding = TimeFeatureEmbedding(d_model=d_model, time_enc_in=8, freq=freq)
+            self.temporal_embedding = TimeFeatureEmbedding(d_model=d_model, time_enc_in=time_enc_in, freq=freq)
         
         self.dropout = nn.Dropout(p=dropout)
 

@@ -94,29 +94,36 @@ class PhysAwareBaseLoss(nn.Module):
         else:
             soc_bounds_loss = pred_net_real.new_tensor(0.0)
 
-        # -- component supervision (only when y_aux is provided) --
+        # -- component supervision (normalized to aux_std space) --
         battery_power_mae = pred_net_real.new_tensor(0.0)
+        component_load_mae = pred_net_real.new_tensor(0.0)
+        component_pv_mae = pred_net_real.new_tensor(0.0)
+        component_wind_mae = pred_net_real.new_tensor(0.0)
         component_theory_real = physics_states.get("component_theory_real")
         if y_aux is not None and component_theory_real is not None:
-            y_aux_real = self.denorm_aux(y_aux)
-            # battery power MAE: theory vs ground-truth aux
+            aux_std_view = self.aux_std.view(1, 1, -1)
+            aux_mean_view = self.aux_mean.view(1, 1, -1)
+            theory_comp_norm = (component_theory_real - aux_mean_view) / (aux_std_view + 1e-8)
+            component_load_mae = F.l1_loss(theory_comp_norm[..., 0:1], y_aux[..., 0:1])
+            component_pv_mae = F.l1_loss(theory_comp_norm[..., 1:2], y_aux[..., 1:2])
+            component_wind_mae = F.l1_loss(theory_comp_norm[..., 2:3], y_aux[..., 2:3])
             batt_power_theory = physics_states.get("battery_power_theory_real")
             if batt_power_theory is not None:
-                battery_power_mae = F.l1_loss(batt_power_theory, y_aux_real[..., 3:4])
+                battery_power_mae = F.l1_loss(theory_comp_norm[..., 3:4], y_aux[..., 3:4])
 
         # -- component theory diagnostics --
         if component_theory_real is not None:
-            load_theory = component_theory_real[..., 0:1]
-            pv_theory = component_theory_real[..., 1:2]
-            wind_theory = component_theory_real[..., 2:3]
-            batt_power_theory = component_theory_real[..., 3:4]
-            batt_soc_theory = component_theory_real[..., 4:5]
+            load_theory_d = component_theory_real[..., 0:1]
+            pv_theory_d = component_theory_real[..., 1:2]
+            wind_theory_d = component_theory_real[..., 2:3]
+            batt_power_theory_d = component_theory_real[..., 3:4]
+            batt_soc_theory_d = component_theory_real[..., 4:5]
             theory_components = {
-                "load_theory_mean": load_theory.mean(),
-                "pv_theory_mean": pv_theory.mean(),
-                "wind_theory_mean": wind_theory.mean(),
-                "batt_power_theory_mean": batt_power_theory.mean(),
-                "batt_soc_theory_mean": batt_soc_theory.mean(),
+                "load_theory_mean": load_theory_d.mean(),
+                "pv_theory_mean": pv_theory_d.mean(),
+                "wind_theory_mean": wind_theory_d.mean(),
+                "batt_power_theory_mean": batt_power_theory_d.mean(),
+                "batt_soc_theory_mean": batt_soc_theory_d.mean(),
             }
         else:
             theory_components = {}
@@ -130,6 +137,9 @@ class PhysAwareBaseLoss(nn.Module):
             "residual_std_real": residual_std_real,
             "soc_bounds_loss": soc_bounds_loss,
             "battery_power_mae": battery_power_mae,
+            "component_load_mae": component_load_mae,
+            "component_pv_mae": component_pv_mae,
+            "component_wind_mae": component_wind_mae,
             "pred_net_real": pred_net_real,
             "true_net_real": true_net_real,
             "theory_net_real": theory_net_real,
@@ -159,12 +169,14 @@ class PhysLoss(nn.Module):
         soc_weight=0.1,
         no_soc_consistency=False,
         no_battery_physics_loss=False,
+        component_loss_weight=0.05,
     ):
         super().__init__()
         self.base_loss = base_loss_module
         self.soc_weight = float(soc_weight)
         self.no_soc_consistency = bool(no_soc_consistency)
         self.no_battery_physics_loss = bool(no_battery_physics_loss)
+        self.component_loss_weight = float(component_loss_weight)
 
     def forward(self, pred_dict, y_target, batch_context, y_aux=None, collect_debug=False):
         terms = self.base_loss.compute_terms(
@@ -176,6 +188,14 @@ class PhysLoss(nn.Module):
         if not self.no_battery_physics_loss:
             if not self.no_soc_consistency:
                 total_loss = total_loss + self.soc_weight * terms["soc_bounds_loss"]
+
+        if self.component_loss_weight > 0:
+            total_loss = total_loss + self.component_loss_weight * (
+                terms["component_load_mae"]
+                + terms["component_pv_mae"]
+                + terms["component_wind_mae"]
+                + terms["battery_power_mae"]
+            )
 
         debug = None
         if collect_debug:
@@ -189,5 +209,8 @@ class PhysLoss(nn.Module):
                 "residual_std_real": float(terms["residual_std_real"].detach().cpu()),
                 "soc_bounds_loss": float(terms["soc_bounds_loss"].detach().cpu()),
                 "battery_power_mae": float(terms["battery_power_mae"].detach().cpu()),
+                "component_load_mae": float(terms["component_load_mae"].detach().cpu()),
+                "component_pv_mae": float(terms["component_pv_mae"].detach().cpu()),
+                "component_wind_mae": float(terms["component_wind_mae"].detach().cpu()),
             }
         return total_loss, debug, terms

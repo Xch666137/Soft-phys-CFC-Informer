@@ -1,0 +1,82 @@
+{
+  "reviewer": "claude",
+  "file": "results/physformer_v4 — V4 Phase 1 results vs V3",
+  "context": {
+    "goal": "评估 V4 Phase 1（calendar embedding + load proxy + component loss）相对于 V3 的效果，识别有效改动和剩余问题",
+    "v3_baseline": "Test MSE=7.46e-6, MAE=1.93kW, Theory MAE=4.87kW, Residual std=6.55kW, Val MSE=0.387 (epoch 37)",
+    "v4_results": "Test MSE=7.35e-6, MAE=1.98kW, Theory MAE=3.81kW, Residual std=4.31kW, Val MSE=0.381 (epoch 11)",
+    "v4_changes": "is_weekend/is_holiday flags, load AR proxy, component_loss_weight=0.05, per-component eval"
+  },
+  "issues": [
+    {
+      "location": "V4 metrics — Theory MAE 改善 21.8% 但 Test MAE 轻微退化",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "metric_validity",
+      "description": "Theory MAE 从 4.87kW→3.81kW 大幅改善 (-21.8%)，但最终 Test MAE 从 1.93kW→1.98kW 轻微退化 (+2.3%)。Residual std 从 6.55kW→4.31kW (-34.1%) 说明残差修正更精准了，但 residual mean 为 +2.26kW（系统性偏置）。可能的原因：(a) theory_net 改善后 residual 的修正需求减少，但 residual 有正偏置导致整体 MAE 未同步改善；(b) component_loss=0.05 可能对 theory_net 施加了过强的组件监督，使得 theory_net 在 per-component 上表现更好但在 net injection 聚合时 suboptimal；(c) 早停 epoch 36 比 V3 的 epoch 51 少训练了 15 epoch，可能未达到最佳 residual 权重。",
+      "suggested_fix": "(1) 用 V4 checkpoint 继续训练（higher patience=50），观察 residual mean 是否随时间向零收敛；(2) 降低 component_loss_weight 从 0.05 到 0.02，减少组件监督对 net MSE 的竞争；(3) 分析 residual mean 的时间演化——如果 bias 在增加说明 theory 和 residual 在互相推搡而非协同。",
+      "rationale": "Theory MAE -21.8% 是显著改善，但最终 MAE 没跟上说明 residual 没有充分利用 theory 的改进。需要区分是训练不充分还是 loss 设计问题。"
+    },
+    {
+      "location": "V4 component metrics — Load = 14.71kW vs Wind = 0.83kW 的不对称性",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "physics_fidelity",
+      "description": "分量评估揭示了一个极端的不对称：Wind theory 误差仅 0.83kW（风速→功率的物理映射几乎完美），PV theory 误差 4.00kW（辐照度→功率映射良好），Load theory 误差 14.71kW（温度冷暖度日模型极弱）。Load/Wind 误差比 = 17.7:1。这直接验证了 Phase 1 的核心假设——Load 不能用与 PV/Wind 同等的物理引导建模。但当前 Load 分支的改善手段（calendar flags + AR proxy）将 error 从 V3 的不可观测降到了 14.71kW，但相比 Wind 的 0.83kW 仍有数量级差距。",
+      "suggested_fix": "Load 15kW 的 theory MAE 与 V3 整体 MAE 1.93kW 之间的关系——Load 是 net injection = PV+Wind-Load 中的减项，15kW 的 load error 在聚合时被 PV/Wind 的准确预测部分抵消。但这在操作层面不可接受：VPP 运营需要知道负载的确切值来决定电池调度。建议 Phase 2 为 Load 建立独立的数据驱动分支（iTransformer-style variable attention）。",
+      "rationale": "分量评估是 V4 最重要的新信息。它提供了量化证据支持 Dual-Stream 架构决策。Wind 0.83kW 也证明了物理引导对可再生能源分量的有效性——这是一种有价值的负向验证。"
+    },
+    {
+      "location": "V4 train.log — 早停 epoch 36，WarmRestarts 未充分探索",
+      "line_start": 72,
+      "line_end": 75,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "V4 在 epoch 11 达到最优 0.381 后，连续 25 个 epoch（12-36）未能刷新纪录。两次 WarmRestarts（epoch 20 和 35）均未产生效果——restart 后的 Val MSE 停留在 0.397-0.398，远高于最优 0.381。对比 V3：restart #2（epoch 37）产生了全局最优 0.387。V4 的 restart 失效可能因为：(a) 最优 0.381 已经接近此架构的天花板；(b) 从零训练的模型（V4 从 epoch 2 开始而非 V3 checkpoint epoch 37）缺少 V3 的 37 个 epoch 预训练权重，导致 restart 探索的 loss landscape 不同；(c) component loss 改变了 loss landscape，WarmRestarts 的探索方向不再有效。",
+      "suggested_fix": "(1) 或者从 V3 的 epoch 37 checkpoint 重新启动 V4 训练（保留物理参数），观察是否能从 0.381 继续改善；(2) 或者增加 patience 到 50 + 调低 component_loss_weight 到 0.02 后重新训练 100 epoch；(3) 评估是否需要调整 T_0 参数（当前 T_0=15 可能对 V4 的 loss landscape 不是最优）。",
+      "rationale": "36/100 epochs = 仅使用了 36% 的训练预算。如果最优在 epoch 11 就出现了，说明早期过拟合或 scheduler 失配。论文中需要解释训练停止的原因。"
+    },
+    {
+      "location": "V4 — Val SOC 始终为零的含义",
+      "line_start": 9,
+      "line_end": 74,
+      "severity": "P3",
+      "category": "training_dynamics",
+      "description": "所有 34 个 epoch 的 Val SOC = 0.000000。这是好消息——电池 SOC 约束在任何验证集样本上均未被违反。但这也意味着 soc_weight=0.1 仅是一个安全网，永不被触发。SOC=0 的完美合规可能来自：(a) battery branch 的结构性先验（softplus 功率限制 + tanh 归一化 + soc clamp）足够强，无需 loss 约束；(b) 验证集的 battery 行为相对温和，soc 极少接近边界。可以将此表述为论文的正面发现：'物理结构性先验足以保证 SOC 合规，无需在 loss 中显式惩罚'。",
+      "suggested_fix": "在论文中：(1) 报告 SOC violation=0；(2) 运行 soc_weight=0 的消融实验证明 battery branch 的结构性先验（非 loss 约束）是 SOC 合规的来源；(3) 可选：报告 battery SOC 的最大/最小值（soc_min=0.0, soc_max=0.046 MWh）展示 SOC 范围合理。",
+      "rationale": "SOC=0 是强正面信号，需要正确归因（结构性先验而非 loss 约束）。"
+    },
+    {
+      "location": "V4 — 收敛速度 3.4x 加速",
+      "line_start": 9,
+      "line_end": 25,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "V4 epoch 11 达到 Val MSE=0.381，V3 epoch 37 达到 0.387。V4 用 3.4x 更少的 epoch 达到了更好的 Val MSE。可能原因：(a) calendar embeddings (is_weekend/is_holiday) 提供了有价值的离散时间信号，加速了时间模式的识别；(b) component loss 为 theory branches 提供了直接的梯度，加速了物理参数的学习；(c) AR load proxy 给 load branch 提供了一个 persistency baseline。需要消融来确认各因素的贡献。",
+      "suggested_fix": "消融实验：(1) V4 minus calendar flags (time_feat_dim=8, no is_weekend/is_holiday)；(2) V4 minus component loss (component_loss_weight=0)；(3) V4 minus AR proxy (no load_autoreg)。各跑 15 epoch 比较收敛曲线。",
+      "rationale": "3.4x 收敛加速是重要的论文卖点，但需要归因到具体改动。审稿人会问 '哪个改动贡献了加速'。"
+    },
+    {
+      "location": "V4 — Battery component metrics 的解读",
+      "line_start": 15,
+      "line_end": 18,
+      "severity": "P3",
+      "category": "metric_validity",
+      "description": "Battery power MAE=21.35kW 和 battery SOC MAE=0.020MWh 不在传统 forecasting metrics 中。这些值需要在上下文中解读：net injection 的总 scale 是多少？如果 net injection 均值是 MW 级别（如 ~5kW），则 21kW 的电池功率误差非常大。但 battery_soc_mae=0.020MWh (20kWh) 在典型的电池容量下（如 0.046MWh = 46kWh max soc）占比约 43%——相当大。这说明 theory_net 对电池行为的建模仍然粗糙。",
+      "suggested_fix": "在论文中：(1) 用相对误差（battery_mae / mean_battery_power）而非绝对值报告；(2) 将电池指标放在 VPP 运行的上下文中——电池调度是 VPP 的核心操作，21kW 的电池预测误差直接影响经济调度优化。",
+      "rationale": "绝对数值 21kW 没有上下文无法判断好坏。需要相对化。"
+    },
+    {
+      "location": "V4 — 训练不完整（36/100 epoch）",
+      "line_start": 74,
+      "line_end": 76,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "V4 使用 patience=25 且 early_stop_start_epoch=10。epoch 11 是最优后，epoch 12→36 的 25 个 epoch 均无改善，触发早停。但 epoch 11 恰好在 early_stop_start_epoch+1 处，这意味着 early_stop_start_epoch=10 可能设置得太低——best epoch 恰好在 start_epoch 之后 1 个 epoch，导致后续 25 个 epoch 没有足够机会。建议 early_stop_start_epoch=15 或 20，给 early training 更多探索空间。",
+      "suggested_fix": "(1) 调整 config: early_stop_start_epoch=15, patience=30；(2) 从 epoch 11 checkpoint 恢复训练，继续跑剩余 54 epoch。",
+      "rationale": "36/100 epoch 的使用率（36%）太低了。早停应该在模型真正收敛时触发，而非在 early training 阶段。"
+    }
+  ]
+}

@@ -1,0 +1,276 @@
+{
+  "_meta": {
+    "reviewer": "Claude",
+    "type": "implementation_plan",
+    "target": "PhysFormer architecture refactoring — 4 files, ~60% code change in physformer.py",
+    "date": "2026-04-27",
+    "principles": [
+      "Physical layer provides conditioning features, not prediction branches",
+      "Single unified prediction pathway: Encoder → TemporalDecoder → WeatherFusion → PhysicsConditioning → UnifiedHead",
+      "Residual output: pred_net = theory_net + data_driven_residual",
+      "Loss: net_mse + weak battery physics constraints only",
+      "Ablation switches preserved and cleanly testable",
+      "CFC excluded, confidence/attribution heads removed, multi-stage training collapsed"
+    ]
+  },
+  "file_change_plan": [
+    {
+      "file": "physformer/models/physical_layer.py",
+      "change_type": "modify",
+      "estimated_lines_changed": "~40% (delete ~80 lines, add ~60 lines)",
+      "tasks": [
+        {
+          "id": "PHYS-01",
+          "action": "Simplify _load_branch: delete state-space model, keep temperature response + calendar",
+          "details": "Remove load_state_init, load_state_input, load_state_A, load_state_out, load_state_dim. Replace the state-space loop (lines 153-161) with direct computation: load = Softplus(base + heat_sens*heating + cool_sens*cooling + calendar_gain*calendar_profile). Keep heating/cooling asymmetry and calendar projection.",
+          "verification": "theory_load output shape unchanged (B,96,1), values always ≥0"
+        },
+        {
+          "id": "PHYS-02",
+          "action": "Simplify _battery_branch: replace dual charge/discharge heads with single signed-power head",
+          "details": "Replace battery_charge_head + battery_discharge_head + battery_power_persistence with single battery_power_head: Linear(d_model→1). Output = P_max * tanh(Linear(hidden)) for signed power. Then charge=ReLU(+power), discharge=ReLU(-power). This guarantees charge*discharge=0 by construction. Remove no_battery_branch charge/discharge persistence variables and separate tracking.",
+          "verification": "charge * discharge == 0 (elementwise), power = charge - discharge"
+        },
+        {
+          "id": "PHYS-03",
+          "action": "Delete mode_gate and all associated code paths",
+          "details": "Remove _use_mode_gate, battery_mode_head, battery_power_head (old), battery_mag_persistence, battery_mode_persistence, prev_power_mag tracking, mode_gate_seq. The CONFIG already defaults no_mode_gate=True. This is dead code cleanup aligning with 'CFC excluded' mandate.",
+          "verification": "No references to mode_gate in codebase, forward() works without mode_gate branches"
+        },
+        {
+          "id": "PHYS-04",
+          "action": "Add battery_feats output: [soc_norm, headroom_hours, eta_c, eta_d]",
+          "details": "After battery trajectory is computed, produce battery_feats: soc/capacity (normalized SOC), (capacity-soc)/P_max (headroom in hours), eta_charge, eta_discharge. Output shape (B,96,4). These are the conditioning features for the main prediction pathway.",
+          "verification": "battery_feats.shape == (B, 96, 4), values in valid ranges"
+        },
+        {
+          "id": "PHYS-05",
+          "action": "Simplify forward() return: add battery_feats to states dict, remove mode_gate references",
+          "details": "In forward() return states dict, add 'battery_feats' key. Remove conditional mode_gate logic. Keep all existing theory outputs for backward compatibility with loss computation.",
+          "verification": "states dict contains 'battery_feats' with correct shape"
+        }
+      ]
+    },
+    {
+      "file": "physformer/models/physformer.py",
+      "change_type": "major_refactor",
+      "estimated_lines_changed": "~60% (delete ~150 lines, add ~120 lines)",
+      "tasks": [
+        {
+          "id": "MAIN-01",
+          "action": "Update __init__: remove component-specific modules, add new fusion modules",
+          "details": "REMOVE: future_context_proj, refinement_attn, refinement_ffn, shared_query_adapter, component_query_adapters, component_type_embedding, refinement_norm1, refinement_norm2, component_interaction_attn, comp_interact_ln1, comp_interact_ln2, comp_interact_ffn, load_head/pv_head/wind_head/battery_head, load_confidence_head/pv_confidence_head/wind_confidence_head/battery_confidence_head, load_attribution_head/pv_attribution_head/wind_attribution_head/battery_attribution_head, operational_scale, operational_bias. ADD: self.temporal_decoder (cross-attention with learnable query positions), self.future_context_proj (kept, simplified to Linear+GELU+Linear), self.physics_proj (Linear for theory_net+battery_feats→d_model), self.physics_gamma (Linear for FiLM), self.physics_beta (Linear for FiLM), self.unified_head (MLP: 2*d_model→d_model→1). Keep: stat_embedding, encoder, phys_layer, flatten_head (for ablation comparison).",
+          "verification": "Model instantiates without errors, parameter count reduced by ~60%"
+        },
+        {
+          "id": "MAIN-02",
+          "action": "Add TemporalDecoder class (replaces FlattenHead for non-ablation path)",
+          "details": "New internal module: __init__ creates learnable query_pos (1, pred_len, d_model) and cross_attn (MultiheadAttention), cross_ln (LayerNorm), cross_ffn (Sequential). forward(enc_out): Q=query_pos.expand(B,-1,-1), K=V=enc_out, attn_out=cross_attn(Q,K,V), out=cross_ln(Q+attn_out), out=cross_ln(out+cross_ffn(out)). This gives each prediction step an independent learned query that attends to relevant history.",
+          "verification": "Output shape (B, pred_len, d_model), each pred step's attention pattern differs"
+        },
+        {
+          "id": "MAIN-03",
+          "action": "Add WeatherFusion block",
+          "details": "Simple cross-attention: coarse_future as Q, future_context as K/V. Single MultiheadAttention + LayerNorm + FFN + residual. This replaces the old per-component refinement. Only ONE fusion, not four.",
+          "verification": "Output shape (B, pred_len, d_model)"
+        },
+        {
+          "id": "MAIN-04",
+          "action": "Add PhysicsConditioning block (FiLM modulation)",
+          "details": "Input: weather_latent (B,P,D), theory_net (B,P,1), battery_feats (B,P,4). Concat → physics_proj: Linear(5→D)→GELU. Then γ=physics_gamma(physics_context), β=physics_beta(physics_context). Output = LayerNorm(weather_latent * (1+γ) + β + weather_latent). If no_phys_stream: physics_context = zeros → γ=0, β=0 → identity.",
+          "verification": "When no_phys_stream=True, output == LayerNorm(weather_latent + weather_latent) ≈ weather_latent (identity path)"
+        },
+        {
+          "id": "MAIN-05",
+          "action": "Add UnifiedHead",
+          "details": "MLP: Linear(2*D→D)→GELU→Dropout→Linear(D→1). Input: concat(physics_latent, theory_net). Output: residual (B,P,1). Final: pred_net_real = theory_net + residual. pred_net_norm = (pred_net_real - target_mean) / target_std. The residual has zero-init final layer weight/bias, same pattern as current heads.",
+          "verification": "pred_net_norm shape (B,P,1), zero-init ensures residual starts at 0"
+        },
+        {
+          "id": "MAIN-06",
+          "action": "Rewrite forward() method — new data flow",
+          "details": "New forward flow: (1) concat history_input → stat_embedding → encoder → enc_out. (2) enc_out → temporal_decoder → coarse_future. (3) future_context = future_context_proj(concat(weather_future, y_mark)). (4) weather_latent = weather_fusion(coarse_future, future_context). (5) Run phys_layer to get theory_net, battery_feats, physics_states. (6) physics_latent = physics_conditioning(weather_latent, theory_net, battery_feats). (7) pred_net = unified_head(physics_latent, theory_net). Return dict with pred_net and physics_states (slimmed). No more pred_aux, component_theory, confidence, attribution outputs.",
+          "verification": "forward() runs end-to-end, output dict has pred_net and physics_states"
+        },
+        {
+          "id": "MAIN-07",
+          "action": "Update return dict: remove pred_aux, component_theory, pred_charge_real, pred_discharge_real, component_confidence, component_attribution",
+          "details": "New return dict: {'pred_net': ..., 'physics_states': {...}, 'theory_net': ...}. Physics_states still contains battery_charge, battery_discharge, battery_soc, eta_charge, eta_discharge for loss computation.",
+          "verification": "Loss function can access all needed tensors from return dict"
+        },
+        {
+          "id": "MAIN-08",
+          "action": "Remove dead methods: _refine_component, _build_zero_physics, freeze_backbone_for_operational_fit, operational_parameter_names",
+          "details": "These methods served the old per-component architecture and operational_fit training mode. _build_zero_physics is replaced by simply zeroing physics features when no_phys_stream=True.",
+          "verification": "No references to removed methods in codebase"
+        },
+        {
+          "id": "MAIN-09",
+          "action": "Remove COMPONENT_NAMES, confidence/attribution heads, operational_scale/bias",
+          "details": "Clean up class-level constants and unused parameters.",
+          "verification": "No references to removed attributes"
+        },
+        {
+          "id": "MAIN-10",
+          "action": "Preserve ablation switches with clean paths",
+          "details": "no_phys_stream: skip phys_layer call, theory_net=zeros, battery_feats=zeros. no_battery_branch: phys_layer internal flag, battery outputs zero, features zero. no_future_weather: zero x_weather_future before any use. Add warning log for no_future_weather. Add new flag no_battery_physics_loss (passed to loss, not used in forward). Remove switches: shared_query_only, no_component_coupling, no_mode_gate.",
+          "verification": "Each ablation flag toggles exactly one behavior"
+        }
+      ]
+    },
+    {
+      "file": "physformer/utils/losses.py",
+      "change_type": "simplify",
+      "estimated_lines_changed": "~50% (delete ~120 lines, add ~30 lines)",
+      "tasks": [
+        {
+          "id": "LOSS-01",
+          "action": "Simplify PhysAwareBaseLoss.compute_terms: remove component, confidence, attribution, ramp, smoothness, operational losses",
+          "details": "Keep: net_mse, net_mae (norm+real), soc_transition_loss, soc_bounds_loss, anti_overlap_loss. Remove: component_loss, battery_state_loss, operational_strong_loss, wind_loss, net_ramp_penalty, battery_ramp_penalty, battery_smoothness, confidence_loss, attribution_loss, component_net_consistency_residual, theory_aux_mae, theory_soc_transition_loss, theory_soc_bounds_loss, theory_anti_overlap_loss. All removed terms become post-training validation metrics.",
+          "verification": "compute_terms returns dict with only the kept terms, code using removed terms updated"
+        },
+        {
+          "id": "LOSS-02",
+          "action": "Simplify PhysLoss.forward: single-stage loss, remove training_mode dispatch",
+          "details": "New forward: total_loss = net_mse. If not no_soc_consistency: + soc_weight*(soc_transition+soc_bounds). If not no_battery_physics_loss: + overlap_weight*anti_overlap. Remove: training_mode dispatch, curriculum hooks, epoch parameter, aux_weight, battery_weight, ramp_weight, diagnostic weights, theory weights, aux_weight_stageA, soc_weight_stageA, overlap_weight_stageA, operational_fit branches.",
+          "verification": "Loss computes correctly with 2-3 terms max"
+        },
+        {
+          "id": "LOSS-03",
+          "action": "Update return dict to match new model output schema",
+          "details": "Access pred_net from pred_dict['pred_net']. Access battery physics from pred_dict['physics_states']. Remove references to pred_aux, component_theory, confidence, attribution.",
+          "verification": "All tensor accesses match new model output dict"
+        },
+        {
+          "id": "LOSS-04",
+          "action": "Add no_battery_physics_loss flag support",
+          "details": "When no_battery_physics_loss=True, soc_transition_loss, soc_bounds_loss, and anti_overlap_loss are all zeroed in the total_loss (but still computed for logging). This isolates architecture contribution from loss contribution in ablation.",
+          "verification": "With flag=True, total_loss == net_mse exactly"
+        }
+      ]
+    },
+    {
+      "file": "physformer/exp/exp_physformer.py",
+      "change_type": "adapt",
+      "estimated_lines_changed": "~30% (delete ~60 lines, add ~20 lines)",
+      "tasks": [
+        {
+          "id": "EXP-01",
+          "action": "Remove _configure_physics_warmup and _configure_operational_fit methods",
+          "details": "Single-stage training only. Physics warmup functionality (freeze_for_physics_warmup) can stay in the model for diagnostic use but is not part of the standard pipeline.",
+          "verification": "Training starts directly with net_first equivalent, no multi-stage dispatch"
+        },
+        {
+          "id": "EXP-02",
+          "action": "Simplify _build_model: remove multi-stage init logic, remove ablation flags that no longer exist",
+          "details": "Remove: shared_query_only, no_component_coupling, no_mode_gate, training_mode (hardcode to 'standard'), operational_fit init logic, physics_warmup init logic. Keep: no_phys_stream, no_battery_branch, no_aux_supervision, no_soc_consistency, no_future_weather. Add: no_battery_physics_loss.",
+          "verification": "Model builds with new simplified __init__ signature"
+        },
+        {
+          "id": "EXP-03",
+          "action": "Simplify _select_optimizer: remove phys_layer_lr_scale grouping",
+          "details": "With simpler architecture, the phys_layer is small enough that grouped LR is unnecessary overhead. Single AdamW with uniform LR.",
+          "verification": "Optimizer created with single parameter group"
+        },
+        {
+          "id": "EXP-04",
+          "action": "Simplify _select_criterion: remove multi-stage loss config, remove theory weights, remove operational_fit weights",
+          "details": "New criterion: PhysAwareBaseLoss + PhysLoss with only soc_weight, overlap_weight, no_soc_consistency, no_battery_physics_loss. Remove: training_mode, curriculum_total_epochs, use_aux_supervision, no_aux_supervision, theory_*_weight, aux_weight_stageA, soc_weight_stageA, overlap_weight_stageA, aux_weight, battery_weight, ramp_weight, wind_supervision_weight, diagnostic_*_weight, net_consistency_weight.",
+          "verification": "Criterion created without errors"
+        },
+        {
+          "id": "EXP-05",
+          "action": "Update _process_one_batch and forward calls for new model signature",
+          "details": "Model forward now takes same inputs but returns different dict: {'pred_net': ..., 'physics_states': {...}, 'theory_net': ...}. Update all consumers.",
+          "verification": "Training loop runs end-to-end"
+        },
+        {
+          "id": "EXP-06",
+          "action": "Update test() method: remove aux_preds, aux_trues, charge_preds, discharge_preds, eta_*, component_confidence, component_attribution tracking",
+          "details": "test() now primarily tracks pred_net vs true_net. Component-level metrics are computed from physics_states (which are theory estimates, not refined predictions). Keep battery_power_mae and battery_soc_mae for physics validation.",
+          "verification": "test() runs and produces valid metrics dict"
+        }
+      ]
+    },
+    {
+      "file": "configs/physformer_default.yaml",
+      "change_type": "simplify",
+      "estimated_lines_changed": "~20 lines changed",
+      "tasks": [
+        {
+          "id": "CFG-01",
+          "action": "Update model config: reduce d_model=256, d_ff=512, e_layers=2, remove mode_gate, remove training_mode",
+          "details": "d_model: 512→256, d_ff: 2048→512, e_layers: 3→2. enc_in stays at 6. Remove no_mode_gate, shared_query_only, no_component_coupling. Add no_battery_physics_loss: false.",
+          "verification": "Config parses correctly"
+        },
+        {
+          "id": "CFG-02",
+          "action": "Remove multi-stage training config: phys_layer_lr_scale, aux_weight_stageA, soc_weight_stageA, overlap_weight_stageA, theory_*_weight",
+          "details": "Replace with single soc_weight: 0.1, overlap_weight: 0.01. Remove training_mode, init_from_run (operational_fit), freeze_backbone, curriculum settings.",
+          "verification": "Config has only necessary training parameters"
+        },
+        {
+          "id": "CFG-03",
+          "action": "Update ablation config: remove no_mode_gate, shared_query_only, no_component_coupling. Add no_battery_physics_loss",
+          "details": "Ablation section now has: no_phys_stream, no_battery_branch, no_aux_supervision, no_soc_consistency, no_future_weather, no_battery_physics_loss.",
+          "verification": "All ablation flags map to model and loss parameters"
+        }
+      ]
+    },
+    {
+      "file": "physformer/runner/config.py",
+      "change_type": "adapt",
+      "estimated_lines_changed": "~10 lines",
+      "tasks": [
+        {
+          "id": "RUN-01",
+          "action": "Update argument parser: remove deprecated flags, add no_battery_physics_loss",
+          "details": "Remove: --no-mode-gate, --shared-query-only, --no-component-coupling, --training-mode, --phys-layer-lr-scale, --init-from-run, --freeze-backbone, --curriculum-*, --theory-*-weight, --aux-weight-stageA, --soc-weight-stageA, --overlap-weight-stageA, --wind-supervision-weight, --diagnostic-*-weight. Add: --no-battery-physics-loss.",
+          "verification": "Argument parser runs without errors with updated config"
+        }
+      ]
+    },
+    {
+      "file": "physformer/models/flatten_head.py",
+      "change_type": "enhance",
+      "estimated_lines_changed": "~20 lines added",
+      "tasks": [
+        {
+          "id": "HEAD-01",
+          "action": "Add TemporalDecoder as alternative to FlattenHead (keep FlattenHead for backward compat)",
+          "details": "New class TemporalDecoder(nn.Module) in same file or in physformer.py. __init__(seq_len, pred_len, d_model, n_heads, dropout). forward(enc_out): uses learnable query_positions + cross-attention. Keep existing FlattenHead as-is for ablation comparison.",
+          "verification": "TemporalDecoder produces (B, pred_len, d_model) output"
+        }
+      ]
+    }
+  ],
+  "execution_order": [
+    "PHASE 0 (safe prep): PHYS-03 (delete mode_gate) → no risk, pure dead code removal",
+    "PHASE 1 (physical layer): PHYS-01 → PHYS-02 → PHYS-04 → PHYS-05 — physical_layer.py refactored but still compatible with old physformer.py forward()",
+    "PHASE 2 (new modules): MAIN-02 → MAIN-03 → MAIN-04 → MAIN-05 → HEAD-01 — new building blocks exist but not wired in",
+    "PHASE 3 (main refactor): MAIN-01 → MAIN-06 → MAIN-07 → MAIN-08 → MAIN-09 → MAIN-10 — physformer.py fully refactored. At this point model should be runnable",
+    "PHASE 4 (loss): LOSS-01 → LOSS-02 → LOSS-03 → LOSS-04 — loss matches new model output",
+    "PHASE 5 (training): EXP-01 → EXP-02 → EXP-03 → EXP-04 → EXP-05 → EXP-06 — training loop adapted",
+    "PHASE 6 (config): CFG-01 → CFG-02 → CFG-03 → RUN-01 — config files updated",
+    "PHASE 7 (verify): python -c 'from physformer.models import PhysFormer; ...' → dry run, check shapes, check ablations"
+  ],
+  "risk_mitigation": [
+    "Each phase is independently testable (import check, shape check)",
+    "Physical layer changes are backward-compatible with old forward() until Phase 3",
+    "New modules (TemporalDecoder, WeatherFusion, PhysicsConditioning, UnifiedHead) can be unit-tested before wiring",
+    "Ablation flags preserved throughout — can verify no_phys_stream produces identical output to old model's no_phys_stream",
+    "Git worktree means zero risk to main branch — commit at each phase boundary"
+  ],
+  "verification_checklist": [
+    "Model instantiates: PhysFormer(...) no import errors",
+    "Forward pass: output['pred_net'].shape == (B, 96, 1)",
+    "No phys stream: theory_net==0 → pred_net == pure data-driven",
+    "No battery branch: battery_feats==0, battery physics states zero",
+    "No future weather: model still runs (degraded, but runs)",
+    "Loss computes: total_loss is scalar with grad",
+    "Training loop: one epoch runs without NaN/Inf",
+    "Ablation diff: ΔMSE between full model and each ablation is measurable",
+    "Parameter count: < 5M (vs current ~15M)",
+    "Memory: < 4GB GPU at batch_size=64"
+  ]
+}

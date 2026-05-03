@@ -99,9 +99,11 @@ class UnifiedResidualHead(nn.Module):
         )
         nn.init.normal_(self.net[-1].weight, std=0.01 / (d_model ** 0.5))
         nn.init.zeros_(self.net[-1].bias)
+        self.alpha = nn.Parameter(torch.tensor(0.0))
 
     def forward(self, conditioned, theory_net):
-        theory_expanded = self.theory_proj(theory_net)  # (B, P, theory_proj_dim)
+        theory_expanded = self.theory_proj(theory_net)
         inp = torch.cat([conditioned, theory_expanded], dim=-1)
         residual = self.net(inp)
-        return residual
+        gate = torch.sigmoid(self.alpha)
+        return gate * residual

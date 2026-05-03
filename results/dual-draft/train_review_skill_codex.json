@@ -1,0 +1,160 @@
+{
+  "reviewer": "codex",
+  "file": "C:/Users/Xch/.codex/worktrees/7c57/Soft-phys-CFC-Informer/results/dual-draft/train_review_SKILL.md",
+  "issues": [
+    {
+      "location": "Layer boundary definitions",
+      "line_start": 45,
+      "line_end": 100,
+      "severity": "high",
+      "category": "methodology",
+      "description": "The three layers overlap heavily without a precedence rule, so the same defect can be classified differently by different reviewers.",
+      "original_snippet": "Layer 1 checks physical-layer gradient connectivity and loss gradient paths; Layer 2 checks whether the causal chain reaches gradients; Layer 3 checks decorative physics and gradient-flow audit.",
+      "suggested_fix": "Add a classification rule: use Layer 1 for mechanical tensor/autograd breaks, Layer 2 for goal/metric/causal-direction mismatches after implementation exists, and Layer 3 for claim-vs-implementation gaps. Include examples of how to classify one issue that touches multiple layers.",
+      "rationale": "Without clear boundaries, Claude and Codex may flag the same bug under different categories, reducing consensus and making the methodology less reproducible."
+    },
+    {
+      "location": "Layer 1 / 1b forward path tracing",
+      "line_start": 46,
+      "line_end": 46,
+      "severity": "medium",
+      "category": "methodology",
+      "description": "The autograd heuristic about tensor reassignment is technically misleading.",
+      "original_snippet": "是否存在 `.detach()` 截断、tensor 重赋值（`=` 而非 `[:]`）断裂梯度？",
+      "suggested_fix": "Replace this with PyTorch-specific break patterns: `.detach()`, `.data`, `.item()`, `.numpy()`, rewrapping with `torch.tensor(existing_tensor)`, non-differentiable ops such as `argmax`, and unsafe in-place mutation of leaf tensors/views.",
+      "rationale": "Plain assignment like `x = f(x)` does not break the computation graph; slice/in-place mutation is often riskier. The current wording can create false positives and teach reviewers the wrong failure mode."
+    },
+    {
+      "location": "Core review layers omit temporal/data-split checks",
+      "line_start": 43,
+      "line_end": 50,
+      "severity": "high",
+      "category": "completeness",
+      "description": "The core data-flow layer traces tensors but does not require review of temporal alignment, horizon offsets, scaler fitting, or train/val/test leakage.",
+      "original_snippet": "| **1a. 解包对齐** | 对比 `PhysFormerDataset.__getitem__` 的 return 顺序与 `_process_one_batch()` 的解包顺序。字段增减时是否同步？ |",
+      "suggested_fix": "Add checks for window/label horizon alignment, target leakage through future covariates, scaler/statistics fitted only on train split, chronological split integrity, and denorm consistency between training, validation, and test.",
+      "rationale": "For forecasting pipelines, silent one-step horizon mistakes and leakage often produce believable but invalid metrics while all tensor paths and gradients still look correct."
+    },
+    {
+      "location": "Training dynamics not covered by the skill body",
+      "line_start": 104,
+      "line_end": 125,
+      "severity": "medium",
+      "category": "completeness",
+      "description": "The schema/template allow `training_dynamics`, but the skill only adds visualization and metric optional sections, not optimizer/scheduler/early-stopping/checkpoint-state review.",
+      "original_snippet": "## 额外审查维度（视改动范围启用）\n### V. 可视化代码审查\n### M. 指标计算审查",
+      "suggested_fix": "Add an optional T section for training dynamics: optimizer param groups, LR scheduler step timing, gradient clipping, AMP overflow handling, early stopping metric, checkpoint resume including optimizer/scaler/scheduler state, and eval/train mode transitions.",
+      "rationale": "Many training-pipeline regressions occur outside forward/loss code. The category exists downstream, but the skill does not tell reviewers how to find those issues."
+    },
+    {
+      "location": "Prerequisite clarification gate",
+      "line_start": 213,
+      "line_end": 221,
+      "severity": "medium",
+      "category": "usability",
+      "description": "The skill blocks Layer 2 and Layer 3 unless five questions are answered clearly, including ablation availability.",
+      "original_snippet": "不回答清楚以上问题，审查无法进入 Layer 2 和 Layer 3。",
+      "suggested_fix": "Allow review to proceed with explicit assumptions when the user lacks answers. Require only goal and expected mechanism for Layer 2; allow Layer 3 to use PR text, comments, configs, docs, and code names as claim sources.",
+      "rationale": "In real code review, ablations often do not exist yet. Blocking the review prevents the skill from catching exactly the design gaps it is meant to expose."
+    },
+    {
+      "location": "Runtime gradient-audit instructions",
+      "line_start": 47,
+      "line_end": 50,
+      "severity": "medium",
+      "category": "usability",
+      "description": "Several checks require runtime gradient instrumentation but provide no executable probe, fallback, or threshold.",
+      "original_snippet": "用 `.register_hook(lambda g: print(g.abs().sum()))` 的思想验证 ... `.grad` 非 None 且在合理量级。",
+      "suggested_fix": "Provide a minimal one-batch gradient audit recipe or bundled script that prints per-loss/per-module grad norms, trainable parameter lists, optimizer param-group membership, and missing/unexpected checkpoint keys.",
+      "rationale": "A junior reviewer can read the checklist but may not be able to perform the key checks reliably. Vague phrases like “reasonable magnitude” are not operational."
+    },
+    {
+      "location": "Dual-draft output format conflict",
+      "line_start": 151,
+      "line_end": 190,
+      "severity": "high",
+      "category": "integration",
+      "description": "The skill says Claude should produce `claude.json` for aggregation, but the documented review output format is Markdown rather than the JSON schema required by `aggregate.py`.",
+      "original_snippet": "# Step 2: Claude 独立 review（本 skill），产出 claude.json ...\n## 审查输出格式\n```markdown\n## Train Review: <target>",
+      "suggested_fix": "Make JSON the required output for dual-draft mode, referencing `train_review_issues.md`. Keep the Markdown report only as a standalone human-facing format or as aggregate output.",
+      "rationale": "If Claude follows the skill body literally, `aggregate.py` cannot consume the output. This breaks the advertised dual-draft workflow."
+    },
+    {
+      "location": "Directory/current-branch review advertised but Codex driver is file-only",
+      "line_start": 146,
+      "line_end": 200,
+      "severity": "high",
+      "category": "integration",
+      "description": "The skill advertises `<target_file_or_dir>` and `/train-review` for current-branch changes, but the actual `codex_review.sh` preflight requires `-f` and rejects directories.",
+      "original_snippet": "bash ~/.claude/skills/dual-draft/codex_review.sh --template train_review <target_file_or_dir> ...\n/train-review                    # review 当前分支所有改动",
+      "suggested_fix": "Either restrict the skill to single files or add a wrapper that expands branch diffs/directories into file-level Codex reviews and then aggregates or summarizes them.",
+      "rationale": "The most valuable L2/L3 training reviews are often multi-file changes, but the documented invocation cannot run on that scope as written."
+    },
+    {
+      "location": "L3 Phase 2 critique integration",
+      "line_start": 160,
+      "line_end": 160,
+      "severity": "high",
+      "category": "integration",
+      "description": "The skill requires Phase 2 critique for L3 tasks but does not define a train-review critique template or command.",
+      "original_snippet": "**L3 任务**（重写 loss、架构变更、投稿前最终 check）→ 额外 Phase 2 critique。",
+      "suggested_fix": "Add `templates/critique_train_review.txt` and document the exact `codex_critique.sh --template critique_train_review ... --critique-by-codex ...` flow, or explicitly state that L3 currently falls back to human critique.",
+      "rationale": "The existing dual-draft critique default is paper-section oriented. Without a training-specific critique prompt, L3 cross-verification is underspecified."
+    },
+    {
+      "location": "Category system vs aggregation",
+      "line_start": 52,
+      "line_end": 100,
+      "severity": "high",
+      "category": "schema_design",
+      "description": "The skill assigns only three layer categories, while the schema/template allow eight overlapping categories; aggregate matching falls back to exact category equality.",
+      "original_snippet": "此层产出的 issue category: `data_flow_break` ... `target_misalignment` ... `design_hallucination`",
+      "suggested_fix": "Choose one category system. Prefer either three primary layer categories plus a separate `subcategory` field, or add aggregate equivalence groups such as `data_flow_break` ↔ `gradient_pathology`, `design_hallucination` ↔ `metric_validity`/`training_dynamics` where appropriate.",
+      "rationale": "Two reviewers can find the same defect but label it `design_hallucination` vs `metric_validity` or `data_flow_break` vs `gradient_pathology`, producing false Only-Claude/Only-Codex results."
+    },
+    {
+      "location": "Design hallucination taxonomy",
+      "line_start": 82,
+      "line_end": 91,
+      "severity": "medium",
+      "category": "methodology",
+      "description": "The eight hallucination types are useful but not MECE, and the skill does not define priority among overlapping types.",
+      "original_snippet": "装饰性物理约束 ... 梯度寄生 ... 指标换壳 ... 归一化黑洞 ... 配置漂移",
+      "suggested_fix": "Group the taxonomy by claim source: mechanism wiring, experiment protocol, metric definition, scale/unit semantics, configuration/runtime behavior. Add precedence examples for overlaps such as decorative physics vs gradient parasitism and metric laundering vs normalization black hole.",
+      "rationale": "The taxonomy will be hard to apply consistently. Overlap weakens both human usability and dual-review consensus."
+    },
+    {
+      "location": "Design hallucination detection source of truth",
+      "line_start": 95,
+      "line_end": 98,
+      "severity": "medium",
+      "category": "completeness",
+      "description": "The detection method assumes paper/methodology claims are available, but many code reviews only have a diff, PR description, comments, config names, or commit message.",
+      "original_snippet": "逐条列出 paper/methodology 中的声明，在代码中找对应实现。无法对应的 = 幻觉。",
+      "suggested_fix": "Define a source hierarchy: user-stated goal, PR description, commit message, docs/paper, config/CLI names, comments/docstrings, test names. Require reviewers to quote the source claim before labeling a design hallucination.",
+      "rationale": "Without an explicit claim source, reviewers may infer author intent and produce speculative hallucination findings."
+    },
+    {
+      "location": "train_review.txt target-alignment prompt",
+      "line_start": 24,
+      "line_end": 32,
+      "severity": "high",
+      "category": "template_quality",
+      "description": "The Codex template asks for Target Alignment but does not supply or request the stated goal/hypothesis that the SKILL.md requires.",
+      "original_snippet": "For each change or mechanism in the code, ask: does this actually move toward the stated goal?",
+      "suggested_fix": "Add prompt variables for goal, mechanism, metric, stage, and ablation context. If absent, instruct Codex to separate inferred assumptions from confirmed facts and avoid target-misalignment issues that depend only on speculation.",
+      "rationale": "Codex cannot reliably judge alignment to an unstated goal. This will cause noisy or hallucinated target-alignment findings."
+    },
+    {
+      "location": "train_review.txt hallucination list diverges from SKILL taxonomy",
+      "line_start": 34,
+      "line_end": 43,
+      "severity": "medium",
+      "category": "template_quality",
+      "description": "The Codex template lists seven anti-patterns and omits two of the SKILL.md taxonomy items while adding a different one.",
+      "original_snippet": "1. Decorative physics ... 7. Component consistency fiction",
+      "suggested_fix": "Align the template with the SKILL.md taxonomy or explicitly define template-only subtypes. Include `dimension illusion` and `configuration drift`, and decide whether `component consistency fiction` is a subtype of target alignment, physics fidelity, or design hallucination.",
+      "rationale": "Claude and Codex are not being prompted to look for the same hallucination classes, reducing cross-verification quality."
+    }
+  ]
+}

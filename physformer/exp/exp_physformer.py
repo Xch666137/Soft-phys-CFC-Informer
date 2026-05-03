@@ -13,7 +13,7 @@ from .base import EarlyStopping, ForecastExperiment
 from ..data.data_factory import data_provider
 from ..models import PhysFormer
 from ..utils.losses import PhysAwareBaseLoss, PhysLoss
-from ..utils.metrics import compute_forecast_metrics
+from ..utils.metrics import compute_forecast_metrics, per_channel_mae
 
 warnings.filterwarnings("ignore")
 
@@ -83,6 +83,7 @@ class Exp_PhysFormer(ForecastExperiment):
             ),
             film_scale=getattr(self.args, "film_scale", 0.5),
             num_portfolios=len(self.scaler_params.get("per_portfolio", {})),
+            time_feat_dim=getattr(self.args, "time_feat_dim", 8),
         ).float()
 
     def _select_optimizer(self):
@@ -108,6 +109,7 @@ class Exp_PhysFormer(ForecastExperiment):
             soc_weight=float(getattr(self.args, "soc_weight", 0.1)),
             no_soc_consistency=bool(getattr(self.args, "ablation_no_soc_consistency", False)),
             no_battery_physics_loss=bool(getattr(self.args, "ablation_no_battery_physics_loss", False)),
+            component_loss_weight=float(getattr(self.args, "component_loss_weight", 0.05)),
         )
 
     def _move_batch(self, batch_data):
@@ -154,6 +156,7 @@ class Exp_PhysFormer(ForecastExperiment):
         self.model.eval()
         loss_total = None
         net_mse_total = None
+        soc_loss_total = None
         steps = 0
         with torch.no_grad():
             for batch_data in vali_loader:
@@ -164,11 +167,14 @@ class Exp_PhysFormer(ForecastExperiment):
                     if net_mse_total is None
                     else net_mse_total + result["terms"]["net_mse"].detach()
                 )
+                soc_loss = result["terms"].get("soc_bounds_loss", result["loss"].new_tensor(0.0)).detach()
+                soc_loss_total = soc_loss if soc_loss_total is None else soc_loss_total + soc_loss
                 steps += 1
         self.model.train()
         return {
             "loss": float((loss_total / max(steps, 1)).detach().cpu()) if steps else 0.0,
             "net_mse": float((net_mse_total / max(steps, 1)).detach().cpu()) if steps else 0.0,
+            "soc_loss": float((soc_loss_total / max(steps, 1)).detach().cpu()) if steps else 0.0,
         }
 
     def train(self):
@@ -181,14 +187,22 @@ class Exp_PhysFormer(ForecastExperiment):
         if warmup_epochs > 0 and self.args.train_epochs > warmup_epochs:
             warmup_scheduler = LinearLR(optimizer, start_factor=warmup_start_factor,
                                         end_factor=1.0, total_iters=warmup_epochs)
-            restart_scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=15, T_mult=1, eta_min=1e-6)
+            restart_t0 = int(getattr(self.args, "restart_t0", 15))
+            restart_t_mult = int(getattr(self.args, "restart_t_mult", 1))
+            restart_scheduler = CosineAnnealingWarmRestarts(
+                optimizer, T_0=restart_t0, T_mult=restart_t_mult, eta_min=1e-6,
+            )
             scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, restart_scheduler],
                                      milestones=[warmup_epochs])
         elif warmup_epochs > 0:
             scheduler = LinearLR(optimizer, start_factor=warmup_start_factor,
                                  end_factor=1.0, total_iters=max(self.args.train_epochs, 1))
         else:
-            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=15, T_mult=1, eta_min=1e-6)
+            restart_t0 = int(getattr(self.args, "restart_t0", 15))
+            restart_t_mult = int(getattr(self.args, "restart_t_mult", 1))
+            scheduler = CosineAnnealingWarmRestarts(
+                optimizer, T_0=restart_t0, T_mult=restart_t_mult, eta_min=1e-6,
+            )
 
         early_stop_metric = str(getattr(self.args, "early_stop_metric", "net_mse")).lower()
         early_stop_start_epoch = max(int(getattr(self.args, "early_stop_start_epoch", 10)), 1)
@@ -215,7 +229,12 @@ class Exp_PhysFormer(ForecastExperiment):
         state_path = Path(self.run_dir) / "training_state.pth"
         if state_path.exists():
             state = torch.load(state_path, map_location=self.device)
-            self.model.load_state_dict(torch.load(self.checkpoint_path(), map_location=self.device))
+            chk = torch.load(self.checkpoint_path(), map_location=self.device)
+            missing, unexpected = self.model.load_state_dict(chk, strict=False)
+            if missing:
+                self.logger.warning("Checkpoint missing keys (new params): %s", missing[:5])
+            if unexpected:
+                self.logger.warning("Checkpoint unexpected keys (removed params): %s", unexpected[:5])
             optimizer.load_state_dict(state["optimizer"])
             if state.get("scheduler") is not None:
                 scheduler.load_state_dict(state["scheduler"])
@@ -269,9 +288,9 @@ class Exp_PhysFormer(ForecastExperiment):
 
             self.logger.info(
                 "Epoch: %d | Time: %.1fs | Steps: %d | S/s: %.1f | GPU: %.2fGB | LR: %.6g | "
-                "Train: %.6f | Val Loss: %.6f | Val MSE: %.6f"
+                "Train: %.6f | Val Loss: %.6f | Val MSE: %.6f | Val SOC: %.6f"
                 % (epoch+1, epoch_seconds, steps, samples_per_second, max_memory_gb, current_lr,
-                   train_loss, vali_stats["loss"], vali_stats["net_mse"])
+                   train_loss, vali_stats["loss"], vali_stats["net_mse"], vali_stats["soc_loss"])
             )
 
             stop_value = vali_stats["net_mse"] if early_stop_metric == "net_mse" else vali_stats["loss"]
@@ -301,6 +320,7 @@ class Exp_PhysFormer(ForecastExperiment):
         theory_nets = []
         residuals = []
         last_hists = []
+        y_aux_batches = []
         physics_states_batches = {}
 
         with torch.no_grad():
@@ -312,6 +332,7 @@ class Exp_PhysFormer(ForecastExperiment):
                 theory_nets.append(outputs["theory_net"].detach().cpu().numpy())
                 residuals.append(outputs["residual"].detach().cpu().numpy())
                 last_hists.append(result.get("x_net_hist", torch.zeros(1, 1, 1))[:, -1:, :].detach().cpu().numpy())
+                y_aux_batches.append(result["y_aux"].detach().cpu().numpy())
                 for name, value in outputs["physics_states"].items():
                     if isinstance(value, torch.Tensor):
                         physics_states_batches.setdefault(name, []).append(value.detach().cpu().numpy())
@@ -332,7 +353,10 @@ class Exp_PhysFormer(ForecastExperiment):
         metrics = compute_forecast_metrics(preds_real, trues_real, ramp_limits=ramp_limits,
                                            last_hist=last_hist_real)
         metrics["theory_mae"] = float(np.mean(np.abs(theory_real - trues_real)))
-        metrics["residual_std_real_mw"] = float(np.std(preds_real - theory_real))
+        metrics["theory_rmse"] = float(np.sqrt(np.mean((theory_real - trues_real) ** 2)))
+        residual_real = preds_real - theory_real
+        metrics["residual_std_real_mw"] = float(np.std(residual_real))
+        metrics["residual_mean_real_mw"] = float(np.mean(residual_real))
         metrics["net_ramp_limit"] = float(self.training_stats.get("net_ramp_limit", 0.0))
 
         # Battery physics diagnostics
@@ -344,9 +368,25 @@ class Exp_PhysFormer(ForecastExperiment):
             metrics["soc_max"] = float(soc.max())
             metrics["soc_bound_violation"] = float(np.mean((soc < 0) | (soc > cap)))
 
+        # Per-component evaluation against aux ground truth
+        y_aux_all = np.concatenate(y_aux_batches, axis=0)
+        aux_mean_np = np.asarray(self.scaler_params["aux_mean"], dtype=np.float32).reshape(1, 1, -1)
+        aux_std_np = np.asarray(self.scaler_params["aux_std"], dtype=np.float32).reshape(1, 1, -1)
+        y_aux_real = y_aux_all * aux_std_np + aux_mean_np
+
+        comp_names = ["load", "pv", "wind", "battery_power", "battery_soc"]
+        component_theory = physics_states.get("component_theory_real")
+        if component_theory is not None and component_theory.shape[-1] >= 5:
+            comp_mae_theory = per_channel_mae(
+                component_theory[..., :5], y_aux_real[..., :5], comp_names,
+            )
+            for name, val in comp_mae_theory.items():
+                metrics[f"component_{name}_mae"] = val
+
         diagnostic_summary = {
             "theory_mae": metrics["theory_mae"],
             "residual_std_real_mw": metrics["residual_std_real_mw"],
+            "residual_mean_real_mw": metrics["residual_mean_real_mw"],
             "soc_bound_violation": metrics.get("soc_bound_violation", None),
         }
 
@@ -359,8 +399,10 @@ class Exp_PhysFormer(ForecastExperiment):
         self.save_test_outputs(preds_real, trues_real, metrics, extras=extras)
 
         self.logger.info(
-            "MSE: %.6f | MAE: %.6f | RMSE: %.6f | Theory MAE: %.6f | Residual std (MW): %.6f"
-            % (metrics["mse"], metrics["mae"], metrics["rmse"], metrics["theory_mae"], metrics["residual_std_real_mw"])
+            "MSE: %.6f | MAE: %.6f | RMSE: %.6f | Theory MAE: %.6f | "
+            "Residual mean (MW): %.6f | Residual std (MW): %.6f"
+            % (metrics["mse"], metrics["mae"], metrics["rmse"], metrics["theory_mae"],
+               metrics["residual_mean_real_mw"], metrics["residual_std_real_mw"])
         )
 
         if return_preds:

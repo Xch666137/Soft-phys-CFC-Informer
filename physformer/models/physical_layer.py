@@ -93,6 +93,12 @@ class ExplicitVPPPhysicalLayer(nn.Module):
             nn.GELU(),
             nn.Linear(d_model, 1),
         )
+        self.load_autoreg_gain = nn.Parameter(torch.tensor(0.1))
+        self.load_autoreg_proj = nn.Sequential(
+            nn.Linear(1, d_model),
+            nn.GELU(),
+            nn.Linear(d_model, 1),
+        )
 
         # ---- PV branch ----
         self.pv_scale = nn.Parameter(torch.tensor(2.0))  # larger init for stronger gradient signal
@@ -169,12 +175,15 @@ class ExplicitVPPPhysicalLayer(nn.Module):
     # ------------------------------------------------------------------
     # Load branch — thermal response + calendar (no state-space)
     # ------------------------------------------------------------------
-    def _load_branch(self, temp, y_mark, dx=None):
+    def _load_branch(self, temp, y_mark, x_net_hist_real, dx=None):
         heating = F.relu(self.load_comfort_low - temp)
         comfort_high = self.load_comfort_low + F.softplus(self.load_comfort_gap)
         cooling = F.relu(temp - comfort_high)
 
         calendar_profile = torch.sigmoid(self.load_calendar_proj(y_mark))
+
+        recent_net_avg = x_net_hist_real[:, -24:, :].mean(dim=1, keepdim=True)
+        autoreg_correction = self.load_autoreg_proj(recent_net_avg)
 
         if dx is not None:
             base = self.load_base + dx[:, self._DX_LOAD_BASE].view(-1, 1, 1)
@@ -187,7 +196,13 @@ class ExplicitVPPPhysicalLayer(nn.Module):
             cool_sens = F.softplus(self.load_cool_sens)
             calendar_gain = F.softplus(self.load_calendar_gain)
 
-        load_pre = base + heat_sens * heating + cool_sens * cooling + calendar_gain * calendar_profile
+        load_pre = (
+            base
+            + heat_sens * heating
+            + cool_sens * cooling
+            + calendar_gain * calendar_profile
+            + F.softplus(self.load_autoreg_gain) * autoreg_correction
+        )
         load_theory = F.softplus(load_pre)
         return load_theory, calendar_profile
 
@@ -279,7 +294,9 @@ class ExplicitVPPPhysicalLayer(nn.Module):
         weather_phys = torch.cat([temp, solar_energy, wind], dim=-1)
 
         # -- load --
-        load_theory, calendar_profile = self._load_branch(temp=temp, y_mark=y_mark, dx=dx)
+        load_theory, calendar_profile = self._load_branch(
+            temp=temp, y_mark=y_mark, x_net_hist_real=x_net_hist_real, dx=dx,
+        )
 
         # -- pv (with per-portfolio deltas) --
         if dx is not None:

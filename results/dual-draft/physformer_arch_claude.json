@@ -1,0 +1,161 @@
+{
+  "_meta": {
+    "reviewer": "Claude (deepseek-v4-pro[1m])",
+    "target": "physformer/models/physformer.py + physical_layer.py + utils/losses.py + exp/exp_physformer.py",
+    "date": "2026-04-27",
+    "scope": "full architecture review against research goal: single-scalar net injection prediction, MSE-competitive with black-box baselines, per-component ablation viable, CFC excluded",
+    "methodology": "traced tensor flow from input to output, enumerated all trainable heads and loss terms, cross-referenced against stated research goals in project_research_goal.md"
+  },
+  "issues": [
+    {
+      "id": "ARCH-001",
+      "category": "architecture",
+      "severity": "critical",
+      "line_range": [170, 447],
+      "file": "physformer/models/physformer.py",
+      "title": "Architecture overbuilt for single-scalar output: 12 heads produce components that only exist to be summed",
+      "description": "The model allocates ~70% of its trainable parameters to 4 component-specific value/confidence/attribution heads (lines 171-182), per-component refinement with cross-attention (lines 238-249), and cross-component interaction (lines 335-346). But the sole inference-time output is pred_net (line 442-448), which is simply pred_net = load - pv - wind + battery_power. The per-component representations are an architectural detour: the model learns 4 separate latent spaces, refines each, makes them interact, then collapses everything into a single scalar via a linear combination. This is equivalent to learning a single unified head but with 4× the parameters and optimization difficulty. The component outputs are only consumed by aux loss during training; at inference they are discarded.",
+      "impact": "Wasted capacity that could be allocated to better temporal modeling or deeper encoder. Optimization noise from 12 auxiliary heads competing with the primary net_mse objective.",
+      "suggestion": "Replace the 4-component refinement+heads with a single unified physics-conditioned decoder. The physical layer's theory components should condition the decoder via feature concatenation/modulation, not define separate prediction branches."
+    },
+    {
+      "id": "ARCH-002",
+      "category": "training_dynamics",
+      "severity": "critical",
+      "line_range": [287, 327],
+      "file": "physformer/utils/losses.py",
+      "title": "Training objective fragmented across 20+ loss terms, diluting the primary MSE goal",
+      "description": "In 'net_first' mode (the default), the loss = net_mse + aux_weight*component_loss + soc_weight*soc_consistency + overlap_weight*anti_overlap. In 'operational_fit' mode, it balloons to net_mse + operational_strong_loss + wind_loss + ramp_penalty*3 + anti_overlap + soc_consistency*2 + confidence_loss + attribution_loss — 10+ weighted terms. Each term has an independently tuned weight with no clear calibration procedure. The research goal states MSE-competitiveness with black-box baselines is the primary metric, but the loss function is optimizing 10+ objectives simultaneously. This creates a multi-objective optimization problem where net_mse improvement can be blocked by gradients from auxiliary terms.",
+      "impact": "Model may converge to a Pareto-optimal point that satisfies all constraints tolerably but achieves suboptimal net_mse. Black-box baselines (Informer, iTransformer) optimize ONLY MSE and thus have an unfair advantage in the metric that matters most.",
+      "suggestion": "Reduce to a two-term loss: (1) net_mse (primary), (2) battery_physics_penalty (SOC consistency + bounds + anti-overlap, as soft constraints). Move component decomposition quality to post-training validation metrics, not training objectives."
+    },
+    {
+      "id": "ARCH-003",
+      "category": "physics_fidelity",
+      "severity": "high",
+      "line_range": [62, 117],
+      "file": "physformer/models/physical_layer.py",
+      "title": "Physical layer has 20+ learnable parameters with no physical identifiability — it's a structured regressor, not physics",
+      "description": "Parameters like load_base (init 2.5), load_heat_sens (init 0.3), pv_scale (init 0.5), wind_scale (init -4.0), wind_cut_in (init 1.0) etc. are initialized with plausible values but are all freely learnable via gradient descent. Since no physical measurements constrain these parameters, they converge to whatever values minimize the composite loss — not to physically meaningful values. The 'physics' is in the functional form (e.g., wind power curve shape, battery SOC dynamics), but the parameters are unconstrained neural network weights. This is fine as a 'physics-informed' prior, but calling it a 'physical layer' overstates the case. The battery branch is the exception: its SOC dynamics (line 269) is a genuine physical constraint.",
+      "impact": "If the physical layer parameters drift to non-physical values during training, the 'physics guidance' becomes misleading — the model learns to correct bad physics rather than refine good physics. Load branch's linear state-space model (lines 73-76) with 2D latent state and learnable A matrix is particularly prone to this.",
+      "suggestion": "Reduce the load branch to a simple temperature-response model (heating/cooling degree-hours). Keep PV and wind branches as-is (they're already simple weather→power mappings). The battery branch is the only one with genuine physics — invest complexity there."
+    },
+    {
+      "id": "ARCH-004",
+      "category": "architecture",
+      "severity": "high",
+      "line_range": [330, 346],
+      "file": "physformer/models/physformer.py",
+      "title": "Per-component refinement + cross-component interaction is redundant given the linear output aggregation",
+      "description": "The refinement block (lines 330-333): each of 4 components independently cross-attends to the same future_context. Then the interaction block (lines 335-346): the 4 component latents attend to each other. But since the final output is pred_net = load - pv - wind + battery (a LINEAR combination), any information exchanged in the interaction block must survive a linear projection through 4 separate heads. This is equivalent to a single fusion block operating on concatenated [coarse_future, future_context, physics_features] → single decoder → net injection, but with 4× the parameters and an unnecessary bottleneck (information must flow through component-specific pathways before being summed).",
+      "impact": "The interaction block adds ~2M parameters that duplicate what a well-designed fusion block could do with 500K. The per-component bottleneck forces the model to decompose before recombining — a harder optimization problem than direct prediction.",
+      "suggestion": "Replace refinement + interaction with a single CrossAttnFusionBlock: coarse_future queries future_context, output is concatenated with physics_theory features, then passed through a lightweight decoder (2-layer MLP) → single net injection head."
+    },
+    {
+      "id": "ARCH-005",
+      "category": "missing_mechanism",
+      "severity": "high",
+      "line_range": [299, 307],
+      "file": "physformer/models/physformer.py",
+      "title": "Future weather context underutilized: concatenated with time features and projected once, but not used to modulate the encoder output",
+      "description": "The future_context_proj (lines 118-122) projects [weather_future, y_mark] ∈ R^{B×P×11} → R^{B×P×d_model}. This context is used ONLY as key/value in the per-component refinement cross-attention. It never directly interacts with the main encoder pathway (stat_hist → coarse_future) except through this cross-attention bottleneck. If we remove per-component refinement (per ARCH-004), the future weather context has no pathway into the prediction at all. A more effective design: cross-attention between coarse_future (as query) and future_context (as key/value), producing weather-conditioned future latents directly.",
+      "impact": "If per-component refinement is removed without adding a direct fusion pathway, the model loses access to future weather information entirely — catastrophic for forecasting. The current architecture accidentally works because refinement provides this pathway, but the dependency is implicit.",
+      "suggestion": "Add a direct cross-attention fusion: coarse_future attends to future_context, producing weather-conditioned latents. Physics theory features are then concatenated/modulated onto these latents before the final head."
+    },
+    {
+      "id": "ARCH-006",
+      "category": "architecture",
+      "severity": "medium",
+      "line_range": [170, 182],
+      "file": "physformer/models/physformer.py",
+      "title": "Confidence and attribution heads are unjustified diagnostic outputs that add 8 trainable heads and 2 loss terms",
+      "description": "The confidence heads (lines 175-178) predict how confident the model is in each component prediction, trained against exp(-|error|). The attribution heads (lines 179-182) predict which component contributes most to the error. These are diagnostic tools useful for interpretability research, but the user has explicitly stated that 'full physical interpretability is NOT a goal.' These heads consume parameters, compute, and loss weight (0.05 each in operational_fit mode) for a capability that contradicts the stated research scope.",
+      "impact": "~1M parameters wasted on outputs that will never be used in evaluation. Two extra loss terms that compete with net_mse for gradient direction.",
+      "suggestion": "Remove confidence and attribution heads entirely. If post-hoc component error analysis is needed, compute it analytically from the component theory outputs vs. ground truth."
+    },
+    {
+      "id": "ARCH-007",
+      "category": "training_dynamics",
+      "severity": "medium",
+      "line_range": [46, 56],
+      "file": "physformer/models/physformer.py",
+      "title": "Three-stage training (physics_warmup → net_first → operational_fit) is unnecessarily complex for method validation",
+      "description": "The model supports 3 training modes with different frozen parameter sets, different loss weights, and different optimizer configurations. 'operational_fit' loads a pretrained checkpoint, freezes the backbone, and trains only the output heads. This pipeline is designed for production deployment (pretrain → fine-tune → calibrate), not methodology validation. For research purposes, a single-stage training with the simplified loss (ARCH-002) is sufficient to demonstrate methodology effectiveness.",
+      "impact": "Training pipeline complexity obscures what's actually being demonstrated. If the model needs 3 stages to work, is the architecture good or is the pipeline compensating? Ablation studies become ambiguous when training regimen changes between runs.",
+      "suggestion": "Collapse to a single training stage with the simplified loss. Keep freeze_for_physics_warmup as an optional diagnostic tool but not as a required pipeline stage."
+    },
+    {
+      "id": "ARCH-008",
+      "category": "implementation",
+      "severity": "medium",
+      "line_range": [300, 301],
+      "file": "physformer/models/physformer.py",
+      "title": "no_future_weather flag zeros out future weather but model still produces outputs — a silent failure mode",
+      "description": "When no_future_weather=True, x_weather_future is zeroed out (line 301). The physical layer still receives all-zero future weather and produces degenerate theory estimates (zero PV, zero wind power curve, battery with zero weather context). The refinement cross-attention attends to zero context. The model produces outputs, just bad ones. This is a valid ablation but should at minimum log a warning — it's surprisingly easy to accidentally leave this flag on and get silently degraded results.",
+      "impact": "Risk of wasted training runs if flag is accidentally set. No runtime safeguard.",
+      "suggestion": "Add a warning log when no_future_weather is active. Consider making this a runtime check that requires explicit confirmation."
+    },
+    {
+      "id": "ARCH-009",
+      "category": "architecture",
+      "severity": "medium",
+      "line_range": [86, 97],
+      "file": "physformer/models/physformer.py",
+      "title": "Encoder output dimensionality (d_model=512) is oversized for a 1D prediction target on small data",
+      "description": "The config uses d_model=512, n_heads=8, e_layers=3, d_ff=2048 → approximately 10M+ parameters in the encoder alone. The dataset has ~35000 time steps with 6 input channels (1 net + 3 weather + 2 battery) and 1 output channel. For comparison, Informer on ETT (70k samples) uses d_model=512, but this is a much harder multivariate task. A 10M-parameter encoder on 35k samples with 1D output is at high risk of overfitting. Black-box baselines may achieve competitive MSE simply because they have fewer parameters and overfit less.",
+      "impact": "Model capacity may be working against the goal. The physics guidance adds regularization, but it's compensating for overparameterization rather than providing genuine value. A smaller model with physics guidance might outperform the current large model.",
+      "suggestion": "Reduce d_model to 128-256, e_layers to 2, d_ff to 512-1024. Evaluate whether the physics guidance provides MORE benefit at smaller model sizes (where data is scarce relative to parameters)."
+    },
+    {
+      "id": "ARCH-010",
+      "category": "physics_fidelity",
+      "severity": "medium",
+      "line_range": [140, 171],
+      "file": "physformer/models/physical_layer.py",
+      "title": "Load branch linear state-space model is overengineered for a component without state dynamics",
+      "description": "The load branch (lines 140-171) includes: a 2D learnable latent state, a learnable state transition matrix A, a learnable state input projection from [time_features + heating + cooling], and a learnable state output projection. This is essentially a tiny RNN embedded inside the physics layer. But load has no inherent state dynamics — it's a function of temperature and time-of-day. The state-space formulation adds 4 learnable parameter matrices for a relationship that a simple MLP(temperature, hour) could capture. The heating/cooling asymmetry (lines 141-143) is the only physically meaningful part.",
+      "impact": "The state-space model can learn spurious temporal dependencies (e.g., 'load persists because A ≈ I') that are artifacts of the architecture, not physics. This makes the 'physics' interpretation misleading.",
+      "suggestion": "Replace load state-space with: load = base + f_heat(heating_degree_hours) + f_cool(cooling_degree_hours) + f_calendar(hour, weekday, month), where f_* are small MLPs or even just learnable scalar sensitivities."
+    }
+  ],
+  "proposed_redesign": {
+    "name": "PhysFormer-NI (Net Injection)",
+    "principle": "Single unified prediction pathway with physics features as conditioning, not as separate prediction branches.",
+    "architecture": {
+      "encoder": "Same Transformer encoder (Informer-style), reduced d_model to 128-256",
+      "temporal_projection": "Same FlattenHead: seq_len × d_model → pred_len × d_model",
+      "physics_stream": {
+        "description": "Lightweight physical layer producing theory estimates for battery SOC dynamics + simplified weather→power mappings",
+        "outputs": [
+          "theory_load: f(temperature, calendar_time)",
+          "theory_pv: f(irradiance, temperature_coefficient)",
+          "theory_wind: f(wind_speed, power_curve)",
+          "theory_battery_power, theory_battery_soc: recurrent charge/discharge dynamics",
+          "battery_physics_features: [charge_limit, discharge_limit, soc_headroom, eta_charge, eta_discharge]"
+        ]
+      },
+      "fusion": {
+        "description": "Single cross-attention fusion block: coarse_future (Q) attends to future_context (K,V), producing weather-conditioned latents. Physics features are concatenated and passed through a lightweight MLP.",
+        "components": [
+          "CrossAttnFusion: MultiheadAttention(coarse_future, future_context, future_context)",
+          "PhysicsFeatureMLP: Linear(physics_feat_dim + d_model → d_model) → GELU → Linear(d_model → d_model)"
+        ]
+      },
+      "output_head": {
+        "description": "Single head predicting net injection residual: theory_net + delta_net",
+        "formula": "pred_net = (theory_load - theory_pv - theory_wind + theory_battery_power) + MLP(fused_latents)"
+      }
+    },
+    "loss": {
+      "primary": "net_mse (L2 on normalized net injection)",
+      "physics_regularization": "soc_transition_loss + soc_bounds_loss + anti_overlap_loss (battery physics only, weight ≤ 0.1)",
+      "removed": "component_loss, battery_state_loss, operational_strong_loss, wind_loss, ramp_penalty, battery_smoothness, confidence_loss, attribution_loss, component_net_consistency_residual, theory_aux_mae",
+      "rationale": "Component-level losses are post-training validation metrics, not training objectives. The physics regularization is kept only for battery because SOC dynamics is a genuine state constraint; load/PV/wind theory estimates serve as conditioning features, not training targets."
+    },
+    "ablation_switches": {
+      "preserved": ["no_phys_stream (zeros out all physics features)", "no_battery_branch (zeros battery physics)", "no_future_weather (zeros future weather)"],
+      "removed": ["shared_query_only (no per-component queries)", "no_component_coupling (no cross-component interaction)", "no_mode_gate (CFC excluded)"],
+      "added": ["no_battery_physics_loss (turns off SOC consistency in loss, for isolating architecture vs. loss contributions)"]
+    }
+  }
+}

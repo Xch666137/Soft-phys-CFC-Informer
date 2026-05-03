@@ -1,0 +1,149 @@
+{
+  "reviewer": "codex",
+  "file": "physformer/models/physformer.py",
+  "issues": [
+    {
+      "location": "physformer/models/physformer.py:247-252",
+      "line_start": 247,
+      "line_end": 252,
+      "severity": "high",
+      "category": "architecture",
+      "description": "Physics is only a soft additive prior; the unconstrained residual can overwrite theory_net, so final pred_net is not guaranteed to be component-consistent.",
+      "original_snippet": "conditioned = self.physics_film(weather_latent, physics_features)\n\n# ---- Step 6: Residual head -> final prediction ----\nresidual = self.unified_head(conditioned, theory_net)\npred_net = theory_net + residual",
+      "suggested_fix": "Predict physically meaningful component residuals and recompute net injection as load - pv - wind + battery, or add a constrained residual layer with learned physics confidence, residual magnitude limits, ramp limits, and component-level diagnostics for the final prediction.",
+      "rationale": "For VPP forecasting, improving net MAE by arbitrary residual correction can destroy physical interpretability and make downstream dispatch/risk decisions inconsistent with load, renewable, and battery behavior."
+    },
+    {
+      "location": "physformer/models/temporal_decoder.py:34-40",
+      "line_start": 34,
+      "line_end": 40,
+      "severity": "high",
+      "category": "architecture",
+      "description": "TemporalDecoder ignores y_mark and uses a static learned query table; horizon queries are not calendar-, holiday-, portfolio-, or regime-conditioned.",
+      "original_snippet": "def forward(self, memory, y_mark=None):\n    B = memory.shape[0]\n    query = self.query_pos.expand(B, -1, -1)  # (B, pred_len, d_model)\n    attn_out, _ = self.cross_attn(query, memory, memory, need_weights=False)\n    query = self.ln1(query + attn_out)\n    query = self.ln2(query + self.ffn(query))\n    return query",
+      "suggested_fix": "Construct queries as query_pos + MLP(y_mark) + portfolio/region embedding, and add decoder self-attention or temporal convolution over future steps so ramps and horizon-to-horizon coupling are modeled before weather fusion.",
+      "rationale": "VPP net injection has strong hour-of-day, weekend/holiday, and operating-regime dependence; static horizon queries limit expressiveness, especially for rare ramps and calendar shifts."
+    },
+    {
+      "location": "physformer/models/physformer.py:77-113",
+      "line_start": 77,
+      "line_end": 113,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "description": "RevIN exists in physformer/layers/revin.py but is not wired into PhysFormer; the model relies on global scaler buffers only.",
+      "original_snippet": "self.register_buffer(\"target_mean\", self._to_buffer(target_mean, 1, 0.0))\nself.register_buffer(\"target_std\", self._to_buffer(target_std, 1, 1.0))\n...\nself.stat_embedding = DataEmbedding(\n    c_in=enc_in, d_model=d_model, embed_type=embed, freq=freq, dropout=dropout,\n    time_enc_in=time_feat_dim,\n)\n...\nself.flatten_head = FlattenHead(seq_len, d_model, pred_len, dropout)",
+      "suggested_fix": "Add RevIN or another reversible stationarization block on the data-driven net/history stream, while keeping the physical layer in real units via dataset scalers. Denormalize only the final residual/prediction path consistently.",
+      "rationale": "Load and renewable portfolios are non-stationary across seasons and assets. Without per-instance normalization, the Transformer must learn distribution shift that RevIN-style methods handle directly."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:178-207",
+      "line_start": 178,
+      "line_end": 207,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "description": "The load branch is too weak and uses recent net injection as a proxy for load, which confounds load with PV, wind, and battery behavior.",
+      "original_snippet": "def _load_branch(self, temp, y_mark, x_net_hist_real, dx=None):\n    heating = F.relu(self.load_comfort_low - temp)\n    comfort_high = self.load_comfort_low + F.softplus(self.load_comfort_gap)\n    cooling = F.relu(temp - comfort_high)\n\n    calendar_profile = torch.sigmoid(self.load_calendar_proj(y_mark))\n\n    recent_net_avg = x_net_hist_real[:, -24:, :].mean(dim=1, keepdim=True)\n    autoreg_correction = self.load_autoreg_proj(recent_net_avg)\n...\n    load_theory = F.softplus(load_pre)",
+      "suggested_fix": "Replace this with a thermal/occupancy state-space branch: latent indoor temperature or RC thermal state, lagged outdoor temperature, holiday/weekend effects, and either true historical load if available or a learned disaggregation state rather than raw net injection.",
+      "rationale": "The V4 result reports load component MAE far larger than wind. A confounded load prior can improve theory_net superficially while degrading the physical decomposition that VPP operators need."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:245-264",
+      "line_start": 245,
+      "line_end": 264,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "description": "Battery dispatch is a neural signed-power recurrence with hard SOC clipping; the SOC bounds loss then sees post-clipped states, so violations are hidden rather than optimized away.",
+      "original_snippet": "for step in range(pred_len):\n    ...\n    power_raw = self.battery_power_head(hidden)  #  (B, 1)\n    power = power_limit * torch.tanh(power_raw)\n\n    charge = F.relu(power)\n    discharge = F.relu(-power)\n\n    soc_next = soc_prev + (eta_charge * charge - discharge / eta_discharge) * self.dt_hours\n    soc_next = torch.minimum(torch.maximum(soc_next, torch.zeros_like(soc_next)), capacity)",
+      "suggested_fix": "Parameterize feasible charge/discharge bounds from current SOC before choosing power, use differentiable barrier penalties instead of hard clipping, and add terminal SOC, throughput/degradation, and dispatch-objective terms.",
+      "rationale": "Hard clipping makes Val SOC violation look perfect while masking infeasible control intent. For VPP operation, battery forecasts must respect feasible power, energy, and terminal-state constraints."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:53-64",
+      "line_start": 53,
+      "line_end": 64,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "Battery numerical integration uses a fixed dt_hours=0.25 rather than deriving time step from the data frequency or timestamps.",
+      "original_snippet": "dt_hours=0.25,\n...\nself.dt_hours = dt_hours",
+      "suggested_fix": "Infer dt from dataset timestamps/freq, pass dt as a tensor when gaps or mixed resolutions exist, and use a validated integration scheme for SOC updates across variable horizons.",
+      "rationale": "The model silently assumes 15-minute data. Longer horizons, resampled data, missing intervals, or mixed markets will produce incorrect battery energy accounting."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:291-312",
+      "line_start": 291,
+      "line_end": 312,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "PV physics is reduced to irradiance times a scalar temperature factor; it omits solar geometry, plane-of-array conversion, inverter clipping, and asset nameplate constraints.",
+      "original_snippet": "solar_energy = (weather_real[..., 1:2].clamp_min(0.0) / 3600000.0).clamp_min(0.0)\n...\npv_temp_factor = (1.0 - pv_temp_coeff * 0.01 * (temp - 25.0)).clamp(0.5, 1.5)\npv_theory = (pv_scale + F.softplus(pv_cap)) * solar_energy * pv_temp_factor",
+      "suggested_fix": "Use a differentiable PVlib-style block: solar position, clear-sky or POA transposition, module temperature, nameplate capacity, inverter clipping, night mask, and metadata-conditioned parameters.",
+      "rationale": "PV errors dominate net injection during daylight ramps. A scalar irradiance model will not extrapolate well across seasons, regions, cloud regimes, or differently oriented portfolios."
+    },
+    {
+      "location": "physformer/utils/losses.py:187-199",
+      "line_start": 187,
+      "line_end": 199,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "The loss mixes normalized net MSE with real-unit component MAEs using one fixed component_loss_weight, causing scale imbalance and unstable tradeoffs.",
+      "original_snippet": "total_loss = terms[\"net_mse\"]\n...\nif self.component_loss_weight > 0:\n    total_loss = total_loss + self.component_loss_weight * (\n        terms[\"component_load_mae\"]\n        + terms[\"component_pv_mae\"]\n        + terms[\"component_wind_mae\"]\n        + terms[\"battery_power_mae\"]\n    )",
+      "suggested_fix": "Normalize each component loss by aux_std or capacity, use uncertainty weighting/GradNorm/PCGrad for multi-objective balancing, and monitor a composite validation metric instead of net_mse only.",
+      "rationale": "The V4 report shows theory MAE improved while final MAE regressed. Fixed mixed-unit weights can overfit component priors without improving the actual operational forecast."
+    },
+    {
+      "location": "configs/drivers/train_three_stage.yaml:25-28",
+      "line_start": 25,
+      "line_end": 28,
+      "severity": "high",
+      "category": "implementation",
+      "description": "Stage-specific curriculum controls are declared but not consumed by config_to_args/apply_job_overrides/Exp_PhysFormer, so the three-stage training design is mostly nominal.",
+      "original_snippet": "phys_layer_lr_scale: 0.1\naux_weight_stageA: 0.2\nsoc_weight_stageA: 0.1\noverlap_weight_stageA: 0.01",
+      "suggested_fix": "Add training_mode, freeze_backbone, use_aux_supervision, theory_aux_weight, phys_layer_lr_scale, and stage-specific weights to TRAINING_KEYS and apply_job_overrides; call freeze_for_physics_warmup() for stage0 and use optimizer param groups for physics vs backbone.",
+      "rationale": "If curriculum knobs are ignored, physics warmup, net-first training, and operational fine-tuning do not actually impose the intended optimization sequence."
+    },
+    {
+      "location": "physformer/exp/exp_physformer.py:187-205",
+      "line_start": 187,
+      "line_end": 205,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "Warm-restart scheduling is hard-coded and early stopping is not cycle-aware; V4 peaked early and later restarts did not recover.",
+      "original_snippet": "restart_scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=15, T_mult=1, eta_min=1e-6)\nscheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, restart_scheduler],\n                         milestones=[warmup_epochs])\n...\nearly_stopping = EarlyStopping(\n    patience=self.args.patience, verbose=True, logger=self.logger,\n    metric_name=metric_name, start_epoch=early_stop_start_epoch,\n)",
+      "suggested_fix": "Make T_0/T_mult configurable, compare against OneCycleLR/cosine decay/ReduceLROnPlateau, use EMA/SWA checkpoints, and either reset or reinterpret patience at restart boundaries.",
+      "rationale": "The reported best validation epoch was 11, followed by restarts at epochs 20 and 35 without improvement. A fixed restart cycle can waste training budget or trigger early stopping before useful later adaptation."
+    },
+    {
+      "location": "physformer/models/physformer.py:90-101",
+      "line_start": 90,
+      "line_end": 101,
+      "severity": "medium",
+      "category": "scalability",
+      "description": "The default path uses full self-attention over the historical sequence; this scales poorly for longer histories and higher-resolution horizons.",
+      "original_snippet": "attn_cls = ProbAttention if attn == \"prob\" else FullAttention\nself.encoder = Encoder(\n    num_layers=e_layers,\n    d_model=d_model,\n    n_heads=n_heads,\n    d_ff=d_ff,\n    attn_cls=attn_cls,\n    dropout=dropout,\n    use_distillation=distil,\n    use_rope=use_rope,\n    rope_base=rope_base,\n)",
+      "suggested_fix": "Use patching or multi-resolution encoders, make ProbAttention/FlashAttention/chunked attention the long-sequence default, and add temporal pyramids for week-to-month histories.",
+      "rationale": "At seq_len=672 this is manageable, but multi-week histories, sub-15-minute data, or many exogenous channels will increase memory and latency quadratically."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:133-158",
+      "line_start": 133,
+      "line_end": 158,
+      "severity": "medium",
+      "category": "scalability",
+      "description": "Per-portfolio physics adaptation is a fixed embedding table plus 16 deltas; it cannot cold-start new portfolios or represent many heterogeneous assets inside a VPP.",
+      "original_snippet": "if self.num_portfolios > 0:\n    self.portfolio_embed = nn.Embedding(self.num_portfolios, per_portfolio_dim)\n    self.portfolio_delta = nn.Linear(per_portfolio_dim, 16)\n...\ndef _get_portfolio_delta(self, portfolio_ids):\n    if self.num_portfolios == 0 or portfolio_ids is None:\n        return None\n    emb = self.portfolio_embed(portfolio_ids)\n    return self.portfolio_delta(emb)",
+      "suggested_fix": "Replace table-only deltas with metadata-conditioned hypernetworks or DeepSets/graph encoders over assets, including capacity, technology type, location, tariff, and network constraints.",
+      "rationale": "A real VPP scales by adding/removing assets. A closed portfolio-id table learns IDs rather than transferable physical structure."
+    },
+    {
+      "location": "physformer/models/conditioning.py:94-107",
+      "line_start": 94,
+      "line_end": 107,
+      "severity": "high",
+      "category": "missing_mechanism",
+      "description": "The output head predicts only a point residual; there is no uncertainty quantification, quantile forecast, scenario generation, or calibration mechanism.",
+      "original_snippet": "self.net = nn.Sequential(\n    nn.Linear(d_model + theory_proj_dim, d_model),\n    nn.GELU(),\n    nn.Dropout(dropout),\n    nn.Linear(d_model, 1),\n)\n...\nresidual = self.net(inp)\nreturn residual",
+      "suggested_fix": "Add probabilistic heads for quantiles or distribution parameters, train with pinball/CRPS/NLL, calibrate with conformal methods, and generate temporally coherent scenarios conditioned on weather uncertainty.",
+      "rationale": "VPP scheduling, reserve bidding, and risk-aware control require calibrated uncertainty, not only a mean net-injection trajectory."
+    }
+  ]
+}

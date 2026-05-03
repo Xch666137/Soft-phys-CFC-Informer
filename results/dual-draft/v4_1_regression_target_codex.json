@@ -1,0 +1,149 @@
+{
+  "reviewer": "codex",
+  "file": "physformer/models/physformer.py",
+  "issues": [
+    {
+      "location": "physformer/models/conditioning.py:102-109; physformer/models/physformer.py:251-252",
+      "line_start": 102,
+      "line_end": 109,
+      "severity": "high",
+      "category": "architecture",
+      "description": "Residual correction is controlled by one global scalar gate, so all horizons, portfolios, seasons, and operating regimes get the same residual capacity.",
+      "original_snippet": "self.alpha = nn.Parameter(torch.tensor(0.0))\n...\ngate = torch.sigmoid(self.alpha)\nreturn gate * residual",
+      "suggested_fix": "Replace the scalar alpha with a context-dependent confidence gate g_t = f(theory_net, battery_feats, weather_latent, horizon, portfolio_id), initialized near 1.0 or with a staged schedule. Add diagnostics for gate by horizon and operating regime.",
+      "rationale": "VPP forecast errors are regime-dependent: PV ramps, wind cut-in/cut-out, battery saturation, and load peaks need different reliance on physics versus learned residuals. A scalar gate also halves residual-path gradients at initialization, which can underfit corrections and destabilize V4 to V4.1 comparisons."
+    },
+    {
+      "location": "physformer/models/physformer.py:247-252",
+      "line_start": 247,
+      "line_end": 252,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "description": "The final net injection is an unconstrained additive residual over theory_net, with no feasibility projection for aggregate capacity, ramp limits, or component balance.",
+      "original_snippet": "conditioned = self.physics_film(weather_latent, physics_features)\nresidual = self.unified_head(conditioned, theory_net)\npred_net = theory_net + residual",
+      "suggested_fix": "Add a differentiable feasibility layer or constrained residual parameterization: bound residual by available upward/downward flexibility, enforce aggregate generation/load/battery limits, and add ramp/energy penalties to training rather than only reporting ramp metrics at test time.",
+      "rationale": "A learned residual can cancel the physical prior and produce operationally impossible VPP injections. For dispatch or market use, net forecasts must respect asset capacities, battery energy, and ramp constraints, not only minimize point MSE."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:245-264; physformer/utils/losses.py:91-95",
+      "line_start": 245,
+      "line_end": 264,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "description": "Battery SOC is hard-clipped inside the forward recurrence, so the SOC bounds loss observes post-clipped states and cannot teach the model to avoid infeasible pre-clipped dispatch.",
+      "original_snippet": "soc_next = soc_prev + (eta_charge * charge - discharge / eta_discharge) * self.dt_hours\nsoc_next = torch.minimum(torch.maximum(soc_next, torch.zeros_like(soc_next)), capacity)\n...\nsoc_bounds_loss = F.relu(-soc).mean() + F.relu(soc - capacity_real).mean()",
+      "suggested_fix": "Track pre_clip_soc and penalize violations before projection; use differentiable projection or constrained action parameterization based on current SOC headroom; add terminal SOC, battery ramp, degradation, and reserve constraints.",
+      "rationale": "The current structure can report zero SOC violations while the neural dispatch repeatedly asks for impossible charge/discharge actions. This weakens physical fidelity and hides battery errors that directly affect net injection."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:53-64; physformer/exp/exp_physformer.py:97-105",
+      "line_start": 53,
+      "line_end": 64,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "Battery numerical integration uses a fixed 0.25 hour step and the experiment hard-codes the same value in the loss.",
+      "original_snippet": "dt_hours=0.25,\n...\nself.dt_hours = dt_hours\n...\ndt_hours=0.25,",
+      "suggested_fix": "Derive dt_hours from the dataset frequency or actual timestamp deltas, pass it through config/data metadata into both ExplicitVPPPhysicalLayer and PhysAwareBaseLoss, and support variable dt for missing or irregular samples.",
+      "rationale": "SOC integration is dimensionally tied to the time step. A fixed 15-minute assumption silently breaks when the data frequency, forecast horizon, daylight-saving alignment, or resampling strategy changes."
+    },
+    {
+      "location": "physformer/models/temporal_decoder.py:18-42",
+      "line_start": 18,
+      "line_end": 42,
+      "severity": "medium",
+      "category": "architecture",
+      "description": "Temporal decoding uses independent learned future queries plus an ungated time projection, with no future-step self-attention or multi-scale temporal structure.",
+      "original_snippet": "self.query_pos = nn.Parameter(torch.randn(1, pred_len, d_model) * 0.02)\nself.time_proj = nn.Linear(time_enc_in, d_model)\n...\nquery = self.query_pos.expand(B, -1, -1)\nif y_mark is not None:\n    query = query + self.time_proj(y_mark)\nattn_out, _ = self.cross_attn(query, memory, memory, need_weights=False)",
+      "suggested_fix": "Normalize y_mark before projection, gate or residual-scale time_proj, add decoder self-attention across future steps, and consider multi-resolution or patch-based horizon embeddings for daily cycles and ramp events.",
+      "rationale": "VPP trajectories have strong intra-horizon dependencies. Independent queries can make each future step attend to history separately without explicitly modeling ramp continuity, peak timing, or correlated forecast errors."
+    },
+    {
+      "location": "physformer/models/physformer.py:77-83; physformer/layers/revin.py:11-77",
+      "line_start": 77,
+      "line_end": 83,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "description": "RevIN is implemented but not used by PhysFormer; the model relies on fixed global scaler buffers only.",
+      "original_snippet": "self.register_buffer(\"target_mean\", self._to_buffer(target_mean, 1, 0.0))\nself.register_buffer(\"target_std\", self._to_buffer(target_std, 1, 1.0))\nself.register_buffer(\"aux_mean\", self._to_buffer(aux_mean, 5, 0.0))\nself.register_buffer(\"aux_std\", self._to_buffer(aux_std, 5, 1.0))",
+      "suggested_fix": "Add optional RevIN or adaptive instance normalization on the neural history/residual path, while keeping the explicit physics layer in calibrated real units. Denormalize the residual/output consistently and run per-portfolio ablations.",
+      "rationale": "VPP load, PV, wind, and battery distributions shift by season, weather regime, portfolio size, and asset mix. RevIN-style stationarization is a standard time-series mechanism for this non-stationarity."
+    },
+    {
+      "location": "physformer/utils/losses.py:79-83; physformer/utils/losses.py:186-198; physformer/exp/exp_physformer.py:296-298",
+      "line_start": 186,
+      "line_end": 198,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "The training objective uses fixed scalar weights and early-stops on net MSE, while theory quality is only diagnostic and physical validation metrics are not used for checkpoint selection.",
+      "original_snippet": "total_loss = terms[\"net_mse\"]\n...\ntotal_loss = total_loss + self.component_loss_weight * (\n    terms[\"component_load_mae\"]\n    + terms[\"component_pv_mae\"]\n    + terms[\"component_wind_mae\"]\n    + terms[\"battery_power_mae\"]\n)\n...\nstop_value = vali_stats[\"net_mse\"] if early_stop_metric == \"net_mse\" else vali_stats[\"loss\"]",
+      "suggested_fix": "Use dynamic multi-objective balancing such as uncertainty weighting, GradNorm, or PCGrad; include ramp, SOC pre-clip violation, component error, and theory_net error in a composite validation metric; log gradient norms per branch.",
+      "rationale": "Fixed weights make the physics branches compete unpredictably with net MSE. This can explain theory MAE regressions even when validation MSE improves, because model selection ignores whether the physical prior remains calibrated."
+    },
+    {
+      "location": "configs/drivers/train_three_stage.yaml:3-45; physformer/runner/config.py:54-72; physformer/runner/drivers.py:21-80; physformer/exp/exp_physformer.py:89-93",
+      "line_start": 54,
+      "line_end": 72,
+      "severity": "high",
+      "category": "implementation",
+      "description": "The declared three-stage curriculum is not fully wired: keys such as training_mode, freeze_backbone, use_aux_supervision, theory_aux_weight, phys_layer_lr_scale, aux_weight_stageA, and init_from_run are not applied by the experiment training logic.",
+      "original_snippet": "TRAINING_KEYS = (\n    \"batch_size\", \"train_epochs\", \"learning_rate\", \"weight_decay\", \"grad_clip\",\n    \"patience\", \"use_amp\", \"seed\", \"log_interval\", \"warmup_epochs\",\n    \"warmup_start_factor\", \"early_stop_metric\", \"early_stop_start_epoch\",\n    \"soc_weight\", \"component_loss_weight\", \"restart_t0\", \"restart_t_mult\",\n)\n...\nreturn optim.AdamW(self.trainable_parameters, lr=self.args.learning_rate, weight_decay=wd)",
+      "suggested_fix": "Add the stage-specific keys to config parsing and driver overrides; load init_from_run checkpoints before training; call freeze_for_physics_warmup or freeze_backbone as configured; create optimizer param groups with phys_layer_lr_scale; map stage aux/SOC weights into PhysLoss.",
+      "rationale": "A curriculum only helps if it changes optimization. As written, the YAML suggests staged physics warmup and operational fine-tuning, but the code mostly trains a single objective with one optimizer group, making regression attribution unreliable."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:178-207; physformer/models/physical_layer.py:284-286",
+      "line_start": 178,
+      "line_end": 207,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "The load branch is a static temperature/calendar formula plus a recent net-injection average; historical weather is denormalized but unused, and there is no thermal state-space memory.",
+      "original_snippet": "recent_net_avg = x_net_hist_real[:, -24:, :].mean(dim=1, keepdim=True)\nautoreg_correction = self.load_autoreg_proj(recent_net_avg)\n...\nload_theory = F.softplus(load_pre)\n...\nhist_weather_real = self._denorm_weather(x_weather_hist)",
+      "suggested_fix": "Replace the static load prior with a differentiable RC/thermal state model or at least lagged temperature and load-state features. Use decomposed load history when available, or estimate latent load separately instead of using net injection as a proxy.",
+      "rationale": "Net injection confounds load with PV, wind, and battery behavior. Without thermal inertia or lagged weather, the load prior cannot represent HVAC dynamics, occupancy effects, or delayed response during heat/cold events."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:291-312; physformer/models/physical_layer.py:327-335",
+      "line_start": 291,
+      "line_end": 335,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "description": "PV and wind physics are first-order scalar curves with no solar geometry, inverter clipping, curtailment, air-density correction, hub-height transform, wake effects, or turbine fleet heterogeneity.",
+      "original_snippet": "solar_energy = (weather_real[..., 1:2].clamp_min(0.0) / 3600000.0).clamp_min(0.0)\npv_temp_factor = (1.0 - pv_temp_coeff * 0.01 * (temp - 25.0)).clamp(0.5, 1.5)\npv_theory = (pv_scale + F.softplus(pv_cap)) * solar_energy * pv_temp_factor\n...\nwind_curve = plateau + (1.0 - plateau) * rising_curve\nwind_theory = (w_scale + F.softplus(w_cap)) * wind_curve * running_mask",
+      "suggested_fix": "Add solar-position/clear-sky features, inverter AC clipping, availability/curtailment latent states, hub-height wind conversion, air-density correction, and mixture-of-curves or asset-cluster parameters for heterogeneous portfolios.",
+      "rationale": "VPP renewable output is often limited by clipping, curtailment, weather forecast bias, and heterogeneous asset fleets. Scalar curves may fit average behavior but fail during ramps and extremes."
+    },
+    {
+      "location": "physformer/models/physformer.py:90-112; configs/physformer_default.yaml:34-35",
+      "line_start": 90,
+      "line_end": 112,
+      "severity": "medium",
+      "category": "scalability",
+      "description": "The default architecture uses full self-attention over 672 history steps and cross-attention from 96 future queries, with distillation disabled.",
+      "original_snippet": "attn_cls = ProbAttention if attn == \"prob\" else FullAttention\nself.encoder = Encoder(... use_distillation=distil ...)\n...\nself.temporal_decoder = TemporalDecoder(seq_len=seq_len, pred_len=pred_len, d_model=d_model, ...)",
+      "suggested_fix": "Use patching or multi-resolution encoders, ProbAttention/linear attention for long histories, memory compression, and horizon chunking. Benchmark memory and latency for seq_len > 672 and pred_len > 96.",
+      "rationale": "Full attention scales quadratically with history length and cross-attention scales with pred_len times seq_len. Longer lookbacks, sub-5-minute data, or multi-day horizons will degrade speed and memory before model quality can be evaluated."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:133-158",
+      "line_start": 133,
+      "line_end": 158,
+      "severity": "medium",
+      "category": "scalability",
+      "description": "Per-portfolio adaptation is an embedding table that cannot generalize to unseen portfolios or changing asset compositions.",
+      "original_snippet": "self.portfolio_embed = nn.Embedding(self.num_portfolios, per_portfolio_dim)\nself.portfolio_delta = nn.Linear(per_portfolio_dim, 16)\n...\nemb = self.portfolio_embed(portfolio_ids)\nreturn self.portfolio_delta(emb)",
+      "suggested_fix": "Condition physics parameters on portfolio metadata and asset-level descriptors such as capacities, technology mix, region, inverter/turbine types, and battery ratings. Use hierarchical asset encoders or graph/set encoders for variable-size portfolios.",
+      "rationale": "VPP fleets evolve. An ID lookup memorizes training portfolios and does not transfer to new aggregations, asset additions, retirements, or regional changes."
+    },
+    {
+      "location": "physformer/models/conditioning.py:94-109",
+      "line_start": 94,
+      "line_end": 109,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "description": "The output head is deterministic and emits only one residual value per horizon step; there is no uncertainty quantification or scenario consistency.",
+      "original_snippet": "self.net = nn.Sequential(\n    nn.Linear(d_model + theory_proj_dim, d_model),\n    nn.GELU(),\n    nn.Dropout(dropout),\n    nn.Linear(d_model, 1),\n)",
+      "suggested_fix": "Add quantile, Gaussian/mixture, or distributional heads trained with pinball loss, CRPS, or NLL. For operations, generate temporally correlated scenarios and constrain them through the same physics/feasibility layer.",
+      "rationale": "VPP scheduling and market bids require prediction intervals and risk-aware scenarios, especially under renewable and load uncertainty. Point forecasts hide tail risk and cannot support reserve or dispatch decisions."
+    }
+  ]
+}

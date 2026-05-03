@@ -1,0 +1,137 @@
+{
+  "reviewer": "claude",
+  "file": "physformer/exp/exp_physformer.py",
+  "context": {
+    "goal": "VPP 聚合净出力预测，MSE 与黑箱基线竞争为主要指标",
+    "mechanism": "物理引导残差架构 pred_net = theory_net + data_driven_residual，通过 FiLM 将物理先验注入数据驱动通路",
+    "metric": "Val MSE (归一化空间)，最终 Test MSE (MW²)",
+    "stages": "单阶段训练（无 curriculum），cosine annealing + linear warmup",
+    "ablation": "no_phys_stream, no_battery_branch, no_soc_consistency, no_future_weather, no_battery_physics_loss, no_temporal_decoder"
+  },
+  "training_summary": {
+    "best_epoch": 13,
+    "best_val_mse": 0.420432,
+    "total_epochs": 38,
+    "early_stopping_triggered": true,
+    "test_mse_mw2": 9e-06,
+    "test_mae_kw": 2.213,
+    "test_rmse_kw": 2.961,
+    "theory_mae_kw": 17.011,
+    "residual_std_normalized": 2.615,
+    "soc_violation_pct": 0.0,
+    "anti_overlap": 0.0
+  },
+  "issues": [
+    {
+      "location": "physformer/exp/exp_physformer.py:179-189",
+      "line_start": 179,
+      "line_end": 189,
+      "severity": "P1",
+      "category": "training_dynamics",
+      "description": "Cosine annealing 单调衰减 LR 导致 plateau 无法逃脱。训练日志显示 epoch 13 达到最优 (Val MSE=0.420)，此后 25 个 epoch 无任何改善，但 train loss 从 0.110 持续降至 0.036——模型在训练集上继续过拟合但无法跳出验证集局部最优。Cosine annealing 在 epoch 13 时 LR=9.83e-05，到 epoch 38 已降至 7.33e-05，衰减幅度不足以提供逃逸动量。",
+      "original_snippet": "cosine_scheduler = CosineAnnealingLR(optimizer, T_max=max(self.args.train_epochs - warmup_epochs, 1),\n                             eta_min=1e-6)\nscheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler],\n                         milestones=[warmup_epochs])",
+      "suggested_fix": "替换为 CosineAnnealingWarmRestarts(T_0=15, T_mult=1, eta_min=1e-6)，每 15 个 epoch 将 LR 重置回 base_lr，给模型多次逃脱局部最优的机会。或将 patience 从 25 降至 15，plateau 开始后 5 个 epoch 即停止，节省约 2 小时 GPU 时间。",
+      "rationale": "25 个 plateau epoch × 8 分钟/epoch ≈ 3.2 小时 GPU 时间零收益。WarmRestarts 可让模型在更高 LR 下探索新的 loss landscape 区域，可能找到比 0.420 更优的极小值。"
+    },
+    {
+      "location": "physformer/utils/losses.py:95-103",
+      "line_start": 95,
+      "line_end": 103,
+      "severity": "P1",
+      "category": "physics_fidelity",
+      "description": "SOC transition loss 与 SOC bounds loss 部分重叠，浪费 soc_weight 预算。implied_soc（无 clamp 的 cumsum）与 soc（有 clamp 的模型输出）仅在 SOC 触边界时才产生非零差异。而 soc_bounds_loss 直接以 ReLU 惩罚越界。两者惩罚的是同一物理现象——模型产出的充放电序列会推 SOC 出界——相当于用不同数学形式双重计数。",
+      "original_snippet": "implied_soc = torch.cumsum(\n    (eta_c * charge - discharge / eta_d) * self.dt_hours, dim=1\n) + last_soc_real\nsoc_transition_loss = F.l1_loss(soc, implied_soc)\nsoc_bounds_loss = F.relu(-soc).mean() + F.relu(soc - capacity_real).mean()",
+      "suggested_fix": "保留 soc_bounds_loss（直接、可解释），移除 soc_transition_loss。将释放的 soc_weight 预算分配给更有信息量的约束，如 battery_power 与 ground truth aux 的 MAE（当前被 if False 跳过）。",
+      "rationale": "soc_weight=0.1 的预算被两个部分重叠的 loss 分摊，每个约 0.05 有效权重。合并后单个约束的有效权重翻倍，可能提升物理一致性而不增加总 loss 幅度。"
+    },
+    {
+      "location": "physformer/models/physical_layer.py:270-282",
+      "line_start": 270,
+      "line_end": 282,
+      "severity": "P1",
+      "category": "gradient_pathology",
+      "description": "Battery 分支使用 Python for-loop 逐 step 迭代 96 步 (pred_len=96)，每步都通过 tanh 和 MLP。96 层的展开计算图可能导致：(1) 梯度消失——tanh 在饱和区梯度接近零，96 步连乘后指数衰减；(2) 梯度爆炸——MLP 权重在 96 步中反复使用，梯度累积放大；(3) 训练速度下降——96 次 sequential MLP forward 完全不可并行。",
+      "original_snippet": "for step in range(pred_len):\n    step_context = torch.cat([base_context, weather_phys[:, step, :], ...], dim=-1)\n    hidden = self.battery_step_proj(step_context)\n    power_raw = self.battery_power_head(hidden)\n    power = power_limit * torch.tanh(power_raw)\n    ...\n    soc_prev = soc_next",
+      "suggested_fix": "用卷积/attention 一次性预测全部 96 步 power 序列，然后用 cumsum 计算 SOC 轨迹。或至少将 MLP 改为 GRU/LightLinear RNN 以利用并行 scan 加速（如 torch.compile + associative_scan）。",
+      "rationale": "96 步 sequential loop 是训练速度的隐藏瓶颈（当前无法测量因为 dataloader 是瓶颈），但当 batch_size 增大或用更快的 GPU 时将成为主要瓶颈。更重要的是，深层展开的梯度质量随步数增加衰减，导致 battery 物理参数学习不充分。"
+    },
+    {
+      "location": "physformer/models/conditioning.py:70-71",
+      "line_start": 70,
+      "line_end": 71,
+      "severity": "P2",
+      "category": "design_hallucination",
+      "subcategory": "decorative_physics",
+      "description": "FiLM scale=0.2 将 gamma 限制在 [0.8, 1.2]，beta 限制在 [-0.2, 0.2]。这意味物理特征对数据驱动 latent 的最大调制幅度仅 20%。考虑到 theory_net MAE=17 kW 而最终 MAE=2.2 kW（物理层贡献仅 13%），当前的 FiLM 约束可能太保守——物理先验几乎没有能力「塑造」数据驱动的预测。",
+      "original_snippet": "gamma = 1.0 + self.film_scale * torch.tanh(raw_gamma)\nbeta = self.film_scale * torch.tanh(raw_beta)",
+      "suggested_fix": "将 film_scale 从 0.2 提高到 0.5~1.0，或改为可学习参数 `self.film_scale = nn.Parameter(torch.tensor(0.2))`，让模型自己决定物理调制强度。需配合 ablation 实验验证：film_scale=0 (no physics) vs 0.2 vs 0.5 vs 1.0。",
+      "rationale": "如果 FiLM 的物理调制对最终预测几乎没有影响，则「物理引导」变成了装饰。当前 residual_std=2.615 说明残差修正幅度远大于理论信号，暗示 FiLM 可能未充分利用物理信息。"
+    },
+    {
+      "location": "physformer/utils/losses.py:104-107",
+      "line_start": 104,
+      "line_end": 107,
+      "severity": "P2",
+      "category": "implementation_bug",
+      "description": "battery_power_mae 计算被硬编码 `if False` 跳过，导致该指标始终为零。代码意图是仅在 aux ground truth 可用时计算，但实现上有两个问题：(1) 无论如何都是 False；(2) 即使改为 True，直接用 `y_target.expand(-1,-1,5)` 扩展目标维度到 5 也是语义错误——y_target 是聚合净出力，不是各分量的 ground truth。",
+      "original_snippet": "battery_power_mae = F.l1_loss(\n    physics_states.get(\"battery_power_theory_real\", charge),\n    self.denorm_aux(y_target.expand(-1, -1, 5))[..., 3:4],\n) if False else charge.new_tensor(0.0)",
+      "suggested_fix": "删除此段 dead code，或在 PhysLoss.forward 中从 batch_data 传入 y_aux（真正的分量 ground truth），然后计算 battery_power_mae = F.l1_loss(battery_power_theory_real, y_aux_battery_real)。",
+      "rationale": "Dead code 降低代码可维护性，且 `if False` 明确表明作者知道这个检查需要做但跳过了。分量级 battery power supervision 是提升 theory_net 精度（当前仅 17 kW MAE）最直接有效的方法。"
+    },
+    {
+      "location": "physformer/exp/exp_physformer.py:268",
+      "line_start": 268,
+      "line_end": 268,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "训练日志包含两次独立运行（行 1-30 和行 31-114），第一次在 epoch 11 中断后从头重训，浪费约 1.5 小时 GPU。训练循环不支持 checkpoint resume——每次 `train()` 调用都重新实例化 optimizer/scheduler，即使存在 checkpoint.pth。",
+      "original_snippet": "self.model.load_state_dict(torch.load(self.checkpoint_path(), map_location=self.device))\nreturn self.model",
+      "suggested_fix": "在 train() 开头检查 checkpoint 是否存在，若存在则加载 model/optimizer/scheduler/epoch 状态并继续训练：`if os.path.exists(self.checkpoint_path()): checkpoint = torch.load(...); self.model.load_state_dict(...); optimizer.load_state_dict(...); start_epoch = checkpoint['epoch']`。",
+      "rationale": "训练中断（ssh 断开、OOM、硬件故障）在生产环境中常见。支持 resume 可节省 GPU 时间和费用，对于长时间训练（>10 小时）尤其重要。"
+    },
+    {
+      "location": "physformer/utils/losses.py:184-191",
+      "line_start": 184,
+      "line_end": 191,
+      "severity": "P2",
+      "category": "target_misalignment",
+      "description": "物理约束 loss (SOC + anti_overlap) 占总 loss 比例极小。训练日志 epoch 2: Val Loss=3.249, Val MSE=3.225，差值仅 0.024（0.74%）。soc_weight=0.1 和 overlap_weight=0.01 的设置使物理约束在优化中被 MSE 主导。如果目标是让物理层学到有意义的参数，当前权重不足以产生有竞争力的梯度信号。",
+      "original_snippet": "total_loss = terms[\"net_mse\"]\nif not self.no_battery_physics_loss:\n    if not self.no_soc_consistency:\n        total_loss = total_loss + self.soc_weight * (\n            terms[\"soc_transition_loss\"] + terms[\"soc_bounds_loss\"]\n        )\n    total_loss = total_loss + self.overlap_weight * terms[\"anti_overlap_loss\"]",
+      "suggested_fix": "在 warmup 阶段将 soc_weight 提高到 1.0~5.0（物理参数初步校准），然后在主训练阶段线性退火至 0.1。这样既保证早期物理参数学到合理值，又避免后期物理约束拖累 MSE。",
+      "rationale": "物理参数（16 个 global params + per-portfolio embedding/delta）的梯度主要来自主 loss 通过 theory_net 的间接路径。在 FiLM scale=0.2 下这条路径已经很弱，物理 loss 如果再没有足够权重，物理参数几乎完全由 data-driven MSE 间接训练，失去了「物理引导」的意义。"
+    },
+    {
+      "location": "physformer/models/conditioning.py:95-96",
+      "line_start": 95,
+      "line_end": 96,
+      "severity": "P3",
+      "category": "data_flow_break",
+      "description": "UnifiedResidualHead 将 d_model=256 维 latent 与单标量 theory_net 拼接。256:1 的维度比例意味着 theory_net 信号可能被 latent 淹没。虽然后续 Linear 层可以学习重新缩放，但初始阶段 theory_net 的信息贡献微乎其微。",
+      "original_snippet": "def forward(self, conditioned, theory_net):\n    inp = torch.cat([conditioned, theory_net], dim=-1)\n    residual = self.net(inp)",
+      "suggested_fix": "在拼接前对 theory_net 做轻量投影：`theory_proj = nn.Linear(1, 32); theory_expanded = theory_proj(theory_net)`，然后 `inp = torch.cat([conditioned, theory_expanded], dim=-1)`。或对两部分分别做 LayerNorm 再拼接。",
+      "rationale": "theory_net 单标量在 256 维空间中信息密度极低。一个 256×1 的 Linear 权重矩阵（256 个参数）承载全部 theory→residual 映射，容易欠拟合。扩展投影维度给予模型更多表达物理修正的能力。"
+    },
+    {
+      "location": "physformer/models/physical_layer.py:88-92",
+      "line_start": 88,
+      "line_end": 92,
+      "severity": "P3",
+      "category": "physics_fidelity",
+      "description": "PV 温度系数初始值 0.2（经 softplus 后 ≈ 0.6%/°C）低于典型晶硅面板值 -0.35~-0.5%/°C。且公式 `(1.0 - pv_temp_coeff * 0.01 * relu(temp - 25.0))` 在 temp<25°C 时不施加温度修正——低于 25°C 时 PV 效率实际会上升（负温度系数），当前实现忽略了这一物理效应。",
+      "original_snippet": "pv_temp_factor = (1.0 - pv_temp_coeff * 0.01 * torch.relu(temp - 25.0)).clamp_min(0.0)",
+      "suggested_fix": "改为 `(1.0 - pv_temp_coeff * 0.01 * (temp - 25.0)).clamp_min(0.5)` 使温度效应在 25°C 两侧对称，或至少将初始 pv_temp_coeff 调整为 0.04（softplus 后 ≈ 0.4%/°C，接近物理真实值）。",
+      "rationale": "PV 是 VPP 中的主要分布式资源之一。温度效应的物理准确性直接影响 theory_net 在高温/低温场景下的表现。当前 theory_net MAE=17 kW，PV 模型的温度效应错误可能贡献了其中一部分。"
+    },
+    {
+      "location": "physformer/utils/losses.py:98-101",
+      "line_start": 98,
+      "line_end": 101,
+      "severity": "P2",
+      "category": "metric_validity",
+      "description": "soc_transition_loss 使用 L1 loss 在归一化 latent 空间比较 soc（已 clamp）与 implied_soc（未 clamp），但两者本身就是同一物理层的输出——该指标从不反映「模型 SOC 与真实 SOC」的差距，只反映「模型内部 self-consistency」。将其标记为物理一致性指标有误导性。",
+      "original_snippet": "implied_soc = torch.cumsum(\n    (eta_c * charge - discharge / eta_d) * self.dt_hours, dim=1\n) + last_soc_real\nsoc_transition_loss = F.l1_loss(soc, implied_soc)",
+      "suggested_fix": "将 soc_transition_loss 重命名为 soc_clamp_penalty 或注释说明其仅衡量 clamp 截断量。真正的 SOC ground truth 监督需要从数据集中提供 battery SOC aux 标签。",
+      "rationale": "指标命名误导（transition loss 暗示时间序列转移一致性，实际是 clamp penalty），使日志解读和消融实验归因产生偏差。"
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "reviewer": "codex",
+  "file": "physformer/exp/exp_physformer.py",
+  "issues": [
+    {
+      "location": "physformer/exp/exp_physformer.py:78-80",
+      "line_start": 78,
+      "line_end": 80,
+      "severity": "P1",
+      "category": "design_hallucination",
+      "subcategory": "dead_ablation",
+      "description": "The no_temporal_decoder ablation flag is never applied; ablation runs still instantiate TemporalDecoder.",
+      "original_snippet": "no_future_weather=bool(getattr(self.args, \"ablation_no_future_weather\", False)),\nbattery_meta=self.battery_meta,\nuse_temporal_decoder=getattr(self.args, \"use_temporal_decoder\", True),",
+      "suggested_fix": "Set use_temporal_decoder from both config and ablation, e.g. `use_temporal_decoder=bool(getattr(args, \"use_temporal_decoder\", True)) and not bool(getattr(args, \"ablation_no_temporal_decoder\", False))`.",
+      "rationale": "The reported `no_temporal_decoder`/flatten-head control does not test the intended mechanism, so any ablation conclusion for TemporalDecoder is invalid."
+    },
+    {
+      "location": "physformer/data/data_factory.py:425-552",
+      "line_start": 425,
+      "line_end": 552,
+      "severity": "P1",
+      "category": "data_flow_break",
+      "subcategory": "dimensional_illusion",
+      "description": "Portfolio IDs are local per split (`group_idx`), but the physical layer uses them as indices into train-time portfolio embeddings.",
+      "original_snippet": "self._portfolio_id_to_idx = {gid: i for i, gid in enumerate(self.group_ids)}\n...\nportfolio_idx = torch.tensor(group_idx, dtype=torch.long)",
+      "suggested_fix": "Persist a train-split `portfolio_id -> embedding_idx` mapping in scaler/model metadata and use it for all splits. For unseen val/test portfolios, use a reserved unknown/global embedding or disable per-portfolio deltas for portfolio-holdout evaluation.",
+      "rationale": "With `portfolio_manifest` splits such as `train_portfolio_01`, `val_portfolio_01`, and `test_portfolio_01`, validation/test index 0 reuses the embedding learned for a different train portfolio. This silently corrupts physics parameters and makes MSE/ablation attribution unreliable."
+    },
+    {
+      "location": "physformer/data/data_factory.py:545",
+      "line_start": 545,
+      "line_end": 545,
+      "severity": "P1",
+      "category": "metric_validity",
+      "subcategory": "metric_laundering",
+      "description": "The model consumes realized future weather columns as `x_weather_future`; if these are observations rather than forecast-at-issue-time covariates, test MSE has future-information leakage.",
+      "original_snippet": "x_weather_future = seq_y_raw[-self.pred_len :, weather_start:weather_end]",
+      "suggested_fix": "Use weather forecast columns generated before the prediction time, or run/report the primary benchmark with `ablation_no_future_weather=True`. If perfect future weather is an intentional conditional-forecast setting, label the metric as conditional on realized weather.",
+      "rationale": "Future temperature/irradiance/wind strongly determine VPP net output. Using actual future weather can explain very low test MSE and is not comparable to black-box baselines that do not receive the same future information."
+    },
+    {
+      "location": "physformer/exp/exp_physformer.py:120-147",
+      "line_start": 120,
+      "line_end": 147,
+      "severity": "P2",
+      "category": "design_hallucination",
+      "subcategory": "decorative_physics",
+      "description": "`y_aux` is loaded and returned but never passed into the loss; auxiliary component/battery targets are mandatory in the dataset but provide no supervision.",
+      "original_snippet": "x_weather_future, y_target, y_aux,\n...\nloss, debug, terms = self.criterion(\n    outputs, y_target, batch_context, collect_debug=collect_debug,\n)",
+      "suggested_fix": "Either remove the mandatory aux-target requirement, or pass `y_aux` to `PhysLoss` and add explicitly weighted component/SOC/battery supervision terms. Keep these weights default-off if primary MSE is the only objective.",
+      "rationale": "The code shape implies auxiliary supervision, but the actual gradient path ignores it. Theory MAE and component diagnostics therefore cannot be attributed to component-level training."
+    },
+    {
+      "location": "physformer/utils/losses.py:95-102",
+      "line_start": 95,
+      "line_end": 102,
+      "severity": "P1",
+      "category": "physics_fidelity",
+      "subcategory": "decorative_physics",
+      "description": "SOC consistency is self-referential: it compares `soc` to a cumsum reconstructed from the same `charge/discharge/eta` emitted by the physical layer.",
+      "original_snippet": "implied_soc = torch.cumsum(\n    (eta_c * charge - discharge / eta_d) * self.dt_hours, dim=1\n) + last_soc_real\nsoc_transition_loss = F.l1_loss(soc, implied_soc)\nsoc_bounds_loss = F.relu(-soc).mean() + F.relu(soc - capacity_real).mean()",
+      "suggested_fix": "If SOC quality matters, compare predicted SOC against `y_aux[..., e_battery_soc_mwh]` or compute an unclamped recurrence residual before hard clamping. If primary MSE is the goal, disable this default loss or normalize it and verify it improves validation MSE.",
+      "rationale": "The term does not enforce agreement with true future SOC. Because the physical layer already computes SOC from the same recurrence and then clamps it, the bounds term is normally zero and the transition term mainly penalizes clamp saturation, not physical correctness."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:243-246",
+      "line_start": 243,
+      "line_end": 246,
+      "severity": "P2",
+      "category": "gradient_pathology",
+      "subcategory": "decorative_physics",
+      "description": "The anti-overlap loss is identically zero because charge and discharge are derived from opposite ReLU sides of the same signed power.",
+      "original_snippet": "power = power_limit * torch.tanh(power_raw)\n\ncharge = F.relu(power)\ndischarge = F.relu(-power)",
+      "suggested_fix": "Remove `anti_overlap_loss` for this signed-power parameterization, or change the battery head to predict separate smooth charge/discharge channels if overlap is a real constraint to learn.",
+      "rationale": "`charge * discharge` is zero almost everywhere by construction, so `overlap_weight` and the `no_battery_physics_loss` comparison do not measure the claimed constraint."
+    },
+    {
+      "location": "physformer/models/physical_layer.py:309-315",
+      "line_start": 309,
+      "line_end": 315,
+      "severity": "P2",
+      "category": "data_flow_break",
+      "subcategory": "non_differentiable_control",
+      "description": "Trainable wind cut-in/rated/cut-out thresholds are used inside boolean comparisons, blocking gradient through the regime-selection logic.",
+      "original_snippet": "rated = w_cut_in + w_rated_delta\ncut_out = rated + w_cut_out_delta\nrising_curve = ((wind - w_cut_in) / (rated - w_cut_in + 1e-6)).clamp(0.0, 1.0) ** 3\nrunning_mask = ((wind >= w_cut_in) & (wind <= cut_out)).float()\nplateau = ((wind > rated) & (wind <= cut_out)).float()\nwind_curve = plateau + (1.0 - plateau) * rising_curve\nwind_theory = (w_scale + F.softplus(w_cap)) * wind_curve * running_mask",
+      "suggested_fix": "Use differentiable soft gates, e.g. sigmoid ramps around cut-in/rated/cut-out with a temperature parameter, or make thresholds fixed non-trainable constants.",
+      "rationale": "`w_cut_out_delta` receives no useful gradient except through non-differentiable masks, and threshold learning is largely illusory."
+    },
+    {
+      "location": "physformer/exp/exp_physformer.py:307-314",
+      "line_start": 307,
+      "line_end": 314,
+      "severity": "P2",
+      "category": "metric_validity",
+      "subcategory": "normalization_confusion",
+      "description": "`residual_std` in test metrics is computed in normalized target space, while MSE/MAE/Theory MAE are reported in MW units.",
+      "original_snippet": "preds_real = self._denorm_target_np(preds)\ntrues_real = self._denorm_target_np(trues)\ntheory_real = self._denorm_target_np(theory_nets)\n...\nmetrics[\"theory_mae\"] = float(np.mean(np.abs(theory_real - trues_real)))\nmetrics[\"residual_std\"] = float(np.std(residuals))",
+      "suggested_fix": "Compute `residual_std_real = np.std(preds_real - theory_real)` and either report that in MW or rename the current metric to `residual_std_norm`.",
+      "rationale": "The current number cannot be compared to MW-scale errors and can overstate/understate the residual correction depending on the train target scaler."
+    },
+    {
+      "location": "physformer/utils/metrics.py:33-46",
+      "line_start": 33,
+      "line_end": 46,
+      "severity": "P2",
+      "category": "metric_validity",
+      "subcategory": "metric_laundering",
+      "description": "Ramp violation only checks differences inside each predicted horizon and ignores the jump from the last observed net output to the first forecast point.",
+      "original_snippet": "if pred.ndim == 3:\n    diff = np.abs(pred[:, 1:, :] - pred[:, :-1, :])\n...\nviolations = diff > limits.reshape((1,) * (diff.ndim - 1) + (-1,))\nreturn float(violations.mean() * 100.0)",
+      "suggested_fix": "Pass the last historical target for each sample into `compute_forecast_metrics` and prepend `abs(pred[:, 0] - last_hist)` to the ramp-diff tensor before computing violations.",
+      "rationale": "A model can violate the physical boundary exactly at forecast start while still reporting 0% ramp violation, so the fallback physical metric is incomplete."
+    }
+  ]
+}

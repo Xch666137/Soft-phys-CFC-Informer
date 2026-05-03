@@ -1,0 +1,90 @@
+You are an expert deep learning engineer and reviewer conducting an independent audit of PhysFormer v3 experimental results. Your job is to find methodological issues, overclaimed conclusions, hidden confounders, and metric inconsistencies.
+
+## Target: PhysFormer v3 Training Results
+
+### Experimental Context
+- Model: PhysFormer (physics-guided Transformer, ~2.7M params)
+- Task: VPP net-injection forecasting (scalar p_vpp_mw)
+- Data: Semi-synthetic NextGen, 6 portfolios, 137k train / ~38k val / ~35k test, 15-min resolution
+- Target stats: mean≈0, std≈0.00575 MW (5.75 kW), range [-0.026, 0.040] MW
+
+### V2 (Baseline, Previous Version)
+- Scheduler: CosineAnnealingLR (no warm restarts)
+- film_scale: 0.2
+- Loss: net_mse + soc_weight*(soc_transition + soc_bounds) + overlap_weight*anti_overlap
+- Theory projection: none (single scalar concatenated to d_model=256 latent)
+- Wind thresholds: boolean masks (non-differentiable)
+- PV temp: only above 25°C (asymmetric)
+- Portfolio mapping: per-dataset-instance (potential cross-split corruption)
+- no_temporal_decoder ablation: dead flag (not wired)
+- Results: Val MSE=0.420 (best epoch 13), Test MSE=9.0e-6 MW², MAE=2.21 kW, RMSE=2.96 kW, Theory MAE=17.01 kW, SOC violation=0%
+
+### V3 (Current Version, 7 Fixes Applied)
+Fixes applied (from prior dual-draft audit):
+1. Loss simplified: removed soc_transition_loss (redundant) and anti_overlap_loss (always zero)
+2. Scheduler: CosineAnnealingWarmRestarts (T_0=15)
+3. film_scale: 0.2→0.5
+4. Theory projection: 1-dim scalar → 32-dim embedding before concat
+5. Wind thresholds: boolean → soft sigmoid gates
+6. PV temperature: asymmetric RelU → symmetric (temp - 25.0)
+7. Portfolio embedding: per-dataset → sorted global mapping
+8. no_temporal_decoder ablation wired
+9. Checkpoint resume added
+10. residual_std now in MW space
+11. Ramp violation includes history→forecast boundary
+
+### V3 Training Log Summary
+- Epoch 1: Val MSE=2.95 (vs V2's 331,843 — 100,000x improvement)
+- Epoch 6: Val MSE=0.502 (vs V2's 0.617 — 19% better)
+- Best: epoch 37, Val MSE=0.387 (vs V2 best 0.420)
+- Restart #1 (epoch 20): 0.405→0.392 (3.2% improvement)
+- Restart #2 (epoch 35): 0.392→0.387 (1.3% improvement)
+- Restart #3 (epoch 50): 0.395→0.397 (no improvement, training stopped)
+- Early stopping counter: 14/25 at stop (manually terminated at epoch 51)
+- Total training: 51 epochs (vs V2's 38)
+- Val Loss ≈ Val MSE throughout (soc_bounds contribution <0.1%)
+
+### V3 Test Results (checkpoint epoch 37, best Val MSE)
+- MSE: 7.46e-6 MW² (V2: 9.0e-6, 17.1% improvement)
+- MAE: 0.00193 MW = 1.93 kW (V2: 2.21 kW, 12.7% improvement)
+- RMSE: 0.00273 MW = 2.73 kW (V2: 2.96 kW, 7.8% improvement)
+- Theory MAE: 0.00487 MW = 4.87 kW (V2: 17.01 kW, 71.3% improvement)
+- residual_std_real_mw: 0.00655 MW = 6.55 W
+- SOC bound violation: 0.0%
+- Net ramp violation: 0.003%
+- SOC range: [0.0, 0.0461] MWh
+
+### Key Questions for Your Review
+
+1. **Metric Consistency**: Val MSE=0.387 (normalized) → Test MSE=7.5e-6 MW². If target_std≈0.00575, Val MSE × target_std² = 0.387 × 3.3e-5 = 1.28e-5. Test MSE=7.5e-6 is 41% lower. Is this discrepancy explained by val/test split differences, or does it indicate a metric computation issue?
+
+2. **Theory MAE = 4.87 kW but residual_std = 6.55 W**: This implies the residual correction has extremely small variance but the theory_net error is 4.87 kW. Does this mean the residual is a near-constant bias correction rather than a dynamic adjustment? Is the architecture working as intended?
+
+3. **Epoch 1 Val MSE drop (331,843→2.95)**: Is the 100,000x improvement attributable to loss simplification alone, or are other fixes contributing? Can we distinguish?
+
+4. **WarmRestarts diminishing returns**: Restart #3 produced ZERO improvement. Does this indicate model capacity saturation? Should training have stopped earlier?
+
+5. **Attribution gap**: Theory MAE improved 71.3% but we can't attribute to specific fixes without ablation. Is this a major methodological weakness for a paper claiming "physics-guided" benefits?
+
+6. **SOC bounds loss invisibility**: Val Loss ≈ Val MSE throughout. With soc_weight=0.1, the physics constraint has <0.1% effect on model selection. Is the "physics-guided" claim weakened?
+
+7. **Missing baselines**: V3 only compared to V2 (own previous version). No comparison to pure black-box baselines (Informer, iTransformer, Persistence). Can the results be contextualized without these?
+
+Output format: JSON wrapped in ===JSON_START=== and ===JSON_END=== markers:
+{
+  "reviewer": "codex",
+  "file": "V3 results analysis",
+  "issues": [
+    {
+      "location": "<descriptive location>",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P0|P1|P2|P3",
+      "category": "metric_validity|target_misalignment|training_dynamics|design_hallucination|physics_fidelity|data_flow_break",
+      "description": "<issue>",
+      "suggested_fix": "<fix>",
+      "rationale": "<why matters>"
+    }
+  ]
+}
+===JSON_START===

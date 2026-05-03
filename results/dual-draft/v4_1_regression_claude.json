@@ -1,0 +1,62 @@
+{
+  "reviewer": "claude",
+  "file": "V4.1 regression — Theory MAE degradation root cause",
+  "context": {
+    "goal": "诊断 V4.1 中 Theory MAE 从 3.81→4.97 kW 退化的根因，gate 在下游不应影响上游 theory_net",
+    "v4_baseline": "Theory MAE=3.81kW, Final MAE=1.98kW, Test MSE=7.35e-6, Val MSE=0.381",
+    "v4_1_results": "Theory MAE=4.97kW, Final MAE=2.00kW, Test MSE=7.68e-6, Val MSE=0.379",
+    "v4_1_changes": "sigmoid gate, normalized component loss, time_proj, schedule fix"
+  },
+  "issues": [
+    {
+      "location": "V4.1 — Gradient coupling through shared encoder (most likely root cause)",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "architecture",
+      "description": "Theory MAE 退化 30% 的最可能根因是共享编码器的梯度耦合。数据流：Encoder → TemporalDecoder → WeatherFusion → FiLM → UnifiedResidualHead。theory_net 的计算路径是：PhysicalLayer(weather, calendar, battery) → theory_net。但理论层的 weather features 来自 Encoder 输出（经过 WeatherFusion 的 latent），而 Encoder 的梯度主要来自 residual head 的 loss。当 sigmoid(0)=0.5 将 residual 梯度减半，Encoder 的参数更新方向和幅度发生了改变。这间接影响了下游 WeatherFusion 产生的 weather_latent 质量，进而影响 PhysicalLayer 需要的 weather features 表示。关键证据：V4.1 的 Residual std 也退化（4.31→5.08），说明残差本身的修正能力也减弱了——如果没有 gate，residual 至少应该保持相同的修正精度。这表明问题是系统性的（Encoder 表示质量下降），而非仅 residual 被限制。",
+      "suggested_fix": "(1) 将 residual 的 gate 移除，改用不改变梯度的替代方案（如仅在推理时做 threshold）；(2) 或者在 encoder 和 physical layer 之间断开梯度——PhysicalLayer 的参数梯度不应依赖 residual path。具体：将 weather_latent 的 detach 版本传给 PhysicalLayer，使 theory_net 的训练完全独立于 residual head。",
+      "rationale": "当前架构中 theory_net 和 residual_net 共享 Encoder + TemporalDecoder + WeatherFusion。任何对 residual path 的修改都会通过共享参数反向传播到 theory 的输入表示层。这不是 architecture bug，而是激励结构问题——residual 的训练目标（net MSE）与 theory 的训练目标（component MAE）可能冲突。"
+    },
+    {
+      "location": "V4.1 — TemporalDecoder time_proj 可能是有害引入",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "training_dynamics",
+      "description": "time_proj 以 Xavier(gain=0.1) 初始化——输出幅度约为 query_pos 的 10%。但从 V4 checkpoint 恢复训练时，V4 的 query_pos 已经过 11 epoch 训练，time_proj 的随机初始化可能破坏了 query 分布。具体机制：query = query_pos + time_proj(y_mark)。如果 time_proj 的输出与 query_pos 的分布不一致（均值偏移、方差不同），cross-attention 的 attention pattern 会偏移，影响整个 decoder 输出。这会影响 weather_latent → PhysicalLayer 的输入表示。V3/V4 中 decoder 没有 time_proj，解码器 query_pos 已经学会了最优的 attention pattern。添加 time_proj 破坏了这一模式。",
+      "suggested_fix": "(1) 短期：如果 time_proj 对性能有害，将其移除——Phase 2 重新引入时从头训练；(2) 中长期：如果保留 time_proj，必须从零训练而非从 V4 checkpoint 恢复，让 query_pos 和 time_proj 共同学习。",
+      "rationale": "从预训练 checkpoint 添加新的前向路径（time_proj → query → cross-attention → decoder output）时，下游的所有权重（query_pos, cross_attn, FFN）都针对旧 query 分布优化过。注入新信息源可能导致 attention 失效。"
+    },
+    {
+      "location": "V4.1 — Loss 变更与 checkpoint 恢复的不兼容",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "V4.1 从 V4 checkpoint 恢复模型权重，但使用了不同的 loss 函数（归一化 component MAE vs MW 空间 MAE）。V4 的 theory_net 参数经过了 11 epoch 的特定 loss landscape 优化。新 loss 改变了每个 theory branch（load/pv/wind/battery）的相对梯度权重。尤其是 battery_power_mae 在归一化后与其他 component MAE 量级相当（之前 battery 在 MW 空间可能较大），改变了理论分支之间的梯度平衡。从 V4 checkpoint 开始，optimizer 虽已重置，但模型权重初始位置在 V4 的 local minimum——这个 minimum 在新 loss 下可能不是好起点。",
+      "suggested_fix": "从零训练（非 V4 checkpoint）来隔离 loss 变更的影响。或者保持 V4 的 MW 空间 component loss，仅降低 weight。",
+      "rationale": "Transfer learning 的前提是目标函数不变。当 loss 函数改变时，旧的最优权重在新 loss 下可能处于 sharp minimum，optimizer 的第一步就会跳到一个更差的 basin。"
+    },
+    {
+      "location": "V4.1 vs V4 — Val MSE 改善但 Test 退化暗示过拟合",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "training_dynamics",
+      "description": "Val MSE 0.381→0.379 (-0.5%) 但 Test MSE 7.35e-6→7.68e-6 (+4.5%)。Val 与 Test 方向相反——这是典型的过拟合信号。可能原因：(a) early_stop_start=20 使得 model selection 完全基于 Val 表现，而 V4 使用 epoch 10 开始的计数；(b) 新增参数（time_proj, alpha）增加了模型容量，可能在 Val 上过拟合；(c) component loss 的归一化可能在 Val 分布上有更好的表现但泛化到 Test 时变差。",
+      "suggested_fix": "对比 V4 和 V4.1 的 per-component test metrics 以识别哪个分量的泛化差距最大。如果 load 分量的 Val-Test 差距最大，说明 calendar embedding + component loss 对 load 的训练集特定模式过拟合。",
+      "rationale": "论文中 Val→Test 的一致性需要被验证。如果 Val 的改善不能转化为 Test 改善，实验设置需要修正。"
+    },
+    {
+      "location": "V4.1 — 隔离实验的建议",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "missing_mechanism",
+      "description": "当前有 4 个同时变更（gate + loss 归一化 + time_proj + schedule），无法确定哪个导致 Theory MAE 退化。需要消融实验：(A) V4 baseline + 仅改 schedule（patience=20, early_stop=20），其他不变；(B) V4 baseline + 仅改 loss（归一化 component MAE）；(C) V4 baseline + 仅加 time_proj（从头训练）。对比三者的 Theory MAE 变化即可定位根因。",
+      "suggested_fix": "快速消融策略：每个 variant 只跑 15 epoch（~2.5h），比较 epoch 15 的 Val MSE 和 Theory MAE。最可能的结果：time_proj 是主因（query distribution shift），loss 归一化是次因（梯度平衡变化），gate 是第三因（间接梯度效应）。",
+      "rationale": "同时变更多个变量使得回归无法归因。消融是唯一可靠的诊断手段。"
+    }
+  ]
+}

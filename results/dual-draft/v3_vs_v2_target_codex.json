@@ -1,0 +1,83 @@
+{
+  "reviewer": "codex",
+  "file": "G:/py_program/Physformer/results/dual-draft/v3_vs_v2_target.md",
+  "issues": [
+    {
+      "location": "v3_vs_v2_target.md:28",
+      "line_start": 28,
+      "line_end": 28,
+      "severity": "high",
+      "category": "formula_consistency",
+      "description": "Residual std 的单位换算错误，0.006545 MW 应为 6.545 kW，不是 6.545 W。",
+      "original_snippet": "- Residual std (MW): 6.545 W",
+      "suggested_fix": "- Residual std: 0.006545 MW (6.545 kW)",
+      "rationale": "该错误会使残差标准差低估 1000 倍，直接影响读者对模型误差规模的理解。"
+    },
+    {
+      "location": "v3_vs_v2_target.md:50",
+      "line_start": 50,
+      "line_end": 55,
+      "severity": "high",
+      "category": "formula_consistency",
+      "description": "Early-stopping counter 的计数前后不一致。",
+      "original_snippet": "- Epoch 38-50: Early stopping counter 1→14, no improvement\n- Epoch 51: Val=0.3967, counter=15/25\n- **Training stopped at epoch 51** (not early-stopping — counter 14 < patience 25)",
+      "suggested_fix": "- Epoch 38-50: Early stopping counter 1→13, no improvement\n- Epoch 51: Val=0.3967, counter=14/25\n- **Training stopped at epoch 51** (manual truncation; not early stopping, because counter 14 < patience 25)",
+      "rationale": "Epoch 38--50 共 13 个未提升 epoch，epoch 51 后 counter 应为 14/25；现有写法会造成训练停止原因判断错误。"
+    },
+    {
+      "location": "v3_vs_v2_target.md:13",
+      "line_start": 13,
+      "line_end": 61,
+      "severity": "high",
+      "category": "formula_consistency",
+      "description": "Warm-restart 的数量、周期命名和收益归因不自洽。",
+      "original_snippet": "7. Scheduler: CosineAnnealing → CosineAnnealingWarmRestarts (3 restarts, T_0=15, T_mult=1)\n### Restart #1 (epoch 1-20, cosine cycle)\n### Restart #3 (epoch 36-50)\n- Epoch 37: Val=0.3867 (GLOBAL BEST), LR=9.6e-5\n### Restart #4 (epoch 51+)\n- WarmRestarts: restart #1 benefit +3.3%, restart #2 benefit +1.3%, restart #3 no benefit yet\n- Training truncated at 51/100 epochs, 3rd restart barely started",
+      "suggested_fix": "统一改为 cycle 表述：Cycle #1 (epochs 1--20) best=0.4052；Cycle #2 (21--35) best=0.3918, improvement=3.3%；Cycle #3 (36--50) best=0.3867, improvement=1.3%；Cycle #4 started at epoch 51 after the third LR restart and had no new best yet.",
+      "rationale": "当前写法把 cycle 与 restart 混用，并称 restart #3 尚无收益，但 epoch 37 已给出全局最优，会误导收益归因。"
+    },
+    {
+      "location": "v3_vs_v2_target.md:7",
+      "line_start": 7,
+      "line_end": 58,
+      "severity": "medium",
+      "category": "latex_command",
+      "description": "多处代码式标识含未转义下划线，作为 LaTeX 正文会报错或排版异常。",
+      "original_snippet": "film_scale; theory_net; portfolio_manifest; soc_transition_loss + anti_overlap_loss; T_0=15, T_mult=1; soc_weight=0.1",
+      "suggested_fix": "将代码/配置标识写成 \\texttt{film\\_scale}、\\texttt{theory\\_net}、\\texttt{portfolio\\_manifest}、\\texttt{soc\\_transition\\_loss}、\\texttt{anti\\_overlap\\_loss}、\\texttt{soc\\_weight}；超参数写成 $T_0=15$ 和 $T_{\\mathrm{mult}}=1$。",
+      "rationale": "LaTeX 文本模式下裸下划线不是合法普通字符，模型配置名也应以等宽字体区分。"
+    },
+    {
+      "location": "v3_vs_v2_target.md:16",
+      "line_start": 16,
+      "line_end": 64,
+      "severity": "medium",
+      "category": "format",
+      "description": "多处数学和单位表达采用代码/纯文本写法，不符合 EPSR/LaTeX 风格。",
+      "original_snippet": "- Test MSE: 9.0e-6 MW²\n- Val Loss == Val MSE for ALL epochs (soc_weight=0.1 contributes <1e-6)\n- Epoch 1 Train/Val gap: 244,000x (720948 vs 2.95)\n| Metric | V2 | V3 | Δ |",
+      "suggested_fix": "例如写成 $9.0\\times10^{-6}\\,\\mathrm{MW}^2$、$\\Delta$、$\\mathrm{validation\\ loss}=\\mathrm{validation\\ MSE}$、$244{,}000\\times$；将 ALL 改为 all。",
+      "rationale": "科学计数法、单位、等号和倍数应进入数学模式；全大写强调和代码式 == 不适合期刊正文。"
+    },
+    {
+      "location": "v3_vs_v2_target.md:16",
+      "line_start": 16,
+      "line_end": 35,
+      "severity": "medium",
+      "category": "symbol_undefined",
+      "description": "MSE、MAE、RMSE、SOC、LR 等缩写首次出现时未定义。",
+      "original_snippet": "- Test MSE: 9.0e-6 MW²\n- MAE: 2.21 kW\n- RMSE: 2.96 kW\n- SOC violation: 0.0\n- Epoch 1: Train=720948, Val=2.9517, LR=3.6e-5",
+      "suggested_fix": "首次出现时写成 mean squared error (MSE)、mean absolute error (MAE)、root mean squared error (RMSE)、state of charge (SOC)、learning rate (LR)。",
+      "rationale": "EPSR 面向跨领域读者，关键指标和控制变量缩写应在首次使用时完整定义。"
+    },
+    {
+      "location": "v3_vs_v2_target.md:4",
+      "line_start": 4,
+      "line_end": 4,
+      "severity": "low",
+      "category": "style",
+      "description": "句子带有审阅指令口吻，且 baseline 前缺少冠词，不适合作为论文正文。",
+      "original_snippet": "Review the PhysFormer V3 training results against V2 baseline. Identify what improved, what regressed, and what can be further optimized.",
+      "suggested_fix": "We compare the PhysFormer V3 training results with the V2 baseline and identify improvements, regressions, and remaining optimization opportunities.",
+      "rationale": "期刊正文应使用陈述式学术表达，避免命令式任务说明。"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "reviewer": "claude",
+  "file": "V4 Architecture Direction — Dual-Stream + Confidence Gating",
+  "context": {
+    "goal": "评估 Load 分量独立建模 + iTransformer + 置信度门控的架构方向可行性，判断是否应拆分 PV/Wind 和 Load 的建模路径",
+    "current_state": "V3 用统一的 theory_net + residual_net 做 net injection 预测。分析发现 theory_net 贡献 62% 预测量级，但 residual 在低误差区 93.7% 退化。高 net-injection 场景（PV 主导）退化率 48.9%，暗示 Load 分量引入了 physics 无法建模的噪声。"
+  },
+  "issues": [
+    {
+      "location": "Architecture — Load 分量的物理引导无效性",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "architecture",
+      "description": "Load（负荷）的物理本质与 PV/Wind 根本不同：PV 遵循光电转换方程（P = η·A·GHI），Wind 遵循 Betz 定律和气动功率曲线。两者都有明确的一阶物理模型。但 Load 没有——负载由人类开关行为决定，温度只是影响因子之一且效应是间接的（加热/制冷需求）、有时间延迟、且受电价弹性调节。在没有电价信号的情况下，温度 → Load 的物理映射极弱。当前 theory_net 对所有三个分量做统一的温度调节（FiLM），相当于对 Load 施加了一个弱且噪声的物理先验——这在理论上是不合理的。",
+      "suggested_fix": "将 Load 从 theory_net 中解耦。Option A（推荐）：Dual-Stream — Stream A (PV+Wind) 保留 FiLM + physics equations，Stream B (Load) 使用 iTransformer-style variable attention。Option B（保守）：在 data pipeline 中将 Load 移出 target，改为预测 PV+Wind only，Load 作为已知 input covariate。",
+      "rationale": "物理先验的前提是存在正确的物理模型。对 Load 施加错误的物理引导（仅温度调节）相当于注入结构化噪声——这与 dual-draft 之前的发现一致：high |true| 场景 theory_net 退化率最高（48.9%），因为 PV 峰值场景 theory_net 对 PV 预测精准但 residual 在纠正 Load 预测时破坏了整体结构。"
+    },
+    {
+      "location": "Architecture — iTransformer 对 Load 建模的适配性",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "architecture",
+      "description": "iTransformer 的核心创新是将 variate（变量）作为 token 做 cross-attention，时间维度交给 FFN。这对 Load 建模非常合适：(1) Load 的变量级相关性是关键——温度×时间（办公室空调只在工作日上午开）、风速×季节（冬季强风增加供暖负荷）、辐照度×建筑朝向（某朝向光伏对 building load 的抵消效应）；(2) 时间模式（日/周/季节/节假日）是 per-variate 的，用 FFN 沿时间轴独立处理更高效；(3) 但 iTransformer 设计用于多变量（321 variables），PhysFormer 只有 6 个变量，需要验证少量变量下 cross-variate attention 是否退化为噪声。",
+      "suggested_fix": "在少量变量场景下，标准 iTransformer（每个变量一个 token）的 cross-attention 矩阵只有 6×6，可能无法提供足够的信息交互。建议：(1) 将 Load 的 calendar embeddings 扩展为多个伪变量（hour_emb, weekday_emb, month_emb, holiday_flag），丰富 variable token 空间；(2) 考虑 PatchTST-style 的时间 patch + cross-variable attention 混合方案，而非纯 iTransformer。",
+      "rationale": "iTransformer 在 Electricity 数据集上的优势（MSE -18.75% vs Transformer）来自其 321 variables 的 rich cross-variate structure。PhysFormer 的变量空间小 50 倍，直接套用可能收益有限。需要验证而非盲信 benchmark。"
+    },
+    {
+      "location": "Architecture — 置信度门控的可行性",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "architecture",
+      "description": "MoGU 的 uncertainty-based gating（输出 Gaussian，门控 ∝ 1/variance）提供了一种优雅的置信度融合方案，比 post-hoc threshold 更合理。但问题在于：(1) 当前 degradation 主要发生在 theory 低误差区——theory_net 对 PV 预测置信度自然高（天气稳定时），如果门控让 theory 获得高权重，恰恰会在 Load 需要纠正时锁死 theory；(2) 门控需要区分 'theory 正确因为物理可行' vs 'theory 碰巧接近真值但物理不可靠'——这是 epistemic uncertainty 问题。",
+      "suggested_fix": "(1) 使用 dual-gating：Stream A 对每个时间步输出 per-variable 置信度 σ²_pv, σ²_wind, σ²_load，Stream B 同样输出 σ²_load_B。Load 最终预测 = confidence_weight * load_A + (1-confidence_weight) * load_B。这使得门控能区分 'PV 部分置信度高' vs 'Load 部分置信度高'。(2) 将 confidence 与输入特征关联：cloud_cover 高 → PV confidence 低，workday=1 & temperature=30°C → Load confidence 高。(3) 当前 post-hoc threshold 作为 baseline，MoGU 作为 proposed method。",
+      "rationale": "置信度门控的核心挑战不是 '是否可行' 而是 '如何定义 confidence'。MoGU 的学习型 uncertainty 可以直接从数据中学习每个 scenario 的 confidence 模式，比手工阈值更鲁棒。但需要 per-variable confidence 而非 per-sample confidence。"
+    },
+    {
+      "location": "Architecture — Dual-Stream 的复杂性与论文价值",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P2",
+      "category": "scalability",
+      "description": "Dual-Stream + iTransformer + MoGU gating 的架构复杂度显著高于当前 V3 的单一 theory_net + residual_net。审稿人会问：(1) 增加的复杂度（参数量、训练开销）是否 justified？(2) 是否存在更简单的方案（如仅改进 Load 的 calendar embedding）？(3) Dual-Stream 在 ablation 中需要跟 '纯 data-driven iTransformer + 纯物理 theory_net' 两个 baseline 比较——三组对比增加了实验开销。",
+      "suggested_fix": "提案一个 phased roadmap：(1) Phase 1：仅拆分 Load 的 embedding——在现有架构中为 Load 添加 calendar embeddings（weekday/weekend, holiday, hour-of-day, month seasons），保持统一 theory_net；(2) Phase 2：如果 Phase 1 改善不显著，实施 Dual-Stream with iTransformer for Load；(3) Phase 3：添加 confidence gating 作为可选增强。论文可以先到 Phase 1，将 Dual-Stream 放在 future work / discussion。",
+      "rationale": "Simplicity First。Phase 1（calendar embedding）改动极小（仅 data pipeline + embedding lookup），但可能解决 Load 时间模式的主要问题（节假日的负荷骤降无法从温度解释）。如果 Phase 1 无效再进入 Dual-Stream。审稿人更接受渐进式改进而非大改架构。"
+    },
+    {
+      "location": "V3 data evidence — Load 分量需要独立建模的直接证据",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P1",
+      "category": "physics_fidelity",
+      "description": "当前分析缺乏直接证据：我们没有 Load 的 ground truth（数据集只有 net injection = PV+Wind-Load），无法直接验证 theory_net 在 Load 上的单独表现。Net injection 的 degradation 模式（高 |true| 场景高退化率）只能间接推断 Load 是问题来源——因为我们不知道是 theory 高估了 PV 还是低估了 Load。需要获取或构建 per-component 的 ground truth 数据来验证假设。",
+      "suggested_fix": "(1) 如果数据源包含 per-component 分解（p_pv_mw, p_wind_mw, p_load_mw 作为 aux targets），训练 theory_net 时使用 per-component loss（当前代码已有 aux_target_cols）；(2) 计算 theory_net 对每个分量的单独 error，确认 Load 分量的 theory_mae 是否显著高于 PV 和 Wind；(3) 如果当前数据集不包含 per-component ground truth，在论文中明确标注此限制，并将 component-level analysis 作为 future work。",
+      "rationale": "Dual-Stream 架构的前提假设是 'Load 分量是 theory_net 的主要误差来源'。如果这个假设不被数据验证，整个架构方向就是过度工程。当前数据集有 aux_target_cols (p_load_mw, p_pv_mw, p_wind_mw)，需要在分析中利用这些数据。"
+    },
+    {
+      "location": "Literature — 现有工作的差异化机会",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P3",
+      "category": "missing_mechanism",
+      "description": "搜索结果显示：(1) Ziel et al. (2024) 已经用 GAM 做了 weather-driven vs socio-economic load decomposition——但用的是可加模型而非 Transformer，无法捕获非线性 cross-variable 交互；(2) Chen et al. (2025) 做 PV disaggregation from net load——这是信号分解任务而非预测任务；(3) MIPV-NWP-PINN (2025) 将 physics + iTransformer 结合但仅用于 PV 预测。目前没有工作将 'physics-guided PV+Wind' + 'iTransformer-style Load' + 'confidence-gated fusion' 三个概念统一到一个框架中。这可能是 PhysFormer 的独特贡献点。",
+      "suggested_fix": "在论文引言/相关工作中定位：'To the best of our knowledge, this is the first work to jointly model (1) physics-guided PV/Wind generation via FiLM-conditioned theory_net and (2) data-driven Load via inverted variable-attention, fused through (3) uncertainty-aware confidence gating.' 这个三角定位具有新颖性。",
+      "rationale": "新颖性需要准确的文献定位。上述三个方向各自有独立工作，但它们的交叉点——特别是 confidence gating 用于物理+数据融合场景——是未开发领域。这比单独 claim iTransformer 或 claim 物理引导更有说服力。"
+    },
+    {
+      "location": "V3 → V4 migration path — 风险控制",
+      "line_start": 0,
+      "line_end": 0,
+      "severity": "P3",
+      "category": "implementation",
+      "description": "V3 的 unified theory_net 贡献了 62% 预测量级且 theory r=0.743。如果 V4 Dual-Stream 设计不当，可能损失 V3 已取得的物理引导能力。建议 migration 采用保留式设计：Dual-Stream 的 PV+Wind stream 直接复用 V3 的 theory_net 权重作为初始化，仅新增 Load stream 和 gating，逐步解冻训练。",
+      "suggested_fix": "(1) V4 初始化：Stream A = V3 pretrained theory_net (frozen first 10 epochs, then fine-tune)；(2) Stream B = new iTransformer blocks for Load only, randomly initialized；(3) Gating = lightweight MLP on top of both streams；(4) 如果 V4 < V3 在 Val MSE 上，回退到 Phase 1 的保守方案（calendar embedding）。",
+      "rationale": "保留 V3 的物理引导能力是 migration 的底线。渐进式训练策略确保不会因为架构重塑而丢失已取得的 gains。"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ model:
   e_layers: 2
   d_ff: 512
   factor: 5
-  dropout: 0.10
+  dropout: 0.1
   attn: full
   embed: custom
   activation: gelu
@@ -15,8 +15,10 @@ model:
   distil: false
   use_temporal_decoder: true
   film_scale: 0.5
-  time_feat_dim: 10
-
+  dec_in: 6
+  c_out: 1
+  output_attention: false
+  decoder_n_heads: null
 data:
   root_path: /root/autodl-tmp
   data_path: physformer/data_processed/multi_portfolio/portfolio_dataset_for_training.csv
@@ -28,42 +30,53 @@ data:
   split_col: split
   split_strategy: portfolio_manifest
   task_mode: net_injection
-  target_cols: [p_vpp_mw]
-  known_future_covariate_cols: [temperature, irradiance, wind_speed]
-  history_state_cols: [p_battery_mw, e_battery_soc_mwh]
-  aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
+  target_cols:
+  - p_vpp_mw
+  known_future_covariate_cols:
+  - temperature
+  - irradiance
+  - wind_speed
+  history_state_cols:
+  - p_battery_mw
+  - e_battery_soc_mwh
+  aux_target_cols:
+  - p_load_mw
+  - p_pv_mw
+  - p_wind_mw
+  - p_battery_mw
+  - e_battery_soc_mwh
   seq_len: 672
   pred_len: 96
   freq: t
-
+  label_len: 0
 training:
   batch_size: 64
   train_epochs: 100
-  learning_rate: 1.0e-4
-  weight_decay: 1.0e-5
+  learning_rate: 0.0001
+  weight_decay: 1.0e-05
   grad_clip: 1.0
-  patience: 20
+  patience: 25
   use_amp: true
   warmup_epochs: 5
   warmup_start_factor: 0.2
   early_stop_metric: net_mse
-  early_stop_start_epoch: 20
+  early_stop_start_epoch: 10
   soc_weight: 0.1
-  component_loss_weight: 0.02
-  restart_t0: 15
-  restart_t_mult: 1
   seed: 2024
-
+  log_interval: 50
 hardware:
   use_gpu: true
   gpu: 0
   num_workers: 4
   pin_memory: true
-
+  use_multi_gpu: false
+  device_ids:
+  - 0
+  persistent_workers: true
+  prefetch_factor: 4
 checkpoint:
   name: physformer_v3
-  path: runs/
-
+  path: /root/autodl-tmp/runs/physformer_v3
 ablation:
   no_phys_stream: false
   no_battery_branch: false
