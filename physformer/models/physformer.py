@@ -137,7 +137,7 @@ class PhysFormer(nn.Module):
         )
 
         # --- physics conditioning (FiLM) ---
-        self.physics_film = PhysicsFiLM(d_model=d_model, physics_dim=5, film_scale=film_scale)
+        self.physics_film = PhysicsFiLM(d_model=d_model, physics_dim=9, film_scale=film_scale)
 
         # --- output head ---
         self.unified_head = UnifiedResidualHead(d_model=d_model, dropout=dropout)
@@ -160,13 +160,27 @@ class PhysFormer(nn.Module):
     def _norm_aux(self, aux_real):
         return (aux_real - self.aux_mean.view(1, 1, -1)) / (self.aux_std.view(1, 1, -1) + 1e-6)
 
+    @staticmethod
+    def _build_component_net(component_norm, component_residual):
+        """Reconstruct net injection from component theory + residual.
+
+        component_norm columns: [load, pv, wind, batt_pwr, batt_soc]
+        net = (load_th + load_res) - (pv_th + pv_res) - (wind_th + wind_res) + (batt_th + batt_res)
+        """
+        load_th_res = component_norm[..., 0:1] + component_residual[..., 0:1]
+        pv_th_res = component_norm[..., 1:2] + component_residual[..., 1:2]
+        wind_th_res = component_norm[..., 2:3] + component_residual[..., 2:3]
+        batt_th_res = component_norm[..., 3:4] + component_residual[..., 3:4]
+        return load_th_res - pv_th_res - wind_th_res + batt_th_res
+
     def _build_zero_physics(self, batch_size, pred_len, device, dtype):
         """Return zero-filled physics features when no_phys_stream=True."""
         zeros_1 = torch.zeros(batch_size, pred_len, 1, device=device, dtype=dtype)
         zeros_4 = torch.zeros(batch_size, pred_len, 4, device=device, dtype=dtype)
         zeros_5 = torch.zeros(batch_size, pred_len, 5, device=device, dtype=dtype)
         theory_net_norm = zeros_1
-        physics_features = torch.cat([zeros_1, zeros_4], dim=-1)  # 5 dim
+        component_norm = zeros_5
+        physics_features = torch.cat([zeros_5, zeros_4], dim=-1)  # 9 dim
         states = {
             "component_theory_real": zeros_5,
             "load_theory_real": zeros_1,
@@ -230,6 +244,7 @@ class PhysFormer(nn.Module):
             theory_net, physics_features, physics_states = self._build_zero_physics(
                 B, P, device, dtype,
             )
+            component_norm = physics_states["component_theory_real"]
         else:
             _component_norm, physics_states = self.phys_layer(
                 x_weather_hist=x_weather_hist,
@@ -239,21 +254,27 @@ class PhysFormer(nn.Module):
                 x_battery_hist=x_battery_hist,
                 portfolio_ids=portfolio_ids,
             )
+            component_real = physics_states["component_theory_real"]
             theory_net_real = physics_states["theory_net_real"]
             battery_feats = physics_states["battery_feats_real"]
+            component_norm = self._norm_aux(component_real)
             theory_net = self._norm_target(theory_net_real)
-            physics_features = torch.cat([theory_net, battery_feats], dim=-1)  # (B, P, 5)
+            physics_features = torch.cat([component_norm, battery_feats], dim=-1)  # (B, P, 9)
 
         # ---- Step 5: Physics conditioning (FiLM) ----
         conditioned = self.physics_film(weather_latent, physics_features)
 
-        # ---- Step 6: Residual head → final prediction ----
-        residual = self.unified_head(conditioned, theory_net)
-        pred_net = theory_net + residual
+        # ---- Step 6: Component residual head ----
+        component_residual = self.unified_head(conditioned, component_norm)  # (B, P, 5)
+
+        # ---- Step 7: Reconstruct net injection ----
+        pred_net = self._build_component_net(component_norm, component_residual)
+        theory_net = theory_net if self.no_phys_stream else self._norm_target(theory_net_real)
 
         return {
             "pred_net": pred_net,
             "theory_net": theory_net,
-            "residual": residual,
+            "residual": component_residual,
+            "component_residual": component_residual,
             "physics_states": physics_states,
         }

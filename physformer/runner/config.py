@@ -69,6 +69,13 @@ TRAINING_KEYS = (
     "component_loss_weight",
     "restart_t0",
     "restart_t_mult",
+    "res_reg_weight",
+    "phase_1_epochs",
+    "phase_2_epochs",
+    "phase_1_cw",
+    "phase_1_rr",
+    "phase_2_cw",
+    "phase_2_rr",
 )
 
 HARDWARE_KEYS = (
@@ -165,6 +172,13 @@ def config_to_args(cfg):
     flat["early_stop_start_epoch"] = training_cfg.get("early_stop_start_epoch", 10)
     flat["soc_weight"] = training_cfg.get("soc_weight", 0.1)
     flat["component_loss_weight"] = training_cfg.get("component_loss_weight", 0.05)
+    flat["res_reg_weight"] = training_cfg.get("res_reg_weight", 0.01)
+    flat["phase_1_epochs"] = training_cfg.get("phase_1_epochs", 15)
+    flat["phase_2_epochs"] = training_cfg.get("phase_2_epochs", 40)
+    flat["phase_1_cw"] = training_cfg.get("phase_1_cw", 0.1)
+    flat["phase_1_rr"] = training_cfg.get("phase_1_rr", 0.05)
+    flat["phase_2_cw"] = training_cfg.get("phase_2_cw", 0.05)
+    flat["phase_2_rr"] = training_cfg.get("phase_2_rr", 0.01)
 
     hardware_cfg = cfg.get("hardware", {})
     flat["use_gpu"] = hardware_cfg.get("use_gpu", True)

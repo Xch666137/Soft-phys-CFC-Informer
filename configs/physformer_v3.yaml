@@ -49,9 +49,16 @@ training:
   early_stop_metric: net_mse
   early_stop_start_epoch: 20
   soc_weight: 0.1
-  component_loss_weight: 0.02
+  component_loss_weight: 0.05
   restart_t0: 15
   restart_t_mult: 1
+  res_reg_weight: 0.01
+  phase_1_epochs: 15
+  phase_2_epochs: 40
+  phase_1_cw: 0.1
+  phase_1_rr: 0.05
+  phase_2_cw: 0.05
+  phase_2_rr: 0.01
   seed: 2024
 
 hardware:

@@ -111,6 +111,12 @@ class PhysAwareBaseLoss(nn.Module):
             if batt_power_theory is not None:
                 battery_power_mae = F.l1_loss(theory_comp_norm[..., 3:4], y_aux[..., 3:4])
 
+        # -- per-component residual regularization --
+        component_residual = pred_dict.get("component_residual")
+        res_reg = pred_net_real.new_tensor(0.0)
+        if component_residual is not None:
+            res_reg = component_residual[..., :4].abs().mean()
+
         # -- component theory diagnostics --
         if component_theory_real is not None:
             load_theory_d = component_theory_real[..., 0:1]
@@ -140,6 +146,7 @@ class PhysAwareBaseLoss(nn.Module):
             "component_load_mae": component_load_mae,
             "component_pv_mae": component_pv_mae,
             "component_wind_mae": component_wind_mae,
+            "res_reg": res_reg,
             "pred_net_real": pred_net_real,
             "true_net_real": true_net_real,
             "theory_net_real": theory_net_real,
@@ -152,15 +159,11 @@ class PhysAwareBaseLoss(nn.Module):
 
 
 class PhysLoss(nn.Module):
-    """Single-stage loss: net MSE + SOC bounds penalty.
+    """Curriculum-aware physics loss with per-component residual regularization.
 
-    Removed terms (dual-draft audit):
-      - soc_transition_loss: redundant with soc_bounds_loss; both penalise
-        the same physical violation (SOC out of [0, capacity]).  soc_bounds
-        is a direct ReLU penalty that is simpler and more interpretable.
-      - anti_overlap_loss: identically zero by construction — charge and
-        discharge come from opposite ReLU sides of the same signed power,
-        so charge * discharge == 0 always.
+    Phase 1 (theory warmup): strong component supervision + residual reg
+    Phase 2 (residual fit): weaker component supervision + lighter reg
+    Phase 3 (net fine-tune): net MSE only
     """
 
     def __init__(
@@ -170,6 +173,11 @@ class PhysLoss(nn.Module):
         no_soc_consistency=False,
         no_battery_physics_loss=False,
         component_loss_weight=0.05,
+        res_reg_weight=0.01,
+        phase_1_cw=0.1,
+        phase_1_rr=0.05,
+        phase_2_cw=0.05,
+        phase_2_rr=0.01,
     ):
         super().__init__()
         self.base_loss = base_loss_module
@@ -177,6 +185,24 @@ class PhysLoss(nn.Module):
         self.no_soc_consistency = bool(no_soc_consistency)
         self.no_battery_physics_loss = bool(no_battery_physics_loss)
         self.component_loss_weight = float(component_loss_weight)
+        self.res_reg_weight = float(res_reg_weight)
+        self._phase_1_cw = float(phase_1_cw)
+        self._phase_1_rr = float(phase_1_rr)
+        self._phase_2_cw = float(phase_2_cw)
+        self._phase_2_rr = float(phase_2_rr)
+        self.current_phase = 1
+
+    def set_phase(self, phase):
+        self.current_phase = phase
+        if phase == 1:
+            self.component_loss_weight = self._phase_1_cw
+            self.res_reg_weight = self._phase_1_rr
+        elif phase == 2:
+            self.component_loss_weight = self._phase_2_cw
+            self.res_reg_weight = self._phase_2_rr
+        else:
+            self.component_loss_weight = 0.0
+            self.res_reg_weight = 0.0
 
     def forward(self, pred_dict, y_target, batch_context, y_aux=None, collect_debug=False):
         terms = self.base_loss.compute_terms(
@@ -196,6 +222,9 @@ class PhysLoss(nn.Module):
                 + terms["component_wind_mae"]
                 + terms["battery_power_mae"]
             )
+
+        if self.res_reg_weight > 0:
+            total_loss = total_loss + self.res_reg_weight * terms["res_reg"]
 
         debug = None
         if collect_debug:

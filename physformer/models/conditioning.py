@@ -74,36 +74,32 @@ class PhysicsFiLM(nn.Module):
 
 
 class UnifiedResidualHead(nn.Module):
-    """Single MLP head predicting the residual correction to theory_net.
+    """Predicts per-component residual corrections to component theory estimates.
 
-    Projects the scalar theory_net into a small embedding space before
-    concatenation, giving the model more capacity to express non-linear
-    physics corrections than a single scalar input dimension.
-
-    Final layer is initialised with small weights so that initially
-    ``pred_net ≈ theory_net`` while still allowing gradient flow
-    through the data-driven pathway from step 1.
+    Takes 5-dim normalized component theory [load, pv, wind, batt_pwr, batt_soc]
+    and conditioned latent, outputs 5-dim component residuals.  Final net
+    injection is reconstructed as:
+        net = (load_th + load_res) - (pv_th + pv_res)
+            - (wind_th + wind_res) + (batt_th + batt_res)
     """
 
-    def __init__(self, d_model, dropout=0.1, theory_proj_dim=32):
+    def __init__(self, d_model, dropout=0.1, theory_proj_dim=32, c_out=5):
         super().__init__()
+        self.c_out = c_out
         self.theory_proj = nn.Sequential(
-            nn.Linear(1, theory_proj_dim),
+            nn.Linear(c_out, theory_proj_dim),
             nn.GELU(),
         )
         self.net = nn.Sequential(
             nn.Linear(d_model + theory_proj_dim, d_model),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model, 1),
+            nn.Linear(d_model, c_out),
         )
         nn.init.normal_(self.net[-1].weight, std=0.01 / (d_model ** 0.5))
         nn.init.zeros_(self.net[-1].bias)
-        self.alpha = nn.Parameter(torch.tensor(0.0))
 
-    def forward(self, conditioned, theory_net):
-        theory_expanded = self.theory_proj(theory_net)
+    def forward(self, conditioned, component_norm):
+        theory_expanded = self.theory_proj(component_norm)
         inp = torch.cat([conditioned, theory_expanded], dim=-1)
-        residual = self.net(inp)
-        gate = torch.sigmoid(self.alpha)
-        return gate * residual
+        return self.net(inp)

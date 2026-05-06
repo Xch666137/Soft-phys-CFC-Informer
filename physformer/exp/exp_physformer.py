@@ -110,6 +110,11 @@ class Exp_PhysFormer(ForecastExperiment):
             no_soc_consistency=bool(getattr(self.args, "ablation_no_soc_consistency", False)),
             no_battery_physics_loss=bool(getattr(self.args, "ablation_no_battery_physics_loss", False)),
             component_loss_weight=float(getattr(self.args, "component_loss_weight", 0.05)),
+            res_reg_weight=float(getattr(self.args, "res_reg_weight", 0.01)),
+            phase_1_cw=float(getattr(self.args, "phase_1_cw", 0.1)),
+            phase_1_rr=float(getattr(self.args, "phase_1_rr", 0.05)),
+            phase_2_cw=float(getattr(self.args, "phase_2_cw", 0.05)),
+            phase_2_rr=float(getattr(self.args, "phase_2_rr", 0.01)),
         )
 
     def _move_batch(self, batch_data):
@@ -243,7 +248,18 @@ class Exp_PhysFormer(ForecastExperiment):
             start_epoch = state.get("epoch", 0)
             self.logger.info("Resumed from checkpoint | start_epoch=%d", start_epoch)
 
+        phase_1_end = int(getattr(self.args, "phase_1_epochs", 15))
+        phase_2_end = int(getattr(self.args, "phase_2_epochs", 40))
+
         for epoch in range(start_epoch, self.args.train_epochs):
+            # Curriculum phase switching
+            if epoch < phase_1_end:
+                self.criterion.set_phase(1)
+            elif epoch < phase_2_end:
+                self.criterion.set_phase(2)
+            else:
+                self.criterion.set_phase(3)
+
             self.model.train()
             train_loss_sum = None
             steps = 0
