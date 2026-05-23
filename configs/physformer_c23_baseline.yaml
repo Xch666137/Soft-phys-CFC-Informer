@@ -1,0 +1,24 @@
+# C-2+C-3 baseline: soft transition + two-stage cw 0.03→0.02 (Phase 2b removed 2026-05-23)
+_base_: base/v5_base.yaml
+model:
+  load_gru_hidden: 64
+  load_gru_use_temp: true
+training:
+  restart_t0: 20
+  phase_reset_mode: soft
+  phase_1_epochs: 8
+  phase_2a_epochs: 30
+  phase_2_epochs: 30
+  phase_1_cw: 0.03
+  phase_2a_cw: 0.02
+  phase_2_cw: 0.01
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+  train_epochs: 30
+  patience: 8
+  early_stop_start_epoch: 12
+  seed: 2025
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_c23_baseline
