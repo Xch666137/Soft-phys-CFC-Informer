@@ -49,6 +49,9 @@ training:
   early_stop_start_epoch: 10
   soc_weight: 0.1
   seed: 2024
+  use_compile: true
+  val_interval: 3
+  grad_angle_interval: 3
 
 hardware:
   use_gpu: true

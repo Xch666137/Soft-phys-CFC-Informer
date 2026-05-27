@@ -72,6 +72,9 @@ training:
   phase_reset_mode: soft
   seed: 2024
   detach_mode_phase2: none
+  use_compile: true
+  val_interval: 3
+  grad_angle_interval: 3
 
 hardware:
   use_gpu: true

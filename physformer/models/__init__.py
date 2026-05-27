@@ -18,7 +18,7 @@ All time-series forecasting models:
 __version__ = "1.0.0"
 __author__ = "XCH"
 
-from .physformer import PhysFormer
+from .physformer import PhysFormer, PhysFormeriGT
 from .informer import Informer
 from .autoformer import Autoformer
 from .lstm import LSTM
@@ -34,6 +34,7 @@ from .tft import TFT
 
 MODEL_REGISTRY = {
     'PhysFormer': PhysFormer,
+    'PhysFormer-iGT': PhysFormeriGT,
     'Informer': Informer,
     'Autoformer': Autoformer,
     'LSTM': LSTM,
@@ -57,7 +58,15 @@ def get_model(model_name):
 
 
 __all__ = [
-    'PhysFormer', 'Informer', 'Autoformer', 'LSTM', 'GRU',
+    'PhysFormer', 'PhysFormeriGT', 'Informer', 'Autoformer', 'LSTM', 'GRU',
     'PINN', 'DLinear', 'PatchTST', 'iTransformer', 'TiDE', 'TimeXer', 'TFT',
     'get_model', 'MODEL_REGISTRY',
 ]
+
+
+def __getattr__(name: str):
+    _PHYSFORMER_MODULES = {"physical_layer", "conditioning", "temporal_decoder", "flatten_head"}
+    if name in _PHYSFORMER_MODULES:
+        from importlib import import_module
+        return import_module(f".physformer.{name}", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
