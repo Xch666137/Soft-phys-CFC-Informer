@@ -2,8 +2,6 @@
 *.pth
 *.pt
 *.pkl
-*.npy
-*.npz
 
 ### --- 论文源码 (仅排除根目录散落的 .tex，保留 paper/ 下的) ---
 /*.tex
@@ -17,7 +15,7 @@
 
 ### --- 训练产物 ---
 /checkpoints/
-runs/
+/runs/
 logs/
 tensorboard/
 tb_logs/
@@ -25,8 +23,24 @@ lightning_logs/
 events.out.tfevents.*
 *.log
 
-### --- 可视化输出 (可重新生成) ---
-visualization/output/
+### --- Results 中的大文件 (保留 JSON/log，排除 numpy) ---
+results/**/*.npy
+results/**/*.npz
+results/**/checkpoint.pth
+results/**/training_state.pth
+
+### --- 可视化输出 (已合并到 scripts/viz/) ---
+visualization/
+
+### --- LaTeX 构建产物 ---
+paper/**/*.aux
+paper/**/*.bbl
+paper/**/*.blg
+paper/**/*.fdb_latexmk
+paper/**/*.fls
+paper/**/*.out
+paper/**/*.synctex.gz
+paper/**/*.bak0
 
 ### --- Python 缓存与环境 ---
 __pycache__/
@@ -55,4 +69,3 @@ CLAUDE.md
 .agent
 .claude
 downloads/
-analysis/

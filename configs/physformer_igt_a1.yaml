@@ -26,11 +26,12 @@ training:
   phase_2_rr: 0.0
   phase_1_tw: 0.0
   phase_2_tw: 0.0
-  seed: 2025
-  val_interval: 5
+  batch_size: 256
+  seed: 2026
+  val_interval: 1
   grad_angle_interval: 999
 hardware:
   num_workers: 4
   persistent_workers: true
 checkpoint:
-  name: physformer_igt_a1
+  name: physformer_igt_a1_s2026

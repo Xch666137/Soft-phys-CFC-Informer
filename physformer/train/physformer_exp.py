@@ -15,6 +15,7 @@ from .base import BaseExperiment, EarlyStopping
 
 
 class PhysFormerExperiment(BaseExperiment):
+    SCALER_BUFFER_NAMES = ("target_mean", "target_std", "aux_mean", "aux_std")
 
     def __init__(self, args):
         super().__init__(args)
@@ -31,7 +32,7 @@ class PhysFormerExperiment(BaseExperiment):
             compile_attrs = [
                 "encoder", "temporal_decoder", "weather_fusion",
                 "physics_film", "unified_head", "flatten_head",
-                "comp_embeddings", "weather_embeddings", "component_projectors",
+                "comp_embedding", "weather_embedding",
             ]
             for attr in compile_attrs:
                 sub = getattr(self.model, attr, None)
@@ -41,6 +42,7 @@ class PhysFormerExperiment(BaseExperiment):
         self.criterion = self._select_criterion().to(self.device)
         self._last_vali_stats = None
         self._last_grad_info = None
+        self._last_scaler_buffer_report = {}
 
     def _ensure_train_dataset(self):
         if self.train_dataset is None:
@@ -102,6 +104,7 @@ class PhysFormerExperiment(BaseExperiment):
             load_gru_use_temp=bool(getattr(self.args, "load_gru_use_temp", True)),
             load_temp_model=str(getattr(self.args, "load_temp_model", "mlp")),
             detach_scale=float(getattr(self.args, "detach_scale", 0.0)),
+            use_horizon_decoder=bool(getattr(self.args, "use_horizon_decoder", False)),
         ).float()
 
     def _select_optimizer(self):
@@ -109,6 +112,105 @@ class PhysFormerExperiment(BaseExperiment):
         if not self.trainable_parameters:
             raise ValueError("No trainable parameters available for optimizer.")
         return optim.AdamW(self.trainable_parameters, lr=self.args.learning_rate, weight_decay=wd)
+
+    def _resolve_checkpoint_path(self, path_like):
+        path = Path(path_like)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path
+
+    def _extract_model_state_dict(self, loaded):
+        if isinstance(loaded, dict):
+            for key in ("model_state_dict", "state_dict", "model"):
+                value = loaded.get(key)
+                if isinstance(value, dict):
+                    return value
+        return loaded
+
+    def _should_skip_scaler_key(self, key):
+        return key.split(".")[-1] in self.SCALER_BUFFER_NAMES
+
+    def _log_scaler_buffer_diffs(self, source_label):
+        report = {}
+        for name in self.SCALER_BUFFER_NAMES:
+            if not hasattr(self.model, name):
+                continue
+            expected = self.scaler_params.get(name) if self.scaler_params else None
+            if expected is None:
+                continue
+            buffer = getattr(self.model, name).detach()
+            expected_tensor = torch.as_tensor(expected, dtype=buffer.dtype, device=buffer.device).reshape_as(buffer)
+            max_diff = float((buffer - expected_tensor).abs().max().detach().cpu())
+            report[name] = max_diff
+        self._last_scaler_buffer_report = {
+            "source": source_label,
+            "max_abs_diff": report,
+        }
+        if report:
+            self.logger.info("Scaler buffer max diff after %s: %s", source_label, report)
+        return report
+
+    def _load_model_state(self, path, source_label, filter_scaler_buffers=False, strict=False):
+        loaded = torch.load(path, map_location=self.device)
+        state = self._extract_model_state_dict(loaded)
+        if not isinstance(state, dict):
+            raise ValueError(f"{source_label} at {path} did not contain a state dict.")
+
+        skipped = []
+        if filter_scaler_buffers:
+            skipped = [key for key in state.keys() if self._should_skip_scaler_key(key)]
+            state = {key: value for key, value in state.items() if key not in skipped}
+            if skipped:
+                self.logger.info("Skipped pretrained scaler buffers from %s: %s", source_label, skipped)
+            else:
+                self.logger.info("No pretrained scaler buffers found to skip from %s", source_label)
+
+        missing, unexpected = self.model.load_state_dict(state, strict=strict)
+        if missing:
+            self.logger.warning("%s missing keys: %s", source_label, missing[:5])
+        if unexpected:
+            self.logger.warning("%s unexpected keys: %s", source_label, unexpected[:5])
+        self.logger.info("Loaded %s from: %s", source_label, path)
+        self._log_scaler_buffer_diffs(source_label)
+        return {"missing": missing, "unexpected": unexpected, "skipped_scaler_buffers": skipped}
+
+    def _load_pretrained_weights(self):
+        pretrained_path = getattr(self.args, "pretrained_path", None)
+        if not pretrained_path:
+            return False
+        pretrained_path = self._resolve_checkpoint_path(pretrained_path)
+        if not pretrained_path.exists():
+            self.logger.warning("Pretrained checkpoint not found at: %s", pretrained_path)
+            return False
+        filter_scalers = not bool(getattr(self.args, "load_pretrained_scaler_buffers", False))
+        self._load_model_state(
+            pretrained_path,
+            "pretrained checkpoint",
+            filter_scaler_buffers=filter_scalers,
+            strict=False,
+        )
+        return True
+
+    def _capture_l2sp_reference(self):
+        return {
+            name: param.detach().clone()
+            for name, param in self.model.named_parameters()
+            if param.requires_grad
+        }
+
+    def _compute_l2sp_loss(self, reference):
+        total = None
+        count = 0
+        for name, param in self.model.named_parameters():
+            ref = reference.get(name)
+            if ref is None:
+                continue
+            diff_sum = (param - ref.to(device=param.device, dtype=param.dtype)).pow(2).sum()
+            total = diff_sum if total is None else total + diff_sum
+            count += param.numel()
+        if total is None or count == 0:
+            return next(self.model.parameters()).new_tensor(0.0)
+        return total / count
 
     def _select_criterion(self):
         self._ensure_train_dataset()
@@ -137,6 +239,7 @@ class PhysFormerExperiment(BaseExperiment):
             phase_1_tw=float(getattr(self.args, "phase_1_tw", 0.2)),
             phase_2_tw=float(getattr(self.args, "phase_2_tw", 0.1)),
             battery_component_weight=float(getattr(self.args, "battery_component_weight", 1.0)),
+            phase_2a_cw=float(getattr(self.args, "phase_2a_cw", 0.0)),
         )
 
     def _move_batch(self, batch_data):
@@ -301,15 +404,22 @@ class PhysFormerExperiment(BaseExperiment):
         )
 
         start_epoch = 0
+
+        # Load pretrained weights for finetuning (Phase B)
+        loaded_pretrained = self._load_pretrained_weights()
+        l2sp_weight = float(getattr(self.args, "l2sp_weight", 0.0))
+        l2sp_reference = None
+        if l2sp_weight > 0:
+            if loaded_pretrained:
+                l2sp_reference = self._capture_l2sp_reference()
+                self.logger.info("L2-SP enabled | weight=%.3e | reference=pretrained checkpoint", l2sp_weight)
+            else:
+                self.logger.warning("l2sp_weight > 0 but no pretrained checkpoint was loaded; disabling L2-SP")
+
         state_path = Path(self.run_dir) / "training_state.pth"
         if state_path.exists():
             state = torch.load(state_path, map_location=self.device)
-            chk = torch.load(self.checkpoint_path(), map_location=self.device)
-            missing, unexpected = self.model.load_state_dict(chk, strict=False)
-            if missing:
-                self.logger.warning("Checkpoint missing keys (new params): %s", missing[:5])
-            if unexpected:
-                self.logger.warning("Checkpoint unexpected keys (removed params): %s", unexpected[:5])
+            self._load_model_state(self.checkpoint_path(), "resume checkpoint", strict=False)
             optimizer.load_state_dict(state["optimizer"])
             if state.get("scheduler") is not None:
                 scheduler.load_state_dict(state["scheduler"])
@@ -349,6 +459,12 @@ class PhysFormerExperiment(BaseExperiment):
                 self.criterion.set_phase(3)
                 self.model.set_detach_mode("none")
 
+            # Graph bias annealing (A4): 1.0 → 0.1 over training
+            if hasattr(self.model, 'set_graph_bias_scale'):
+                progress = epoch / max(self.args.train_epochs - 1, 1)
+                scale = max(0.1, 1.0 * (1.0 - progress))
+                self.model.set_graph_bias_scale(scale)
+
             self.model.train()
             train_loss_sum = None
             steps = 0
@@ -361,6 +477,8 @@ class PhysFormerExperiment(BaseExperiment):
                 with autocast(enabled=use_amp):
                     result = self._process_one_batch(batch_data, collect_debug=False)
                     loss = result["loss"]
+                    if l2sp_reference is not None:
+                        loss = loss + l2sp_weight * self._compute_l2sp_loss(l2sp_reference)
                 train_loss_sum = loss.detach() if train_loss_sum is None else train_loss_sum + loss.detach()
                 steps += 1
                 if use_amp:
@@ -432,7 +550,7 @@ class PhysFormerExperiment(BaseExperiment):
                     self.logger.info("Early stopping")
                     break
 
-        self.model.load_state_dict(torch.load(self.checkpoint_path(), map_location=self.device))
+        self._load_model_state(self.checkpoint_path(), "best checkpoint", strict=False)
         return self.model
 
     def _denorm_target_np(self, value):
@@ -443,8 +561,16 @@ class PhysFormerExperiment(BaseExperiment):
     def test(self, load=True, return_preds=False):
         _, test_loader = self._get_data("test")
         if load:
-            self.logger.info("loading model")
-            self.model.load_state_dict(torch.load(self.checkpoint_path(), map_location=self.device))
+            checkpoint_path = self.checkpoint_path()
+            if checkpoint_path.exists():
+                self.logger.info("loading model checkpoint")
+                self._load_model_state(checkpoint_path, "test checkpoint", strict=False)
+            else:
+                self.logger.info("checkpoint missing; trying pretrained_path for direct test")
+                if not self._load_pretrained_weights():
+                    raise FileNotFoundError(
+                        f"No checkpoint found at {checkpoint_path} and no valid pretrained_path was configured."
+                    )
 
         self.model.eval()
         preds = []
@@ -526,6 +652,7 @@ class PhysFormerExperiment(BaseExperiment):
             "residual_mean_real_mw": metrics["residual_mean_real_mw"],
             "soc_bound_violation": metrics.get("soc_bound_violation", None),
             "test_loss_terms": {k: v / max(loss_batches, 1) for k, v in loss_terms_sum.items()},
+            "scaler_buffer_report": self._last_scaler_buffer_report,
         }
 
         extras = {
@@ -534,6 +661,7 @@ class PhysFormerExperiment(BaseExperiment):
             "physics_states.npz": physics_states,
             "diagnostic_summary.json": diagnostic_summary,
             "test_loss_terms.json": {k: v / max(loss_batches, 1) for k, v in loss_terms_sum.items()},
+            "scaler_buffer_report.json": self._last_scaler_buffer_report,
         }
         self.save_test_outputs(preds_real, trues_real, metrics, extras=extras)
 

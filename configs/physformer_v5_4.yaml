@@ -1,0 +1,11 @@
+# V5.4: DBC + component protection + reduced theory pressure (parallel num_workers=2)
+_base_: base/v5_base.yaml
+training:
+  restart_t0: 8
+  phase_2_cw: 0.02
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_v5_4

@@ -1,0 +1,87 @@
+{
+  "reviewer": "claude",
+  "file": "results/dual-draft/p1_full_results.md",
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "high",
+      "category": "methodology",
+      "description": "梯度缩放实验 (Batch 3) 缺少 α=0 对照组: Batch 3 使用 seed=2024 但未重跑 baseline (α=1) 和 detach (α=0)。α=0.3-0.5 的组件崩溃需与同 seed 下的 α=0 对比以确认部分梯度流是否确实比零梯度流更差。当前结论依赖跨 seed 对比，可能受 seed 效应混淆。",
+      "suggested_fix": "在同 seed=2024 下补充 baseline 和 detach 对照组，或引用 V6.1 seed=2024 的完整测试指标 (不仅 Theory MAE) 做同 seed 对比。",
+      "rationale": "α=0.3/0.5 组件崩溃与 no_temp_s2026 崩溃数值几乎一致 (Load ~0.014, Batt ~0.021)，暗示这可能是 seed=2024 下的系统性崩溃而非梯度缩放特有。同 seed 对照可区分两类原因。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "high",
+      "category": "physics_interpretation",
+      "description": "物理分支梯度死亡的统一根因未归纳: d512、α≤0.5、no_temp_s2026 三种触发条件均导致组件崩溃到同一数值 (Load ~0.014, Batt ~0.021)，表明存在一个共同的底层机制——物理-数据容量比失衡。当前分析分散在各批次结论中，缺少统一的机制性假说。",
+      "suggested_fix": "提出「梯度竞争假说」: 当共享编码器中数据通路的梯度幅度远超物理通路时 (通过 d_model 增大、梯度缩放减弱、或输入维度减少)，Adam 的 adaptive LR 会系统性压制物理分支参数更新。统一解释所有梯度死亡实例。",
+      "rationale": "分散的现象描述不能升级为机制性理解。论文需要 causal mechanism 而非 correlation observation。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "high",
+      "category": "statistical_validity",
+      "description": "Batch 3 和 Batch 4 均为单 seed (2024)，统计显著性未验证。α=0.5 的聚合优势 (MAE 0.001951 vs 0.001985) 差异仅 1.8%，在单次运行下可能在噪声范围内。e3 vs baseline 的 MAE 差异 (+2.3%) 同样未经多 seed 确认。",
+      "suggested_fix": "对 α=0.5 和 e3 做额外 2 个 seed 的确认实验，计算 Cohen's d 或 bootstrap 置信区间。如果资源有限，优先验证 e3 (最可行的架构改进方向)。",
+      "rationale": "Batch 1-2 多 seed 验证了 C07 的统计显著性，但 Batch 3-4 的新发现仍基于单 seed。不应重复 V5.5 消融的教训。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "OneCycleLR 的 pct_start=0.3 与 Phase 1→2 转换 (epoch 8) 不同步。Phase 1 (epoch 1-8) 使用 component_loss，Phase 2 (epoch 9+) 切换为 detach+joint loss。但 OneCycleLR 在 epoch 15 (30%×50) 才达到 max_lr。LR 峰值与 loss 景观切换错配——Phase 1 在低 LR 区域，Phase 2 的初始 7 个 epoch 仍在爬升 LR。",
+      "suggested_fix": "将 pct_start 对齐到 phase_1_epochs/train_epochs ≈ 0.16，使 LR 峰值与 Phase 2 开始同步。或改用 ConstantLR warmup + CosineAnnealing 保留原语义。",
+      "rationale": "Phase 1→2 是优化景观的断崖 (loss 函数变化 + detach 模式切换 + optimizer state reset)，此时 LR 应已在峰值区而非仍在爬升。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "overfitting",
+      "description": "d512 的 Val/Test 背离未区分过拟合 vs 数据泄露。Val MSE=0.378 (epoch 10, best) 但在 Test MAE 上退化 7.4%。这可能不是经典过拟合 (train loss 仍在下降)，而是验证集与测试集分布不一致 (验证集包含与训练集相同的 portfolio，测试集是 hold-out portfolio)。",
+      "suggested_fix": "检查 train/val/test 的 portfolio 分布。如果 val 和 train 共享 portfolio，大模型可能学到 portfolio-specific 模式，需要通过 cross-portfolio validation 诊断。",
+      "rationale": "VPP 数据的 portfolio 结构可能引入隐式的数据泄露。此问题影响所有使用 portfolio 分裂策略的实验。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "recommendation",
+      "description": "最终推荐逻辑链存在跳跃: 从「e3 是性价比最高的架构改进」直接跳到 e3 是推荐配置，未与 detach (α=0) 做端到端对比。当前 e3 (no detach) 和 detach (d256, α=0) 是独立实验，缺少 e3+detach 的联合配置。论文推荐的最优配置可能是 e3+detach 而非 e3 alone。",
+      "suggested_fix": "增加 e3+detach 联合实验。如果资源有限，在当前数据基础上明确标注推荐的不确定性: 「e3 no-detach 和 d256 detach 是两个 Pareto-optimal 点，联合配置待验证」。",
+      "rationale": "两个已验证的 Pareto 改进 (detach 改善物理, e3 改善深度) 可能叠加。不探索联合配置可能导致论文推荐的最优配置落后于实际 Pareto 前沿。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "missing_analysis",
+      "description": "缺少 e3 vs detach 的 head-to-head 对比分析。两者都是可行的单维度改进 (深度 vs 梯度隔离)，但适用场景不同: detach 改善物理一致性 (Theory -22%), e3 改善建模深度 (组件+物理双改善但幅度较小)。论文没有讨论两者的 trade-off 维度差异和组合可行性。",
+      "suggested_fix": "增加一张 Pareto 前沿图，横轴 Theory MAE，纵轴 Test MAE，标注 baseline、detach (s2025/s2026)、e3、d512_e3，可视化配置间的 trade-off 关系。",
+      "rationale": "多目标优化问题的结论不应是单一推荐，应是 Pareto 前沿 + 场景化建议 (如物理一致性优先选 detach, 均衡选 e3)。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "low",
+      "category": "physics_interpretation",
+      "description": "组件崩溃数值的一致性 (Load ~0.014, Batt ~0.021) 缺乏物理语义分析。这两个值可能对应物理分支的 'trivial predictor'——预测常数均值。需要确认崩溃后的组件预测是否为常数 (如 Load_pred = mean(Load_train))。",
+      "suggested_fix": "提取崩溃实验 (α=0.5, d512, no_temp_s2026) 的 test 组件预测，检查是否为常数输出。如果是常数，记录其常数数值并与训练集均值对比。",
+      "rationale": "确认崩溃的物理语义有助于理解梯度死亡的临床表现，也增强论文的机制性解释。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "low",
+      "category": "methodology",
+      "description": "Batch 1-2 使用不同种子 (2025/2026) 但 Batch 3-4 回到 seed=2024，seed 选择缺乏系统性和理由说明。seed=2024 可能恰好是一个'好'或'坏'的种子，影响 Batch 3-4 结论的泛化性。",
+      "suggested_fix": "后续实验使用固定种子集合 (如 2024/2025/2026 三个) 而非单一种子。短期: 在论文中明确标注哪些实验使用哪个种子，并讨论 seed 效应的可能影响。",
+      "rationale": "增加实验报告的透明度，避免审稿人质疑种子选择偏差。"
+    }
+  ]
+}

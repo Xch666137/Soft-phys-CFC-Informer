@@ -1,0 +1,94 @@
+{
+  "issues": [
+    {
+      "id": "C1",
+      "severity": "high",
+      "category": "training_dynamics",
+      "title": "C-2+C-3 产生非对称效应：在 baseline 模式下改善 Theory 22.9%，在 detach 模式下恶化 Theory 10.1%",
+      "location": "results/dual-draft/c23_results_target.md §Effect Isolation #1, #2",
+      "evidence": "c23_baseline vs p1a_baseline: Theory 0.002904→0.002240 (-22.9%). c23_detach vs p1a_detach: Theory 0.002257→0.002485 (+10.1%)",
+      "analysis": "根因假设：3-stage curriculum 将 detach 激活从 epoch 8 推迟到 epoch 30，物理分支在 Phase 2a (epoch 8-29, cw=0.02, detach=none) 中接收了 22 个 epoch 的中等强度组件监督。在 baseline 模式下这有益——给了物理分支足够的梯度信号优化。但在 detach 模式下，Phase 2b 突然切断 load/pv/wind 的梯度通路，而物理分支已过度适应有完整梯度的优化景观，导致剧烈退化。旧 2-stage 在 epoch 8 同时降低 cw 和激活 detach，物理分支'预期'了梯度减少。",
+      "suggestion": "测试 detach 在 Phase 2a 就激活（epoch 8 detach=selective + cw=0.02），而非等到 Phase 2b",
+      "line_start": 1,
+      "line_end": 1
+    },
+    {
+      "id": "C2",
+      "severity": "high",
+      "category": "training_dynamics",
+      "title": "e3 效应在 C-2+C-3 下反转——N57 发现被推翻",
+      "location": "results/dual-draft/c23_results_target.md §Effect Isolation #4",
+      "evidence": "c23_e3 vs c23_baseline: MAE +5.0%, Theory +16.3%. 对比 N57: p1b_e3 vs p1a_baseline had Theory -6.7% (改善)",
+      "analysis": "完整反转需要解释。两个可能：(a) soft transition + 3-stage cw 改变了优化景观，更深 encoder 在这个景观中过拟合到 Phase 2a 的组件监督，与 C1 的机制一致；(b) e3 在 hard reset 下效果来自 Phase 1→2 的 Adam 动量清零——e3 的更多参数受益于'重新开始'，而 soft transition 保留了可能已过度专门化的动量。N57 的 e3 结论可能绑定于 hard reset 条件，不具有泛化性。",
+      "suggestion": "运行 C-2+C-3 下的 e3+hard reset 消融，分离 soft transition 与 e3 的交互效应",
+      "line_start": 1,
+      "line_end": 1
+    },
+    {
+      "id": "C3",
+      "severity": "high",
+      "category": "physics_fidelity",
+      "title": "c23_detach 组件严重退化：PV +57%, BattP +52%, BattSOC +85% vs c23_baseline",
+      "location": "results/dual-draft/c23_results_target.md §Component MAE table",
+      "evidence": "c23_baseline→c23_detach: PV 0.00194→0.00305 (+57%), BattP 0.00160→0.00243 (+52%), BattSOC 0.00768→0.01421 (+85%)",
+      "analysis": "旧 detach (p1a_detach_s2025) 在组件上表现良好——它与 old baseline 有相似的组件指标（来自之前 V6.1 分析）。但 C-2+C-3 下的 detach 导致组件崩溃级退化。机制：Phase 2b (epoch 30+) 下 selective detach 切断 load/pv/wind 的梯度，但物理分支在 Phase 2a 的 22 个 epoch 中已深度耦合到共享编码器表征。切断后，物理分支失去了编码器的梯度通路，但 Adam 动量仍指向旧方向→参数朝错误方向更新。软过渡在这里起了反作用——hard reset 会清零错误的动量方向。",
+      "suggestion": "考虑在 Phase 2b 的 detach 激活时强制 hard reset（仅此一次），或让 detach 从 epoch 8 就激活",
+      "line_start": 1,
+      "line_end": 1
+    },
+    {
+      "id": "C4",
+      "severity": "medium",
+      "category": "correctness",
+      "title": "所有 5 个实验的 RampViol 精确为 0.0%——可能是指标计算 bug",
+      "location": "results/dual-draft/c23_results_target.md §Results table",
+      "evidence": "所有实验 RampViol=0.0000%。之前 V6.1 分析中 detach 配置有 RampViol=0.0090%（2.4× baseline）。seed=2025 的数据集可能没有爬坡事件，或 RampViol 计算使用了已改变的单位/分母",
+      "analysis": "重点怀疑方向：(1) seed=2025 的 test split 碰巧没有显著爬坡事件；(2) compute_forecast_metrics 中的 ramp 计算使用了错误的分母或阈值；(3) 之前的 RampViol 数值来自 seed=2024 的 test set，seed=2025 可能分布不同。低优先级但应在论文定稿前确认。",
+      "suggestion": "用 seed=2024 重跑一组 C-2+C-3 实验确认 RampViol 行为，或直接检查 compute_forecast_metrics 的 ramp 计算逻辑",
+      "line_start": 1,
+      "line_end": 1
+    },
+    {
+      "id": "C5",
+      "severity": "medium",
+      "category": "architecture",
+      "title": "c23_baseline 达到最优 Theory MAE (0.002240) 但付出了 +2.4% MAE 代价——确认 Pareto 前沿位置",
+      "location": "results/dual-draft/c23_results_target.md §Key Question #5",
+      "evidence": "Theory 改善 22.9% vs 旧 baseline，MAE 退化 2.4%。这个滑移比（22.9/2.4 ≈ 9.5）远优于旧 detach 的物理成本（Theory -22.3% 需要 MAE -1.0%，滑移比 22.3）",
+      "analysis": "C-2+C-3 在不同模式下的 Pareto 效率差异显著：baseline 模式下极其高效（9.5:1 Theory vs MAE 改善比），detach 模式下效率为负。这暗示 C-2+C-3 的核心机制（保留 Adam 动量 + 渐进式 cw 衰减）主要通过改善物理分支的优化路径起作用，而非通过改变物理-数据的梯度隔离边界。推荐论文中对比 C-2+C-3 baseline vs old baseline 作为 curriculum 改进的核心证据。",
+      "suggestion": "将 c23_baseline 作为 C05 叙事修正的实证支撑——'curriculum aids robustness but not better optima' 应改为 '3-stage curriculum enables better physics-accuracy Pareto trade-off'",
+      "line_start": 1,
+      "line_end": 1
+    },
+    {
+      "id": "C6",
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "title": "Val MSE 排序与 Test MAE 排序不一致——确认之前 V-3 的 MSE-MAE 分化机制",
+      "location": "results/dual-draft/c23_results_target.md §ValMSE column",
+      "evidence": "c23_e3 Val MSE=0.3980 (best), Test MAE=0.002160 (worst). c23_baseline Val MSE=0.4216 (worst), Test MAE=0.002058 (2nd best). 排序完全反转",
+      "analysis": "这与 V-3 发现的 d512 MSE-MAE 分化一致：Val MSE 与 Test MAE 之间的排序反转在多个架构配置中复现。这不是过拟合而是结构性的——MSE 优化目标天然偏向抑制大误差（降低 MSE），但可能以系统性小偏差为代价（升高 MAE）。更深/更宽的编码器加剧了这个效应。这已不再是 d512 的孤立现象，而是 PhysFormer 架构的通用特性。",
+      "suggestion": "论文中应包含 MSE vs MAE 排序对比表，作为优化目标与评估指标不匹配的方法论讨论",
+      "line_start": 1,
+      "line_end": 1
+    },
+    {
+      "id": "C7",
+      "severity": "low",
+      "category": "implementation",
+      "title": "c23_e3 的 component PV/Wind/Batt 退化与 e_layers=3 下可能的过参数化",
+      "location": "results/dual-draft/c23_results_target.md §Component MAE table, c23_e3 row",
+      "evidence": "c23_e3 components: PV 0.00380 (2.0× c23_baseline), Wind 0.00072 (2.3×), BattP 0.00316 (2.0×), BattSOC 0.01619 (2.1×)",
+      "analysis": "所有 5 个组件在 e3 下均匀退化 ~2×。这不是个别组件的问题而是系统性退化。可能原因：e_layers=3 的额外 256→256 编码器层增加了约 1.3M 参数，在 3-stage curriculum 的延长 Phase 2a 中过拟合到训练集。由于组件监督在归一化空间计算，更多参数可能学到了训练集的组件噪声模式。",
+      "suggestion": "为 e3 配置增加 weight_decay（当前 1e-5 → 1e-4），或减少 Phase 2a 的 epoch 数（30→20）以减轻过拟合",
+      "line_start": 1,
+      "line_end": 1
+    }
+  ],
+  "meta": {
+    "reviewer": "Claude",
+    "target": "results/dual-draft/c23_results_target.md",
+    "timestamp": "2026-05-18T20:00",
+    "issue_count": 7
+  }
+}

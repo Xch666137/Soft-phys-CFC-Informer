@@ -42,7 +42,7 @@ data:
   freq: t
 
 training:
-  batch_size: 64
+  batch_size: 128
   train_epochs: 50
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5

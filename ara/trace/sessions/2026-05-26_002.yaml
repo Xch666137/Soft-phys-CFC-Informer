@@ -1,0 +1,84 @@
+session:
+  id: "2026-05-26_002"
+  date: "2026-05-26"
+  started: "2026-05-26T15:00"
+  last_turn: "2026-05-26T18:30"
+  turn_count: 3
+  summary: "PhysFormer-iGT architecture redesign: Physics-Twin Graph iTransformer with 4 innovation axes, P0-P3 phased path, A0-A8 ablation chain. P0 correctness fixes completed (real-unit aggregation + load branch + component hist). Design doc at docs/plans/2026-05-26-physformer-igt-architecture.md."
+
+events_logged:
+  - turn: 1
+    type: decision
+    id: N96
+    routing: direct
+    provenance: user
+    summary: "PhysFormer-iGT architecture redesign — Physics-Twin Graph iTransformer chosen over incremental detach optimization. 4 innovation axes: Component-Physics Twin Tokenization, Graph-constrained Attention, Identifiable Component Residual, State-space Battery Decoder."
+  - turn: 1
+    type: observation
+    id: O45
+    routing: staged
+    provenance: ai-suggested
+    summary: "iGT architecture design with P0-P3 phased path, A0-A8 ablation chain (A0=baseline through A8=full iGT), falsification protocols, risk mitigations."
+  - turn: 2
+    type: experiment
+    id: N97
+    routing: direct
+    provenance: ai-executed
+    summary: "P0-1: Fixed real-unit power balance — _build_component_net now operates in MW space. Verified: OLD bug MAE=1.72, NEW MAE=0.0."
+  - turn: 2
+    type: experiment
+    id: N98
+    routing: direct
+    provenance: ai-executed
+    summary: "P0-2: Load branch uses load history instead of net history. Backward compatible (falls back to net). Verified: load theory differs with different input, PV/Wind unchanged."
+  - turn: 2
+    type: experiment
+    id: N99
+    routing: direct
+    provenance: ai-executed
+    summary: "P0-3: Data pipeline returns x_component_hist (seq_len, 5). training loop unpacks x_load_hist from component history. Verified: 34273 samples, 10 items per __getitem__, shape correct."
+  - turn: 3
+    type: observation
+    id: O46
+    routing: staged
+    provenance: ai-executed
+    summary: "P0 normalization bug: per-component z-score mixing in _build_component_net caused aux_std-dependent distortion of power balance. Affected forward/loss path — all pre-fix metrics confounded, rankings may not be preserved."
+
+ai_actions:
+  - turn: 1
+    action: "Created design doc docs/plans/2026-05-26-physformer-igt-architecture.md (487 lines). Added N96 to exploration tree. Updated PAPER.md status. Saved project memory."
+    provenance: ai-executed
+    files_changed: ["docs/plans/2026-05-26-physformer-igt-architecture.md", "ara/trace/exploration_tree.yaml", "ara/PAPER.md", "memory/project_igt_architecture.md"]
+  - turn: 2
+    action: "Implemented P0 fixes: real-unit power balance (model.py), load branch input (physical_layer.py + model.py), component history (data.py + physformer_exp.py). Wrote 4 verification scripts."
+    provenance: ai-executed
+    files_changed: ["physformer/models/physformer/model.py", "physformer/models/physformer/physical_layer.py", "physformer/data.py", "physformer/train/physformer_exp.py", "scripts/verify_p0_real_unit_balance.py", "scripts/verify_p0_model_integration.py", "scripts/verify_p0_load_branch.py", "scripts/verify_p0_component_hist.py"]
+  - turn: 3
+    action: "11 design doc revisions: fixed P1/A1/A2 token count, A3/A8 daily patch, residual denorm, relative ranking, added Canberra local time, blocked temporal split, physics twin cleanup, battery κ, W2 default path, graph bias expansion, attention caveat."
+    provenance: ai-executed
+    files_changed: ["docs/plans/2026-05-26-physformer-igt-architecture.md"]
+
+claims_touched:
+  - id: C10
+    action: advanced
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "User: 方向A（iTransformer）是最优的下一步... 真正有创新性的版本应该升级成 Component-Physics Twin iTransformer / Graph-constrained Phys-iTransformer"
+  - turn: 2
+    excerpt: "User: 先P0+P1修baseline，再做最小iTransformer PoC是没问题的，但是在做这些之前，请你先为我们的新架构调整方向做一个markdown文件"
+  - turn: 3
+    excerpt: "User: 不算完全对齐... 这个markdown和我们讨论的主方案是高度对齐的... 但有几处实现层面的不一致"
+
+open_threads:
+  - "P1-1: 8-token iTransformer PoC — gate condition: MAE within 2× baseline (~2e-3 to ~4e-3 MW)"
+  - "P1-2: +1 physics token → 9 token total"
+  - "Full A0→A8 ablation chain pending P1 gate pass"
+  - "Canberra local time: CSV date column is UTC, needs Australia/Sydney conversion before training"
+  - "Battery κ calibration from data before enforcing physical efficiency bounds"
+
+ai_suggestions_pending:
+  - "W2 weather patch tokens + per-step weather injection as default for iGT"
+  - "Graph bias annealing schedule: B_phys 1.0→0.1 over training"
+  - "Multiplicative PV/Wind residual (exp) vs additive Load/Battery"

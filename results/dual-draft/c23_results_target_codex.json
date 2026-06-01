@@ -1,0 +1,94 @@
+{
+  "reviewer": "codex",
+  "file": "C:/Users/Xch/.codex/worktrees/7c57/Physformer/results/dual-draft/c23_results_target.md",
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "architecture",
+      "location": "c23_results_target.md:7",
+      "description": "The proposal bundles optimizer-state transition and curriculum-weight changes, creating a coupled experiment that cannot attribute effects to either mechanism.",
+      "original_snippet": "- **C-2**: Phase 1->2 Adam optimizer state soft transition ...\n- **C-3**: Three-stage curriculum cw decay: 0.03 ... -> 0.02 ... -> 0.01",
+      "suggested_fix": "Run a 2x2 ablation with old/new optimizer transition crossed against old/new curriculum, then evaluate detach and e3 only after the base interaction is understood.",
+      "rationale": "When two training-control mechanisms change together, improvements or regressions may come from either change or their interaction, so design conclusions are not actionable."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "c23_results_target.md:7",
+      "description": "Preserving Adam moments across a phase/loss-regime transition can carry stale gradient statistics into a different objective.",
+      "original_snippet": "**C-2**: Phase 1->2 Adam optimizer state soft transition (preserve exp_avg/exp_avg_sq instead of hard zeroing)",
+      "suggested_fix": "Use a damped transition such as scaling Adam moments by a small factor, resetting only affected parameter groups, or warming the new loss weight over several epochs while monitoring gradient norms.",
+      "rationale": "Adam's first and second moments encode the previous objective landscape; reusing them unchanged after changing physics weights can bias updates and slow or destabilize convergence."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "c23_results_target.md:8",
+      "description": "The curriculum stage boundary at epoch 8 coincides with OneCycleLR's likely learning-rate peak from pct_start=0.16 over 50 epochs.",
+      "original_snippet": "cw decay: 0.03 (epoch 0-7) -> 0.02 (epoch 8-29) -> 0.01 (epoch 30-49)\nAll experiments ... OneCycleLR pct_start=0.16",
+      "suggested_fix": "Decouple LR and curriculum transitions by moving the curriculum boundary away from the LR peak, or introduce a short transition ramp with gradient-norm diagnostics.",
+      "rationale": "Changing both LR regime and physics weight at the same time makes training transients hard to interpret and can produce apparent curriculum effects that are actually scheduler effects."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "c23_results_target.md:11",
+      "description": "Early stopping can terminate training before the third curriculum stage is reached or meaningfully evaluated.",
+      "original_snippet": "early_stop_start_epoch=5/patience=8",
+      "suggested_fix": "Make early stopping phase-aware, for example disable it until after epoch 30 plus a minimum dwell time, or require validation improvement checks separately within each curriculum stage.",
+      "rationale": "With patience 8 starting at epoch 5, a run can stop around epoch 13, so the advertised epoch 30-49 cw=0.01 phase may never affect the selected checkpoint."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "c23_results_target.md:11",
+      "description": "All conclusions are based on a single random seed despite small reported differences between configurations.",
+      "original_snippet": "All experiments: seed=2025",
+      "suggested_fix": "Repeat each configuration across multiple seeds and report mean, standard deviation, and paired deltas for MAE, Theory MAE, and component metrics.",
+      "rationale": "Several effects are small enough that optimizer stochasticity, initialization, or data ordering could reverse the ranking."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "location": "c23_results_target.md:17",
+      "description": "RampViol is exactly 0.0 for every configuration, which makes the ramp constraint non-discriminative as a physics metric.",
+      "original_snippet": "| p1a_baseline_s2025 ... | 0.0 |\n| p1a_detach_s2025 ... | 0.0 |\n| c23_baseline ... | 0.0 |\n| c23_detach ... | 0.0 |\n| c23_e3 ... | 0.0 |",
+      "suggested_fix": "Validate the RampViol implementation with synthetic violating predictions, report raw ramp margins or violation magnitudes, and check whether clipping, normalization, or threshold scaling is masking violations.",
+      "rationale": "A constraint metric that is always zero cannot guide design decisions and may indicate a disabled, incorrectly scaled, or trivially satisfied physics check."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "c23_results_target.md:27",
+      "description": "Aggregate MAE hides large component-level regressions in PV, battery power, and battery SOC.",
+      "original_snippet": "| c23_baseline | 0.00187 | 0.00194 | 0.00032 | 0.00160 | 0.00768 |\n| c23_detach | 0.00201 | 0.00305 | 0.00040 | 0.00243 | 0.01421 |\n| c23_e3 | 0.00215 | 0.00380 | 0.00072 | 0.00316 | 0.01619 |",
+      "suggested_fix": "Add component-level acceptance gates and physics constraints, especially SOC transition consistency and battery power feasibility, rather than selecting primarily on net MAE or Theory MAE.",
+      "rationale": "VPP net-power accuracy can improve through cancellation between physically wrong components, which weakens deployability and interpretability."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "medium",
+      "category": "implementation",
+      "location": "c23_results_target.md:50",
+      "description": "Phase behavior is split across trainer logic, mutable loss state, and config fields, increasing integration risk.",
+      "original_snippet": "Phase logic with soft/hard transition + 3-stage phases (2a/2b)\nPhysLoss with phase_2a_cw parameter, set_phase(\"2a\") support",
+      "suggested_fix": "Centralize phase scheduling in a single scheduler object that emits explicit loss weights and reset actions per epoch, and pass those values into the loss call instead of mutating loss phase state.",
+      "rationale": "Duplicated phase labels and mutable cross-module state make checkpoint resume, evaluation mode, logging, and future phase additions easy to desynchronize."
+    }
+  ]
+}

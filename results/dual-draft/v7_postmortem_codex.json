@@ -1,0 +1,160 @@
+{
+  "reviewer": "codex",
+  "file": "results/dual-draft/v7_postmortem_target.md",
+  "issues": [
+    {
+      "line_start": 5,
+      "line_end": 5,
+      "severity": "high",
+      "category": "architecture",
+      "location": "results/dual-draft/v7_postmortem_target.md:5",
+      "description": "The architecture lets unconstrained residual heads compensate for weak physics branches, so aggregate accuracy can improve while component fidelity degrades.",
+      "original_snippet": "Architecture: shared Transformer encoder + FiLM-conditioned physics branches (PV, Wind, Battery) + behavioral Load branch (Temp MLP + GRU temporal module) + per-component residual heads.",
+      "suggested_fix": "Constrain residuals as bounded corrections after physically valid component predictions, add residual magnitude or orthogonality penalties, and select checkpoints with component-level constraints in addition to aggregate loss.",
+      "rationale": "A residual bypass can learn the target directly and hide errors in PV, wind, load, or battery branches, which undermines the stated physics-informed decomposition."
+    },
+    {
+      "line_start": 5,
+      "line_end": 5,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "results/dual-draft/v7_postmortem_target.md:5",
+      "description": "The curriculum reduces component supervision after epoch 8 even though the best checkpoints occur around epochs 4-9.",
+      "original_snippet": "2-phase curriculum (Phase1 epochs 1-8: component_loss_weight=0.03, Phase2 epochs 9+: cw=0.02).",
+      "suggested_fix": "Use normalized per-component losses with adaptive weighting, or pretrain theory branches before enabling residual heads instead of lowering component pressure near convergence.",
+      "rationale": "Lowering the component loss when the model is already settling can encourage the aggregate objective and residual heads to dominate the physical branches."
+    },
+    {
+      "line_start": 20,
+      "line_end": 20,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "results/dual-draft/v7_postmortem_target.md:20",
+      "description": "The balance-point load model is instantaneous and omits thermal inertia, lagged temperature exposure, humidity, calendar effects, and occupancy-like structure.",
+      "original_snippet": "load_temp = α_h * softplus(T_bal_h − T) + α_c * softplus(T − T_bal_c)",
+      "suggested_fix": "Use lagged temperature states or degree-hour features, optionally with a small constrained correction network over temperature history and calendar context.",
+      "rationale": "Building load typically responds to accumulated thermal state rather than only current temperature, so a static curve is likely misspecified."
+    },
+    {
+      "line_start": 20,
+      "line_end": 20,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "results/dual-draft/v7_postmortem_target.md:20",
+      "description": "Plain softplus produces nonzero heating or cooling contribution at the balance point, which biases the physical interpretation of the setpoints.",
+      "original_snippet": "load_temp = α_h * softplus(T_bal_h − T) + α_c * softplus(T − T_bal_c)",
+      "suggested_fix": "Use shifted smooth hinges such as softplus(kx)/k - softplus(0)/k with learnable or fixed sharpness, or a constrained piecewise-linear deadband model.",
+      "rationale": "At x=0, softplus is positive, so the model does not represent zero heating or cooling demand at the learned threshold without relying on a compensating offset."
+    },
+    {
+      "line_start": 21,
+      "line_end": 21,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "results/dual-draft/v7_postmortem_target.md:21",
+      "description": "The heating and cooling balance points are independent, so the learned model can collapse or invert the deadband.",
+      "original_snippet": "Parameters: T_bal_h (init 18°C), T_bal_c (init 24°C), α_heat_raw, α_cool_raw (softplus positive), base_offset.",
+      "suggested_fix": "Parameterize T_bal_c = T_bal_h + min_gap + softplus(delta_gap), and regularize setpoints to plausible HVAC ranges.",
+      "rationale": "Without an ordering constraint, optimization can create overlapping heating and cooling regimes that are physically hard to justify."
+    },
+    {
+      "line_start": 21,
+      "line_end": 21,
+      "severity": "low",
+      "category": "implementation",
+      "location": "results/dual-draft/v7_postmortem_target.md:21",
+      "description": "The design declares a base_offset parameter that is absent from the displayed load_temp equation.",
+      "original_snippet": "Parameters: T_bal_h (init 18°C), T_bal_c (init 24°C), α_heat_raw, α_cool_raw (softplus positive), base_offset.",
+      "suggested_fix": "Either include + base_offset in the formal model and test it, or remove the parameter from the implementation and documentation.",
+      "rationale": "A mismatch between the mathematical spec and parameter list creates risk of a dead parameter or an undocumented bias term."
+    },
+    {
+      "line_start": 27,
+      "line_end": 38,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "location": "results/dual-draft/v7_postmortem_target.md:27",
+      "description": "The aggregate MAE hides severe component degradation, especially for V7 BP across load, PV, wind, battery power, and SOC.",
+      "original_snippet": "| MAE | 0.002017 | 0.002016 | 0.002148 | 0.002058 |\n| Load MAE | 0.001936 | 0.002495 | 0.002124 | 0.002168 |\n| PV MAE | 0.002551 | 0.004233 | 0.003850 | 0.003738 |\n| Wind MAE | 0.000319 | 0.000852 | 0.000653 | 0.000686 |\n| Batt P MAE | 0.001703 | 0.003590 | 0.003103 | 0.002649 |\n| Batt SOC MAE | 0.008910 | 0.016826 | 0.016055 | 0.014618 |",
+      "suggested_fix": "Promote component metrics to gating criteria, report Pareto tradeoffs, and require physically valid component decomposition before accepting equal net-power accuracy.",
+      "rationale": "For VPP forecasting, a model that gets net power right through cancellation can still be physically wrong and operationally unsafe."
+    },
+    {
+      "line_start": 31,
+      "line_end": 32,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "results/dual-draft/v7_postmortem_target.md:31",
+      "description": "Residual Mean is being interpreted as residual correction size even though V7 BP has much higher residual variance.",
+      "original_snippet": "| Residual Mean | -0.000949 | -0.000120 | -0.000213 | -0.000975 |\n| Residual Std | 0.002276 | 0.003304 | 0.002597 | 0.002969 |",
+      "suggested_fix": "Report residual MAE, RMSE, signed bias, variance, autocorrelation, and per-component residual energy before concluding that correction is smaller.",
+      "rationale": "A near-zero mean can simply indicate unbiased corrections, while the residual head may still be doing more work through larger positive and negative swings."
+    },
+    {
+      "line_start": 37,
+      "line_end": 38,
+      "severity": "high",
+      "category": "missing_mechanism",
+      "location": "results/dual-draft/v7_postmortem_target.md:37",
+      "description": "Battery power and SOC errors suggest the design lacks a hard battery state-transition mechanism.",
+      "original_snippet": "| Batt P MAE | 0.001703 | 0.003590 | 0.003103 | 0.002649 |\n| Batt SOC MAE | 0.008910 | 0.016826 | 0.016055 | 0.014618 |",
+      "suggested_fix": "Model SOC with a differentiable state update using charge/discharge efficiency, capacity, bounds, and ramp constraints, and penalize or project invalid trajectories.",
+      "rationale": "SOC is a cumulative state, so predicting it as another loose branch output can violate energy conservation and amplify small battery-power errors over time."
+    },
+    {
+      "line_start": 42,
+      "line_end": 51,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "results/dual-draft/v7_postmortem_target.md:42",
+      "description": "The learning-rate schedule is misaligned with observed convergence because the first restart happens long after all best checkpoints.",
+      "original_snippet": "ALL 4 experiments converge to best Val MSE between epochs 4-9. NO experiment improves after epoch 14.\n\nThe CosineAnnealingWarmRestarts at epoch 25 gave a transient Val MSE dip ... but could not beat the early best.",
+      "suggested_fix": "Run an LR-range test and compare shorter schedules such as one-cycle over 8-12 epochs, flat-then-decay, or cosine with T_0 shorter than the observed convergence window.",
+      "rationale": "A restart at epoch 25 cannot address optimization dynamics that have already plateaued by epoch 14."
+    },
+    {
+      "line_start": 44,
+      "line_end": 49,
+      "severity": "medium",
+      "category": "implementation",
+      "location": "results/dual-draft/v7_postmortem_target.md:44",
+      "description": "Validation MSE values are on a very different scale from final test MSE, but the design does not define the metric transform or units.",
+      "original_snippet": "| Config | Best Epoch | Best Val MSE | Best post-epoch-14 |\n| V6 S2 gru64 | 9 | 0.386476 | 0.422546 (ep15) |\n| V7 BP | 4 | 0.427316 | 0.430146 (ep27) |",
+      "suggested_fix": "Report whether validation MSE is normalized, scaled, or composite, and include raw-unit validation metrics comparable to the test table.",
+      "rationale": "Without metric-scale clarity, conclusions about convergence, checkpoint quality, and schedule effectiveness are hard to audit."
+    },
+    {
+      "line_start": 51,
+      "line_end": 51,
+      "severity": "medium",
+      "category": "scalability",
+      "location": "results/dual-draft/v7_postmortem_target.md:51",
+      "description": "The early-stopping configuration wastes most of the training budget after the useful convergence window.",
+      "original_snippet": "All experiments early-stopped at epoch 39 (patience=20, start_epoch=20).",
+      "suggested_fix": "Start early stopping shortly after warmup, use patience around 5-8 with min_delta, and cap this ablation family near 15 epochs unless later improvements are demonstrated.",
+      "rationale": "If no run improves after epoch 14, continuing to epoch 39 consumes roughly two thirds of compute without improving model selection."
+    },
+    {
+      "line_start": 55,
+      "line_end": 62,
+      "severity": "medium",
+      "category": "implementation",
+      "location": "results/dual-draft/v7_postmortem_target.md:55",
+      "description": "The previous V6.1 baseline is treated as comparable even though its metrics differ materially from the current V6 S2 baseline.",
+      "original_snippet": "V6.1 2x2 ablation (N29: remove temp from GRU, N30: selective gradient detach) on same base architecture:\n\n| baseline | 0.001952 | 7.691e-06 | 0.002483 | -0.000949 |",
+      "suggested_fix": "Rerun the gradient-isolation ablation under the exact current code, data split, seed protocol, and metric pipeline, then report confidence intervals.",
+      "rationale": "Cross-run baseline drift can make the apparent benefit of detach or temperature changes look larger or smaller than it really is."
+    },
+    {
+      "line_start": 70,
+      "line_end": 70,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "results/dual-draft/v7_postmortem_target.md:70",
+      "description": "Binary gradient detach is a blunt isolation mechanism that can improve theory metrics while starving the shared encoder or hurting aggregate accuracy.",
+      "original_snippet": "V6.1 detach (N30) achieved Theory MAE -10% vs baseline ... by selectively detaching residual-head gradients from load/PV/wind theory branches. But V6.1 full (N29+N30) was antagonistic — too much isolation starved the encoder.",
+      "suggested_fix": "Replace binary detach with gradient scaling, PCGrad/GradNorm-style conflict handling, or staged residual unfreezing, and evaluate with multi-seed paired runs.",
+      "rationale": "The reported antagonism is exactly the failure mode expected when shared representations receive incomplete or conflicting gradients."
+    }
+  ]
+}

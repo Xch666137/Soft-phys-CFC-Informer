@@ -1,0 +1,204 @@
+session:
+  id: "2026-05-17_001"
+  date: "2026-05-17"
+  started: "2026-05-16T14:00"
+  last_turn: "2026-05-17T23:00"
+  turn_count: 20
+  summary: "P0→P1-A (2-seed C07)→P1-A gradient scaling (α=0.3/0.5/0.7)→P1-B encoder (d512/e3/d512_e3)→dual-draft 26 issues. Key findings: α threshold ≥0.7 for physics gradient survival; width harmful (d512 collapse), depth beneficial (e3); dual-draft complementary (0 consensus, 9 Claude + 17 Codex)"
+
+events_logged:
+  - turn: 1
+    type: decision
+    id: "N52"
+    routing: direct
+    provenance: ai-executed
+    summary: "P0 code changes: OneCycleLR replaces CosineAnnealingWarmRestarts, early_stop_start_epoch=5, patience=8"
+  - turn: 2
+    type: experiment
+    id: "N53"
+    routing: direct
+    provenance: ai-executed
+    summary: "P1-A Batch 1 (seed=2025): baseline, detach, no_temp — 3 parallel on vGPU-32GB. All completed with P0 scheduler."
+  - turn: 3
+    type: experiment
+    id: "N54"
+    routing: direct
+    provenance: ai-executed
+    summary: "P1-A Batch 2 (seed=2026): baseline, detach, no_temp — 3 parallel. Auto-finisher script ran test+summary."
+  - turn: 4
+    type: observation
+    id: "O18"
+    routing: staged
+    provenance: ai-executed
+    summary: "no_temp_s2026 gradient vanishing: Load MAE=0.0143 (6.6× baseline), Batt MAE=0.0213. N22-like failure. Residual head compensated → aggregate MSE paradoxically best (7.85e-6)."
+  - turn: 5
+    type: observation
+    id: "O19"
+    routing: staged
+    provenance: ai-executed
+    summary: "C07 cross-seed robust: detach > baseline > no_temp ranking stable across s2024/s2025/s2026. detach mean MAE=0.001998 (2-seed), Theory MAE=0.002326."
+  - turn: 6
+    type: observation
+    id: "O20"
+    routing: staged
+    provenance: ai-executed
+    summary: "P1-A gradient scaling (α=0.3/0.5/0.7) + P1-B encoder bottleneck (d512, e3) configs created, pending launch."
+
+ai_actions:
+  - turn: 1
+    action: "Implemented P0: OneCycleLR, early_stop=5, patience=8 in physformer_exp.py, config.py, v5_base.yaml"
+    provenance: ai-executed
+    files_changed: ["physformer/train/physformer_exp.py", "physformer/config.py", "configs/base/v5_base.yaml", "physformer/models/physformer/model.py"]
+  - turn: 2
+    action: "Created 12 experiment configs (6 multi-seed + 3 gradient scaling + 3 encoder bottleneck)"
+    provenance: ai-executed
+    files_changed: ["configs/physformer_p1a_*.yaml", "configs/physformer_p1b_*.yaml"]
+  - turn: 3
+    action: "Launched Batch 1 (3× s2025) on AutoDL vGPU-32GB, monitored, ran tests, pulled results"
+    provenance: ai-executed
+    files_changed: ["results/p1_batch1/"]
+  - turn: 4
+    action: "Launched Batch 2 (3× s2026) on AutoDL vGPU-32GB, deployed auto-finisher script"
+    provenance: ai-executed
+    files_changed: ["scripts/train/batch2_finisher.sh", "results/p1_batch2/"]
+  - turn: 5
+    action: "Cross-seed comparison: detach consistently best on MAE and Theory MAE"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 6
+    action: "ARA session recording and claim evidence update"
+    provenance: ai-executed
+    files_changed: ["ara/trace/sessions/2026-05-17_001.yaml", "ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml", "ara/logic/claims.md"]
+
+claims_touched:
+  - id: C07
+    action: strengthened
+    turn: 5
+  - id: C08
+    action: strengthened
+    turn: 5
+
+key_context:
+  - turn: 3
+    excerpt: "detach wins on MAE (0.001988), Theory MAE (0.002257), residual mean (-0.000145) in s2025"
+  - turn: 4
+    excerpt: "notemp_s2026 shows N22-like gradient vanishing — input-side isolation unstable vs gradient-side"
+  - turn: 5
+    excerpt: "Two-seed ranking consensus: detach < baseline < no_temp on MAE; detach << baseline < no_temp on Theory MAE"
+
+open_threads:
+  - "P1-A Batch 3: gradient scaling α=0.3/0.5/0.7 (configs ready, pending launch)"
+  - "P1-B Batch 4: encoder bottleneck d512/e3/d512_e3 (configs ready, pending launch)"
+  - "O18 no_temp gradient vanishing risk needs investigation (frequency across seeds, trigger conditions)"
+  - "P2 items held: SWA, diff wd, residual constraints, battery SOC, lagged temp"
+
+  - turn: 7
+    type: experiment
+    id: "N56"
+    routing: direct
+    provenance: ai-executed
+    summary: "P1-A Batch 3 (gradient scaling α=0.3/0.5/0.7, seed=2024): α≥0.7 physics gradients survive, α≤0.5 die. α=0.5 best aggregate (MAE=0.001951) but components collapsed. α=0.3 strictly dominated. Partial gradient flow worse than zero flow."
+  - turn: 8
+    type: experiment
+    id: "N57"
+    routing: direct
+    provenance: ai-executed
+    summary: "P1-B Batch 4 (encoder bottleneck: d512, e3, d512_e3, seed=2024): d512 Val MSE broke ceiling (0.378) but Test MAE degraded +7.4% (overfit + component collapse). e3 best Test MAE (0.002056) with healthy physics (Theory -6.7%). Width harmful, depth beneficial."
+  - turn: 9
+    type: observation
+    id: "O20"
+    routing: staged
+    provenance: ai-executed
+    summary: "Gradient competition hypothesis (Claude dual-draft): Adam adaptive LR systematically suppresses physics branch when data-pathway gradient magnitude dominates (via larger d_model, weaker α, or reduced input dim). Unifies all gradient death instances."
+  - turn: 10
+    type: observation
+    id: "O21"
+    routing: staged
+    provenance: ai-executed
+    summary: "LR-Phase misalignment (Claude dual-draft): OneCycleLR pct_start=0.3 peaks at epoch 15, but Phase 1→2 transition at epoch 8 shifts loss landscape. Phase 2 begins while LR still climbing."
+  - turn: 11
+    type: observation
+    id: "O22"
+    routing: staged
+    provenance: ai-executed
+    summary: "Collapse values may be implementation boundary not mechanism (Codex dual-draft): ~0.0145/~0.02135 cross-config consistency suggests constant output, clamp/softplus saturation, or normalization inverse-transform ceiling — not purely capacity-imbalance."
+  - turn: 12
+    type: observation
+    id: "O23"
+    routing: staged
+    provenance: ai-executed
+    summary: "Val/Test MSE scale mismatch (Codex dual-draft): Val MSE ~0.38 vs Test MSE ~8e-6 differ by ~5e4×. If not same scale, 'Val breakthrough but Test degradation' narrative invalid."
+  - turn: 13
+    type: decision
+    id: "N58"
+    routing: direct
+    provenance: ai-executed
+    summary: "Dual-draft on all P1 batches complete: 0 consensus, 9 Only-Claude, 17 Only-Codex. Complete complementarity — Claude focused on mechanism (gradient competition, Pareto frontier, LR-phase), Codex on rigor (seed mixing, α grid sparsity, collapse value diagnostics, residual takeover quantification). Report at results/dual-draft/p1_full_results_report.md."
+  - turn: 14
+    type: observation
+    id: "O24"
+    routing: staged
+    provenance: ai-executed
+    summary: "26 dual-draft issues prioritized: P0=Val/Test scale check + collapse value root cause; P1=e3+detach joint experiment + α grid completion + multi-seed α/e3; P2=LR-Phase alignment + gradient competition hypothesis formalization + Pareto frontier visualization."
+
+ai_actions:
+  - turn: 7
+    action: "Launched Batch 3 (gradient scaling) on AutoDL vGPU-32GB, deployed auto-finisher, monitored via blocking SSH, pulled results"
+    provenance: ai-executed
+    files_changed: ["scripts/train/batch3_launcher.sh", "results/p1_batch3/"]
+  - turn: 8
+    action: "Launched Batch 4 (encoder bottleneck) on AutoDL vGPU-32GB, deployed auto-finisher, monitored via blocking SSH, pulled results"
+    provenance: ai-executed
+    files_changed: ["scripts/train/batch4_launcher.sh", "results/p1_batch4/"]
+  - turn: 9
+    action: "Created P1 full results summary document with all 18 experiments across 4 batches"
+    provenance: ai-executed
+    files_changed: ["results/dual-draft/p1_full_results.md"]
+  - turn: 10
+    action: "Executed dual-draft: Claude wrote 9 issues (mechanism/architecture focus), Codex produced 17 issues (rigor/implementation focus), aggregated with 0 consensus"
+    provenance: ai-executed
+    files_changed: ["results/dual-draft/p1_full_results_claude.json", "results/dual-draft/p1_full_results_codex.json", "results/dual-draft/p1_full_results_report.md"]
+  - turn: 11
+    action: "Expanded all 26 dual-draft issues in full detail for researcher review"
+    provenance: ai-executed
+    files_changed: []
+
+claims_touched:
+  - id: C07
+    action: strengthened
+    turn: 7
+  - id: C08
+    action: strengthened
+    turn: 7
+  - id: C07
+    action: strengthened
+    turn: 8
+  - id: C08
+    action: advanced
+    turn: 8
+
+key_context:
+  - turn: 7
+    excerpt: "α=0.5 best aggregate (MAE 0.001951) but physics dead. α=0.7 best physics (Theory 0.002814, ResMean +0.000192). α gradient threshold: ≥0.7 alive, ≤0.5 dead — binary not continuous."
+  - turn: 8
+    excerpt: "d512 Val MSE 0.378 breaks 0.42 ceiling but Test +7.4% worse. e3 best: Test MAE +2.3%, Theory -6.7%. Width collapses physics, depth strengthens both."
+  - turn: 10
+    excerpt: "Dual-draft 0 consensus → complete complementarity. Claude saw mechanism (gradient competition, Pareto), Codex saw rigor (seed mixing, collapse diagnostics, Val/Test scale)."
+  - turn: 11
+    excerpt: "Top P0 actions: Val/Test MSE scale consistency check; collapse value root cause (constant output vs clamp boundary)."
+
+open_threads:
+  - "P0: Verify Val MSE vs Test MSE scale consistency (5e4× difference suggests different normalization)"
+  - "P0: Diagnose collapse constant values (~0.0145/~0.02135) — implementation boundary or true mechanism?"
+  - "P1: e3+detach joint experiment (both Pareto improvements may stack)"
+  - "P1: Complete α grid (0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0) with multi-seed"
+  - "P1: Multi-seed confirmation for e3 (best architecture improvement candidate)"
+  - "P2: Align OneCycleLR pct_start with Phase 1→2 transition (e.g. pct_start=0.16)"
+  - "P2: Formalize gradient competition hypothesis with controlled encoder-capacity experiment"
+  - "P2: Generate Pareto frontier visualization (Theory MAE vs Test MAE) across all configs"
+
+ai_suggestions_pending:
+  - "Check Val/Test MSE normalization — are they same scale?"
+  - "Extract component predictions from collapse experiments to verify constant-output hypothesis"
+  - "e3+detach as next experimental priority"
+  - "α grid completion (0 to 1, 8+ points) before claiming threshold/non-monotonic"

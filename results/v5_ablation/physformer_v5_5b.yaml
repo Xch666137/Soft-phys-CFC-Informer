@@ -1,0 +1,11 @@
+# V5.5b: Restart only ablation — restart_t0=20 (like V5.5) + battery_component_weight default (1.0)
+_base_: base/v5_base.yaml
+training:
+  restart_t0: 20
+  phase_2_cw: 0.02
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_v5_5b

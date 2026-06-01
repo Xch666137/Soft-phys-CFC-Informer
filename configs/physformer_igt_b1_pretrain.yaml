@@ -1,0 +1,21 @@
+# Phase B1: Masked Component Pretraining (MCP)
+# Pretrains on train U val data with random component masking.
+# Output: pretrained_checkpoint.pth for downstream finetuning.
+#
+_base_: base/v5_base.yaml
+model:
+  name: PhysFormer-iGT
+training:
+  train_epochs: 50
+  patience: 12
+  batch_size: 256
+  seed: 2025
+  val_interval: 1
+  # Pretraining-specific
+  pretrain_lambda_net: 0.3
+  save_best_val_net_checkpoint: true
+hardware:
+  num_workers: 4
+  persistent_workers: true
+checkpoint:
+  name: physformer_igt_b1_pretrain

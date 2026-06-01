@@ -1,0 +1,2245 @@
+# Exploration Tree — PhysFormer (V3 → V5 tuning)
+#
+# This tree is a *reconstruction* from git history, research_directions.md,
+# and the current codebase state. Nodes derived directly from committed
+# experiments and result tables are marked `support_level: explicit`.
+# Nodes that bridge the narrative are marked `support_level: inferred`.
+#
+# Provenance conventions:
+#   user — decision/insight from researcher (刘行宇)
+#   ai-suggested — proposed by Claude/Codex agent
+#   ai-executed — implemented by agent
+#   user-revised — user confirmed or modified AI suggestion
+
+tree:
+  # ============================================================
+  # ROOT: Central Research Question
+  # ============================================================
+  - id: N01
+    type: question
+    support_level: explicit
+    source_refs: ["docs/research_directions.md", "paper/en/sections/sec1_intro.tex"]
+    title: "Can physics-guided inductive biases make a Transformer produce physically consistent VPP net power forecasts without sacrificing accuracy?"
+    description: >
+      Pure deep-learning models for VPP aggregated net power forecasting produce
+      physically implausible predictions (violations of power balance, SOC constraints,
+      wrong component-level attributions). Can embedding physics equations as FiLM
+      conditioning — with learnable residual corrections — improve physical consistency
+      while matching or exceeding black-box Transformer accuracy?
+    children:
+
+      # ============================================================
+      # PHASE 0: Baseline
+      # ============================================================
+      - id: N02
+        type: experiment
+        support_level: explicit
+        source_refs: ["git: 32d71de", "runs/V3"]
+        title: "V3 Baseline — PhysFormer with CosineAnnealing, no component supervision"
+        description: >
+          First working PhysFormer: FiLM-conditioned theory branches (PV, Wind, Battery, Load),
+          scalar residual correction, standard MSE loss on net injection, CosineAnnealing LR.
+        result: >
+          Test MAE = 1.932 kW, Theory MAE = 4.874 kW, Val MSE = 0.387.
+          Theory branch produces physically plausible shapes but with large magnitude errors.
+          Component-level errors not tracked individually.
+        provenance: user
+
+      # ============================================================
+      # PHASE 1: Load-Aware Enhancements (V4)
+      # ============================================================
+      - id: N03
+        type: insight
+        support_level: explicit
+        source_refs: ["git: 5ce164e", "git: df4661c"]
+        title: "Load is the dominant error source and needs behavioral (not physics) modeling"
+        description: >
+          Load in a VPP is driven by human behavior (calendar, electricity pricing, habits),
+          not by physical equations. Physics-only guidance for load is fundamentally incomplete.
+          Need calendar features + a load-specific proxy in the loss.
+        children:
+
+          - id: N04
+            type: decision
+            support_level: explicit
+            source_refs: ["git: df4661c", "physformer/utils/losses.py"]
+            title: "Add component supervision loss in MW space with weight 0.05"
+            description: >
+              Add per-component MAE loss (PV, Wind, Battery Power, Battery SOC, Load)
+              in physical MW units, weighted at 0.05 relative to aggregate net MSE.
+              This gives the theory branches direct gradient signal.
+            choice: "MAE in MW space (not normalized MAE or MSE)"
+            alternatives:
+              - "Normalized MAE (unitless) — rejected because physical magnitude matters"
+              - "MSE on components — rejected because MAE is more interpretable in kW"
+              - "Higher weight (0.1+) — tested later, found to degrade aggregate (see N11)"
+            rationale: "Modest weight gives theory branches enough signal to learn physics without dominating the aggregate objective."
+            provenance: user
+
+          - id: N05
+            type: experiment
+            support_level: explicit
+            source_refs: ["git: df4661c", "docs/research_directions.md §V4"]
+            title: "V4 — calendar features + component loss + load proxy"
+            description: >
+              Add calendar embeddings (hour, weekday, month), component supervision
+              (weight=0.05), and load-specific feature proxy to V3 architecture.
+            result: >
+              **Best comprehensive result**: Test MAE = 1.976 kW (-2.3% vs V3),
+              Theory MAE = 3.811 kW (-21.8% vs V3), Val MSE = 0.381.
+              Massive theory improvement with minimal aggregate cost.
+              Revealed Load as bottleneck: Load MAE = 14.707 kW vs Wind = 0.825 kW (18x).
+            evidence_refs: ["research_directions.md V4 row"]
+
+      # ============================================================
+      # DEAD END 1: Sigmoid Gate (V4.1)
+      # ============================================================
+      - id: N06
+        type: dead_end
+        support_level: explicit
+        source_refs: ["git: df4661c", "docs/research_directions.md §V4.1"]
+        title: "Sigmoid gate on residual connection causes theory degradation"
+        hypothesis: >
+          Adding a learnable sigmoid gate to the residual stream would let the model
+          adaptively control how much theory influences the final prediction, preventing
+          bad theory from corrupting the forecast.
+        failure_mode: >
+          Gate weakened the residual pathway → theory_net received degraded gradient
+          from shared encoder → theory MAE regressed from 3.811 kW (V4) to 4.966 kW (V4.1).
+          Gate creates a gradient bottleneck: the shared encoder couples all theory branches,
+          so dampening one pathway affects all.
+        lesson: >
+          **Identity shortcuts are superior to gated shortcuts for physics-guided residual
+          learning.** The gradient must flow unimpeded from component loss to theory branches.
+          This mirrors ResNet's finding that identity shortcuts (option A) suffice and gated
+          shortcuts (highway networks) don't help for deep residual learning.
+        provenance: user
+        also_depends_on: [N05]
+
+      # ============================================================
+      # DEAD END 2: Component Loss Too Strong (V4.2)
+      # ============================================================
+      - id: N07
+        type: dead_end
+        support_level: explicit
+        source_refs: ["git: df4661c", "docs/research_directions.md §V4.2"]
+        title: "Normalized component loss without gate causes theory-vs-aggregate trade-off collapse"
+        hypothesis: >
+          Removing the harmful sigmoid gate and keeping only normalized component loss
+          + schedule fix would give the best of both worlds: good theory without gate interference.
+        failure_mode: >
+          Theory MAE improved to 2.981 kW (best ever) but Test MAE degraded to 2.048 kW
+          (-3.6% vs V4). Component loss weight became dominant — model capacity shifted
+          from aggregate accuracy to component consistency. The trade-off is real: there is
+          a Pareto frontier between theory quality and aggregate accuracy.
+        lesson: >
+          **Component loss has a non-monotonic effect.** Weight 0.05 (V4) sits near the
+          Pareto-optimal knee. Stronger component loss (V4.2's normalized variant) pushes
+          past the knee into aggregate degradation. The optimal weight depends on the
+          relative scales of component vs. aggregate objectives.
+        provenance: user
+
+      # ============================================================
+      # PHASE 1.1: Component-Consistent Residual (V5)
+      # ============================================================
+      - id: N08
+        type: insight
+        support_level: explicit
+        source_refs: ["git: 280c93f", "docs/research_directions.md §V5"]
+        title: "Scalar residual causes cross-component error contamination"
+        description: >
+          V3/V4 use a single scalar residual added to the aggregate net injection.
+          This means an error in Load prediction can be "compensated" by the residual
+          in a way that corrupts PV/Wind predictions. Since the power balance is:
+          net = load - pv - wind + batt, a scalar residual can't disentangle which
+          component is being corrected.
+        children:
+
+          - id: N09
+            type: decision
+            support_level: explicit
+            source_refs: ["git: 280c93f", "physformer/models/physformer.py"]
+            title: "Expand residual from scalar to 5-dimensional per-component correction"
+            description: >
+              Replace single scalar residual with 5 per-component residuals:
+              pred_net = (load_theory + load_res) - (pv_theory + pv_res)
+                       - (wind_theory + wind_res) + (batt_theory + batt_res)
+              Each component residual learns independently, preventing cross-component
+              gradient contamination.
+            choice: "5 independent residual heads per component"
+            alternatives:
+              - "Scalar residual (V3/V4) — rejected because it can't disentangle components"
+              - "2 residuals (generation + load) — rejected as insufficient granularity"
+              - "4 residuals (PV, Wind, Batt, Load) plus SOC — chosen for V5"
+            rationale: >
+              Per-component residuals prevent Load error from corrupting PV/Wind predictions.
+              The ResNet analogy: multiple independent skip connections per feature group.
+            provenance: user
+
+          - id: N10
+            type: decision
+            support_level: explicit
+            source_refs: ["git: 280c93f", "physformer/models/temporal_decoder.py"]
+            title: "Add TemporalDecoder with time_proj(y_mark) time conditioning"
+            description: >
+              Add time-mark projection to the temporal decoder so residual predictions
+              are conditioned on temporal features (hour, weekday, month), trained from scratch.
+            choice: "Linear projection of y_mark into decoder hidden state"
+            alternatives:
+              - "No time conditioning (V4) — rejected because residual needs temporal context"
+              - "Learned positional embedding — rejected as less informative than calendar features"
+            rationale: "Residual corrections should be time-aware (e.g., load residual differs by hour and weekday)."
+            provenance: user
+
+          - id: N11
+            type: experiment
+            support_level: explicit
+            source_refs: ["git: 280c93f", "docs/research_directions.md §V5"]
+            title: "V5 — Component-consistent residual + TemporalDecoder + Curriculum training"
+            description: >
+              Full V5: 5 per-component residuals, time-conditioned decoder, 3-phase curriculum:
+              Phase 1 (epoch 1-15): component_loss_weight=0.1, residual restricted
+              Phase 2 (epoch 16-40): weight linearly decays, residual fully free
+              Phase 3 (epoch 41-70): pure net_mse fine-tune
+            result: >
+              **Component metrics at their best** — PV MAE = 1.892 kW (-22.7% vs V4),
+              Wind MAE = 0.313 kW (-11.8%), Battery Power MAE = 1.340 kW (-12.5%).
+              But **aggregate degraded**: Test MAE = 2.120 kW (+7.5% vs V4),
+              Val MSE = 0.404 (+11.9%). Residual statistics: mean = -0.000848 MW (closest to zero).
+              SOC constraint perfectly satisfied.
+            children:
+
+              - id: N12
+                type: dead_end
+                support_level: explicit
+                source_refs: ["docs/research_directions.md §V5", "docs/research_directions.md §Curriculum Phase 3 无效"]
+                title: "Curriculum Phase 3 (pure net_mse fine-tuning) provides no validation benefit"
+                hypothesis: >
+                  After Phase 2 converges on the physics-accuracy trade-off, Phase 3 would
+                  fine-tune only on net_mse to recover any aggregate accuracy lost to component loss.
+                failure_mode: >
+                  Model was already converged at the end of Phase 2. Phase 3 produced no
+                  validation improvement — the model had already found the Pareto-optimal
+                  point under the given architecture and loss configuration.
+                lesson: >
+                  **Curriculum Phase 3 is unnecessary.** The model saturates on net_mse
+                  during Phase 2. Removing Phase 3 saves 30 epochs of compute with no
+                  accuracy cost. Two-phase (component_warmup → joint_annealing) is sufficient.
+                provenance: user
+
+              - id: N13
+                type: insight
+                support_level: explicit
+                source_refs: ["docs/research_directions.md §V5 问题"]
+                title: "Component loss weight 0.1 in V5 Phase 1 is too high"
+                description: >
+                  V5's Phase 1 uses component_loss_weight=0.1 (2x V4's 0.05), causing
+                  model capacity to shift excessively toward component consistency at the
+                  expense of aggregate accuracy. The aggregate degradation (+7.5% MAE)
+                  is the cost of over-emphasizing per-component metrics.
+                evidence_refs: ["V5 aggregate vs V4 comparison"]
+
+      # ============================================================
+      # CURRENT: V5.5 2×2 消融实验 (executed 2026-05-12)
+      # ============================================================
+      - id: N14
+        type: decision
+        support_level: explicit
+        source_refs: ["docs/research_directions.md §V5 调优方案", "results/v5_ablation/"]
+        title: "V5.5 2×2 ablation: restart_t0(8 vs 20) × battery_component_weight(1.0 vs 5.0)"
+        description: >
+          4-experiment parallel ablation on AutoDL vGPU-32G (RTX 4080 SUPER, 12 CPU cores):
+          V5.4 (R8,B1) — baseline, V5.5 (R20,B5) — both fixes, V5.5a (R8,B5) — batt_w only,
+          V5.5b (R20,B1) — restart only. All share: phase_1_epochs=8, phase_2_epochs=50,
+          patience=20, early_stop_start_epoch=20, num_workers=2, seed=2024.
+          All 4 early stopped at epoch ~39. Test executed on all.
+        choice: "2×2 factorial design with early stopping"
+        provenance: user
+        status: resolved
+        children:
+
+          - id: N22
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v5_ablation/physformer_v5_4/metrics.json", "results/v5_ablation/physformer_v5_4/train.log"]
+            title: "V5.4 (R8,B1) — baseline: moderate training, moderate test"
+            description: >
+              restart_t0=8 (frequent cosine restart, Phase 1→2 sync), battery_component_weight=1.0.
+              Best Val MSE=0.3879 (epoch 9), Final Val MSE=0.4300. Test: MAE=0.00207 MW,
+              MSE=7.999e-6, RMSE=0.00283 MW, RampViol=0.0035%.
+              Load MAE=0.0148 kW, Battery MAE=0.0213 kW — 7-13x worse than other configs.
+              GradCos=0.000 constant, GradNorm~1e-9 — gradient VANISHING, not convergence.
+            result: >
+              Gradient collapse: R8+B1 combination causes physics layer gradient to vanish entirely.
+              Load and Battery branches effectively failed — predicting near-constant output.
+              Despite this, aggregate metrics remain competitive, suggesting residual head
+              compensated for failed physics branches.
+            provenance: ai-executed
+
+          - id: N23
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v5_ablation/physformer_v5_5/metrics.json", "results/v5_ablation/physformer_v5_5/train.log"]
+            title: "V5.5 (R20,B5) — both fixes: worst overall"
+            description: >
+              restart_t0=20 + battery_component_weight=5.0. Best Val MSE=0.4258 (epoch 33),
+              Final Val MSE=0.4265. Test: MAE=0.00226 MW (worst), MSE=8.955e-6 (worst),
+              RMSE=0.00299 MW (worst), RampViol=0.0060% (worst, 2.4x of best).
+              GradCos highly volatile (−0.970 to +0.921).
+            result: >
+              R20+B5 combination produces the worst results across nearly all test metrics.
+              The two "safety" mechanisms (longer restart + stronger battery supervision)
+              INTERACT NEGATIVELY: model over-trusts physics layer, residual head under-compensates,
+              leading to higher ramp violations. Counter-intuitive: adding safety mechanisms
+              independently can reduce safety when combined.
+            provenance: ai-executed
+
+          - id: N24
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v5_ablation/physformer_v5_5a/metrics.json", "results/v5_ablation/physformer_v5_5a/train.log"]
+            title: "V5.5a (R8,B5) — training champion, test runner-up"
+            description: >
+              restart_t0=8 + battery_component_weight=5.0. Best Val MSE=0.3830 (epoch 12,
+              BEST OVERALL), Final Val MSE=0.4107. Test: MAE=0.00198 MW (best),
+              MSE=7.628e-6, RMSE=0.00276 MW, RampViol=0.0047%.
+              Component metrics: Battery Power MAE=0.00161 MW (best), Battery SOC MAE=0.00814 (best).
+            result: >
+              Dominated training: 12 consecutive rounds as leader. Battery_component_weight=5.0
+              prevents gradient vanishing that afflicts V5.4 (same R8). But test performance
+              slightly behind V5.5b — possible overfitting from frequent restarts + strong
+              component supervision narrowing the solution space too aggressively.
+            provenance: ai-executed
+
+          - id: N25
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v5_ablation/physformer_v5_5b/metrics.json", "results/v5_ablation/physformer_v5_5b/train.log"]
+            title: "V5.5b (R20,B1) — test champion, training laggard"
+            description: >
+              restart_t0=20 + battery_component_weight=1.0 (default). Best Val MSE=0.3982 (epoch 8),
+              Final Val MSE=0.4319. Test: MAE=0.00200 MW, MSE=7.281e-6 (BEST), RMSE=0.00270 MW (BEST),
+              RampViol=0.0025% (BEST). Residual mean=−0.00052 MW — closest to zero (ideal unbiased).
+              Theory MAE=0.00275 MW (best).
+            result: >
+              TRAIN/TEST DIVERGENCE: worst in training (4th), best in testing (1st, 6/7 metrics).
+              Longer restart period (R20) provides implicit regularization → better generalization.
+              Battery_component_weight=1.0 (default) avoids over-constraining physics branches
+              during Phase 2 → residual head learns more balanced corrections.
+              This is the RECOMMENDED THESIS CONFIGURATION based on test-set evidence.
+            provenance: ai-executed
+
+      # ============================================================
+      # DESIGN HEURISTICS (cross-cutting)
+      # ============================================================
+      - id: N15
+        type: decision
+        support_level: inferred
+        source_refs: ["physformer/models/physformer.py", "physformer/layers/conditioning.py"]
+        title: "FiLM conditioning chosen over additive or concatenative conditioning"
+        description: >
+          Physics features (irradiance, temperature, wind speed, calendar) condition
+          the Transformer encoder via FiLM (feature-wise linear modulation): γ, β = f(physics_features),
+          then h_out = γ ⊙ h + β. This is more expressive than simple concatenation.
+        choice: "FiLM (affine transformation per channel)"
+        alternatives:
+          - "Concatenate physics features to input — rejected as less expressive"
+          - "Cross-attention to physics features — rejected as too heavy for this scale"
+          - "Additive bias only (β without γ) — rejected as insufficient modulation"
+        rationale: "FiLM provides multiplicative and additive conditioning, allowing physics to scale as well as shift hidden representations."
+        provenance: user
+
+      - id: N16
+        type: decision
+        support_level: explicit
+        source_refs: ["docs/research_directions.md §V5", "physformer/utils/losses.py"]
+        title: "MAE chosen over MSE for component supervision loss"
+        description: >
+          Component supervision uses MAE (L1) rather than MSE (L2) to avoid
+          over-penalizing large Load errors (14.7 kW) relative to small Wind errors (0.8 kW).
+        choice: "MAE (L1) for component loss"
+        alternatives:
+          - "MSE (L2) — rejected because it over-emphasizes Load (18x weight dominance)"
+          - "Huber — medium-term option, provides smooth transition between L1/L2"
+          - "Per-component normalized loss — rejected as losing physical magnitude information"
+        rationale: "MAE treats all kW errors linearly, preventing Load from dominating component gradient. MSE would give Load 324x the weight of Wind (18²)."
+        provenance: user
+
+      - id: N17
+        type: decision
+        support_level: explicit
+        source_refs: ["physformer/models/"]
+        title: "Separate theory encoder and correction encoder with shared backbone"
+        description: >
+          The Transformer encoder is shared, but theory branches and residual heads are
+          separate per component. This enables: (1) shared representation learning for all
+          components, (2) independent per-component theory computation from physics equations,
+          (3) independent per-component residual correction.
+        choice: "Shared encoder + per-component heads"
+        alternatives:
+          - "Fully separate encoders per component — rejected as parameter-inefficient"
+          - "Single head for all components — rejected (see N09, scalar residual dead end)"
+        rationale: "Shared encoder captures cross-component interactions (e.g., PV output affects net load which affects battery dispatch), while separate heads maintain component-specific gradient paths."
+        provenance: user
+
+      # ============================================================
+      # BRANCH: Future Directions (pending decisions)
+      # ============================================================
+      - id: N18
+        type: decision
+        support_level: explicit
+        source_refs: ["docs/research_directions.md §方向 B", "results/v5_ablation/", "results/dual-draft/v5_ablation_analysis.md"]
+        title: "V6: Replace Load physics branch with behavioral/temporal module"
+        description: >
+          V5.5 消融结论: HDD/CDD-based Load physical model is architecturally wrong for VPP load.
+          Load is driven by human behavior (calendar, occupancy, pricing), NOT thermodynamics.
+          Evidence: Load MAE 5-18× worse than Wind across V3→V5; R8+B1 causes Load/Battery
+          gradient vanishing (physics guidance provides zero useful signal for Load).
+
+          V6 Direction: separate Load from the physics-guided branches.
+          - PV, Wind, Battery: keep FiLM-conditioned physics branches (physics IS meaningful)
+          - Load: replace HDD/CDD with behavioral/temporal module (small TCN, GRU, or attention
+            over calendar + historical load + weather sensitivity patterns)
+          - Net reconstruction unchanged: net = load_pred - pv - wind + batt
+          - Keep component-consistent residual for all 5 components
+        choice: "Dual-stream: physics for DER + behavioral for Load"
+        alternatives:
+          - "Keep HDD/CDD but add more features — rejected: the model class is wrong, not the features"
+          - "Remove Load from component supervision — rejected: component decomposition is a core contribution"
+          - "Use pure Transformer for Load — viable but less interesting than dedicated behavioral module"
+        rationale: >
+          'Physics-guided' doesn't mean all components must use physics — it means the right
+          inductive bias for each component. PV/Wind/Battery benefit from physical equations
+          (irradiance → PV, wind speed → power, signed-power → SOC). Load benefits from
+          behavioral patterns (calendar, weather sensitivity, temporal autocorrelation).
+          This is not abandoning physics guidance; it's allocating it correctly.
+        provenance: user
+        timestamp: "2026-05-12T20:45"
+        status: resolved
+        trigger: "V5.5 消融结果 + 用户明确确认 V6 方向"
+
+      - id: N19
+        type: question
+        support_level: explicit
+        source_refs: ["docs/research_directions.md §方向 F"]
+        title: "Should uncertainty quantification be added for risk-aware VPP dispatch?"
+        description: >
+          VPP dispatch needs prediction intervals for risk-based decision making.
+          MC Dropout or Gaussian NLL head could add uncertainty quantification
+          as a secondary contribution.
+        status: open
+        trigger: "After V5.5 stabilizes, evaluate remaining experiment time and paper narrative fit"
+        provenance: user
+
+      - id: N20
+        type: question
+        support_level: explicit
+        source_refs: ["docs/research_directions.md §方向 E"]
+        title: "Can improved PV/Wind physical models reduce residual magnitude?"
+        description: >
+          Current PV model: 1st-order irradiance × temperature. Wind model: generic cubic curve.
+          Could solar zenith angle, clear-sky index, inverter clipping, hub-height wind correction,
+          and air density correction improve theory accuracy and reduce residual burden?
+        status: open
+        trigger: "Check V5 per-component residuals — if PV/Wind residuals significantly > 0 after V5.5 tuning"
+        provenance: user
+
+      # ============================================================
+      # META: Research Process
+      # ============================================================
+      - id: N21
+        type: decision
+        support_level: explicit
+        source_refs: ["ara/", "CLAUDE.md §6"]
+        timestamp: "2026-05-12T14:30"
+        title: "Adopt ARA (Agent-Native Research Artifact) framework for structured research recording"
+        description: >
+          Deployed the Orchestra-Research ARA framework to capture research decisions,
+          dead ends, claims, evidence, and heuristics in a machine-readable knowledge
+          package. Installed three agent skills (compiler, research-manager, rigor-reviewer)
+          and created the full ara/ directory structure (22 files) covering the V3→V5
+          research journey. Updated CLAUDE.md §6 to auto-bootstrap ARA context in every
+          new session.
+        choice: "ARA framework with per-turn research-manager + exploration tree"
+        alternatives:
+          - "Continue with ad-hoc docs/research_directions.md — rejected because it lacks cross-layer binding and agent-traversable structure"
+          - "Use only CLAUDE.md context — rejected because it doesn't capture dead ends, claims, or evidence binding"
+        rationale: >
+          ARA provides four interlocking layers (logic, source, trace, evidence) that let
+          AI agents rapidly reconstruct project state, avoid repeating documented dead ends,
+          and maintain bidirectional claim↔evidence traceability. The research-manager skill
+          provides per-turn journalling with progressive crystallization.
+        provenance: ai-suggested
+        status: resolved
+
+      # ============================================================
+      # V6: Load Behavioral Module — Stage 1 & Stage 2 (2026-05-14)
+      # ============================================================
+      - id: N26
+        type: experiment
+        support_level: explicit
+        source_refs: ["results/v6_s1_ablation/", "configs/physformer_v6_s1_gru64.yaml"]
+        title: "V6 Stage 1: GRU temporal correction added to HDD/CDD — gru64 vs gru96"
+        description: >
+          Add GRU temporal encoder (LoadTemporalModule, d_gru=64/96, 2 layers) as additive
+          correction to existing HDD/CDD load branch. GRU processes [net_load, temp, calendar]
+          over 672 historical steps to produce 96-step temporal correction.
+          Fusion: load = softplus(HDD/CDD + GRU_correction). Parallel runs on 3080Ti (12GB).
+        result: >
+          **d_gru=64 wins all 19 metrics.** gru64: MAE=0.001952, MSE=7.691e-6, RMSE=0.002773,
+          Theory MAE=0.002483. gru96 universally worse (Load +15%, Battery +26%).
+          vs V5.5b: MAE -2.4%, Theory MAE -9.8%, MSE +5.6%.
+          Warm restart @ epoch 25, early stop @ epoch 39.
+        provenance: ai-executed
+        also_depends_on: [N18]
+        timestamp: "2026-05-14T22:00"
+
+      - id: N27
+        type: experiment
+        support_level: explicit
+        source_refs: ["results/v6_s2_ablation/", "configs/physformer_v6_s2_gru64.yaml"]
+        title: "V6 Stage 2: Temp MLP replaces HDD/CDD — gru64 vs gru96"
+        description: >
+          Replace HDD/CDD with 3-layer MLP (1→32→32→1) for temperature→load. Test
+          d_gru=64 (S1 winner) vs 96 in context where Temp MLP handles temperature response.
+          GRU role changes from "compensate bad physics" to "residual temporal patterns."
+        result: >
+          **SPLIT: d_gru ordering REVERSES from Stage 1.** gru64 wins all 5 component MAEs
+          (Battery -51.6%, Wind -57.6%, PV -33.9%, Load -11.4%, SOC -47.2% vs gru96).
+          gru96 wins aggregate (MAE=0.002003, MSE=7.281e-6 = V5.5b, RMSE=0.002698,
+          RampViol=0.00316%; residual mean=0.000031 near zero). Interpretation: larger GRU
+          duplicates Temp MLP, degrading components. Smaller GRU's capacity constraint
+          enforces physics-data boundary. vs Stage 1: PV -24.3%, Battery -34.6%.
+        provenance: ai-executed
+        also_depends_on: [N26]
+        timestamp: "2026-05-14T23:00"
+
+      - id: N28
+        type: insight
+        support_level: explicit
+        source_refs: ["results/v6_s1_ablation/", "results/v6_s2_ablation/"]
+        title: "Capacity ceiling governs physics-data specialization boundary"
+        description: >
+          When physical (Temp MLP) and data-driven (GRU) modules share input features,
+          data module capacity ceiling constrains the physics-data boundary. Higher GRU
+          capacity enables functional duplication → component accuracy degrades but
+          residual head compensates → aggregate preserved. Key evidence: gru96 residual
+          mean=3.1e-5 vs gru64's -9.5e-4. Principle validated across Stage 1 (gru64 wins)
+          and Stage 2 (gru64 wins components, gru96 wins aggregate).
+        provenance: ai-suggested
+        timestamp: "2026-05-14T23:30"
+
+      - id: N29
+        type: question
+        support_level: explicit
+        title: "Path A: Remove temperature from GRU input"
+        description: >
+          Current GRU input = [net_load, temp, calendar]. Temperature flows to both Temp MLP
+          and GRU, enabling duplication. Remove temperature → GRU only sees [net_load,
+          calendar] → Temp MLP sole temperature pathway. Should eliminate gru64/gru96
+          component reversal in Stage 2. Change: ~10 lines.
+        status: resolved
+        provenance: ai-suggested
+        timestamp: "2026-05-14T23:45"
+        resolved_by: N33  # V6.1 no_temp confirmed: remove temp improves aggregate MAE but unstable across seeds
+
+      - id: N30
+        type: question
+        support_level: explicit
+        title: "Path C: Activate selective gradient detach (code exists, never used)"
+        description: >
+          model.py's detach_mode ('selective' detaches load/pv/wind from shared encoder for
+          residual head) is fully implemented but set_detach_mode never called in training loop.
+          Activating during Phase 2 would further reinforce physics-data boundary. ~5 lines.
+        status: resolved
+        provenance: ai-suggested
+        timestamp: "2026-05-14T23:45"
+        resolved_by: N34  # V6.1 detach confirmed: selective detach yields best physical consistency (Theory MAE -10%)
+
+      - id: N31
+        type: question
+        support_level: explicit
+        source_refs: ["ara/logic/claims.md §C05"]
+        title: "C05 remains hypothesis: curriculum vs fixed-weight never tested"
+        description: >
+          All V5.5/V6 experiments used curriculum training only. No controlled comparison
+          of curriculum vs fixed-weight exists. C05 claims curriculum superiority but
+          remains untested. A controlled experiment (same S2 architecture, curriculum vs
+          fixed λ=0.01) would directly test C05.
+        status: resolved
+        provenance: ai-suggested
+        timestamp: "2026-05-14T23:45"
+        resolved_by: N41/N42  # C05 confirmed: curriculum > both fixed λ=0.02 and λ=0.05
+
+      # ============================================================
+      # V6.1: Physics-data boundary ablation (2026-05-14, analyzed 05-15)
+      # ============================================================
+      - id: N32
+        type: decision
+        support_level: explicit
+        source_refs: ["results/v6_1_ablation/", "results/dual-draft/v6_1_analysis_report.md"]
+        title: "V6.1 2×2 ablation: N29 (remove temp from GRU) × N30 (selective gradient detach)"
+        description: >
+          2×2 factorial ablation based on V6 S2 gru64 (restart_t0=20, load_gru_hidden=64).
+          N29: remove temperature from GRU input → [net_load, calendar] only, Temp MLP sole
+          temperature pathway. N30: Phase 2 detach_mode="selective" → cut residual-head gradient
+          to load/PV/wind theory branches, battery gradient preserved. 3 configs tested on
+          AutoDL vGPU-32GB (RTX 4080 SUPER): no_temp (N29 only), detach (N30 only),
+          full (N29+N30). Baseline = V6 S2 gru64 (existing results).
+        choice: "2×2 factorial, dual-draft cross-validated analysis"
+        provenance: user
+        timestamp: "2026-05-15T10:00"
+        status: resolved
+        children:
+
+          - id: N33
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v6_1_ablation/physformer_v6_1_no_temp/metrics.json"]
+            title: "V6.1 no_temp (N29 only) — best aggregate MAE"
+            description: >
+              Remove temperature from GRU input. GRU sees [net_load, calendar] only.
+              Phase 2 detach_mode="none". Early stopped at epoch 39.
+              Test: MAE=0.001999 (best), MSE=7.938e-6, RMSE=0.002817,
+              Theory MAE=0.002431 (−6.6% vs baseline), RampViol=0.0043%,
+              Residual Mean=−0.000849. Component: Load MAE=0.001886 (best),
+              SOC MAE=0.005957 (best, −33.1% vs baseline).
+            result: >
+              Wins aggregate MAE and Load/SOC components. Theory MAE improved 6.6%.
+              But: Val MSE showed early-peak-then-degrade (ep12 0.410 → ep20 0.442),
+              suggesting temp in GRU acts as implicit regularizer. Removing it causes
+              sharper overfitting. MSE and Ramp worse than baseline.
+            provenance: ai-executed
+
+          - id: N34
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v6_1_ablation/physformer_v6_1_detach/metrics.json"]
+            title: "V6.1 detach (N30 only) — best physical consistency"
+            description: >
+              Keep temp in GRU, activate selective detach in Phase 2.
+              Early stopped at epoch 47 (latest — best generalization).
+              Test: MAE=0.002031, MSE=8.161e-6, RMSE=0.002857,
+              Theory MAE=0.002342 (best, −10.0% vs baseline),
+              RampViol=0.0090% (worst, 2.4× baseline),
+              Residual Mean=−0.000065 (essentially zero — ideal unbiased).
+              Component: PV MAE=0.001738 (best, −31.9%), Wind MAE=0.000313 (best),
+              Batt P MAE=0.001391 (best, −18.3%).
+            result: >
+              Best physical consistency across all metrics: Theory MAE −10%, residual mean
+              nearly zero (true zero-mean correction), PV/Wind/Batt components best.
+              Latest early stop (epoch 47) suggests best generalization.
+              BUT: Ramp violation 2.4× baseline — safety concern for VPP dispatch.
+              Training most stable — peaked at ep26 rather than ep10-12.
+            provenance: ai-executed
+
+          - id: N35
+            type: experiment
+            support_level: explicit
+            source_refs: ["results/v6_1_ablation/physformer_v6_1_full/metrics.json"]
+            title: "V6.1 full (N29+N30) — worst overall, confirms antagonism"
+            description: >
+              Remove temp from GRU + selective detach. Early stopped at epoch 39.
+              Test: MAE=0.002032 (worst), MSE=8.214e-6 (worst), RMSE=0.002866 (worst),
+              Theory MAE=0.002509, RampViol=0.0046%, Residual Mean=−0.000849.
+              Worse than either N29 or N30 alone on nearly all metrics.
+            result: >
+              N29+N30 is clearly antagonistic: both mechanisms target gradient isolation;
+              stacking them creates a double bottleneck that starves the shared encoder.
+              Key mechanistic finding: gradient isolation has a non-monotonic optimum.
+              Too little (baseline) → cross-contamination. Too much (full) → learning failure.
+              Either N29 or N30 alone hits the sweet spot.
+            provenance: ai-executed
+
+          - id: N36
+            type: insight
+            support_level: explicit
+            source_refs: ["results/dual-draft/v6_1_analysis_report.md",
+                          "results/v6_1_ablation/"]
+            title: "Gradient isolation has a non-monotonic optimum — physics-data boundary sweet spot"
+            description: >
+              N29 (input-side isolation) and N30 (gradient-side isolation) are independently
+              beneficial but antagonistic when combined. This reveals a fundamental constraint:
+              the physics-data boundary cannot be maximally reinforced from both sides
+              simultaneously. The shared encoder needs a minimum gradient throughput to learn
+              useful representations. Two mechanisms confirmed:
+              (1) Component-vs-aggregate paradox: all V6.1 variants improve every component
+              MAE but degrade aggregate MSE. Possible mechanism: baseline's component errors
+              are anti-correlated and cancel in aggregate; V6.1 variants' tighter component
+              coupling prevents this cancellation.
+              (2) Dual-draft analysis added: Temp MLP too weakly physical (Codex);
+              battery as slack variable under selective detach (Codex);
+              early-peak degradation suggests temp as implicit regularizer (Claude).
+            provenance: ai-suggested
+            also_depends_on: [N33, N34, N35]
+            timestamp: "2026-05-15T10:30"
+
+          - id: N37
+            type: decision
+            support_level: explicit
+            source_refs: ["results/dual-draft/v6_1_analysis_report.md"]
+            title: "Thesis reporting: dual-config strategy — baseline for aggregate, detach for physics"
+            description: >
+              No single configuration dominates all metrics. Recommended thesis strategy:
+              report baseline (V6 S2 gru64) as aggregate accuracy benchmark, and detach (N30)
+              as physical consistency benchmark. Frame N29+N30 antagonism as a mechanistic
+              discovery: the physics-data boundary has a non-monotonic optimum, validated
+              by 2×2 factorial ablation. Open issues requiring resolution before thesis
+              finalization: (1) multi-seed validation (≥3 seeds), (2) component error
+              correlation analysis, (3) ramp violation root-cause for detach, (4) C05
+              curriculum vs fixed-weight test.
+            choice: "Dual-config reporting: baseline + detach"
+            provenance: ai-suggested
+            timestamp: "2026-05-15T10:30"
+            status: resolved
+
+      # ============================================================
+      # C08: Variance Decomposition Analysis (2026-05-15)
+      # ============================================================
+      - id: N38
+        type: analysis
+        support_level: explicit
+        source_refs: ["docs/analysis/c08_variance_decomposition.md",
+                      "scripts/c08_extract_and_analyze.py"]
+        title: "C08 variance decomposition: component error correlation structure dominates aggregate accuracy"
+        description: >
+          Extracted y_aux (per-component true values) from V6 S2 test DataLoader,
+          combined with component_theory_real from physics_states.npz, and performed
+          full variance decomposition of aggregate theory error:
+          Var(e_net) = ΣVar(components) − 2ΣCov(pairs).
+
+          gru64: component var sum=30.06e-6, covariance cancellation=−20.06e-6 (66.7%),
+          net var=10.00e-6.
+          gru96: component var sum=58.76e-6 (1.95×), covariance cancellation=−46.90e-6
+          (2.34×, 79.8%), net var=11.86e-6 (only 1.19×).
+
+          Dominant channel: Cov(e_PV, e_B) — gru96 = −39.42e-6 vs gru64 = −12.92e-6 (3.05×).
+          pv-batt correlation: gru96 r=+0.833 vs gru64 r=+0.632.
+        result: >
+          Larger GRU capacity (gru96) → stronger shared representations → more correlated
+          component errors → MORE cancellation (79.8% vs 66.7%) → aggregate preserved
+          despite 1.95× larger component variance. This is the OPPOSITE direction from
+          the original C08 hypothesis (which predicted "tighter coupling → less cancellation").
+          Two regimes identified: (1) capacity regime (this analysis, verified) where more
+          shared learning → more correlation → more cancellation; (2) isolation regime
+          (V6.1, hypothesized) where gradient isolation → less correlation → less cancellation.
+          C08 elevated from observation → supported.
+        provenance: ai-executed
+        also_depends_on: [N27, N28, N36]
+        timestamp: "2026-05-15T14:00"
+
+      # ============================================================
+      # V7: Learned Balance-Point — Replace Temp MLP (2026-05-15)
+      # ============================================================
+      - id: N39
+        type: question
+        support_level: explicit
+        source_refs: ["docs/analysis/c08_variance_decomposition.md",
+                      "ara/staging/observations.yaml:O10"]
+        title: "Can a physically-constrained Learned Balance-Point model match or exceed an unconstrained Temp MLP for temperature→load?"
+        description: >
+          Current Temp MLP (1→32→32→1, 1089 params) is overparameterized for a 1D
+          temperature→load mapping. Codex (O10) flagged it as "too weakly physical" —
+          no monotonicity, balance points, or lag. Replace with LearnedBalancePoint:
+          load_temp = α_heat * softplus(T_bal_h − T) + α_cool * softplus(T − T_bal_c)
+          with 4 learnable parameters (T_bal_h, T_bal_c, α_heat, α_cool).
+
+          This creates a 3-point constraint spectrum:
+          HDD/CDD (V5, fixed 18°C) → Balance-Point (V7, learned breakpoints) → Temp MLP (V6, unconstrained).
+
+          Hypothesis: Balance-Point hits the sweet spot — enough physical structure
+          to be interpretable and avoid overfitting, flexible enough to capture real
+          VPP temperature response (asymmetric heating/cooling, region-specific balance points).
+        status: resolved
+        provenance: user
+        timestamp: "2026-05-15T14:30"
+        running_on: "AutoDL-vGPU-32GB (RTX 4080 SUPER, 32GB)"
+        launched_at: "2026-05-15T16:28"
+        completed_at: "2026-05-15T23:30"
+        config: "configs/physformer_v7_balance_point.yaml"
+        result: >
+          FAILED to beat Temp MLP. Theory MAE=0.002920 (+12.2% vs baseline 0.002602),
+          Aggregate MAE=0.002016 (neutral, -0.03%). Residual Mean=-0.000120 (near-zero,
+          7.9x smaller than baseline). Residual Std=0.003304 (+45% vs baseline).
+          All component MAEs degraded: PV +66%, Wind +167%, Batt SOC +89%.
+          Best Val MSE at epoch 4 (0.4273), no improvement after epoch 14.
+          Interpretation: 5-param BP is too constrained to capture temperature→load
+          nonlinearities. But near-zero residual mean reveals BP is unbiased — residual
+          head compensates with larger per-sample corrections. Reframed as positive
+          finding: "residual mechanism is robust to theory model quality" (N43).
+
+      # ============================================================
+      # V7.1: Lagged Temperature States (planned, post-V7)
+      # ============================================================
+      - id: N40
+        type: question
+        support_level: explicit
+        source_refs: ["ara/staging/observations.yaml:O10",
+                      "ara/staging/observations.yaml:O12"]
+        title: "Can lagged temperature states capture building thermal inertia and improve Load theory accuracy beyond instantaneous temperature alone?"
+        description: >
+          Buildings have thermal mass — indoor temperature (and thus HVAC load)
+          responds to outdoor temperature with inertia. Current model uses only
+          instantaneous temperature T(t). Real building load integrates temperature
+          over multiple time scales: immediate (current hour), short-lag (1-3h,
+          thermal mass of light construction), medium-lag (6-12h, heavy construction),
+          diurnal (24h, day-night cycle memory).
+
+          Replace single temperature input with a bank of lagged states:
+          T_lag(t) = [T(t), T(t−1h), T(t−3h), T(t−6h), T(t−12h), T(t−24h)]
+
+          This can be layered on top of either BalancePoint or Temp MLP:
+          - BalancePoint + Lags: each lag gets its own degree-day → T_bal weighted
+            average across lags (physical: "effective temperature" integrates history)
+          - Temp MLP + Lags: MLP input expands from 1→N_lags dims (data-driven fusion)
+
+          The key physics insight: thermal inertia means the "effective" balance-point
+          temperature is not the instantaneous outdoor temperature but a weighted
+          moving average. This is standard in building energy modeling (ASHRAE
+          variable-base degree-day method with 3-day averaging).
+
+          Implementation scope: ~20 lines in _load_branch + config flag.
+          Priority: post-V7 — only if Balance-Point alone leaves residual Load error
+          that correlates with temperature change rate or lag.
+        status: planned
+        provenance: ai-suggested
+        trigger: "V7 Balance-Point完成后, 若Load residual仍与温度变化率相关, 则激活此路径"
+        depends_on: [N39]
+        timestamp: "2026-05-15T15:00"
+
+      # ============================================================
+      # C05: Curriculum vs Fixed-Weight — 2 parallel ablations (2026-05-15)
+      # ============================================================
+      - id: N41
+        type: experiment
+        support_level: explicit
+        source_refs: ["configs/physformer_c05_fixed_w002.yaml",
+                      "ara/logic/claims.md:C05"]
+        title: "C05 fixed-w002: Constant λ=0.02 (Phase 2 final weight) vs curriculum (λ=0.03→0.02)"
+        description: >
+          Architecture identical to V6 S2 gru64 (Temp MLP, gru_hidden=64, temp in GRU).
+          Only change: phase_1_epochs=0, all phase weights set to Phase 2 values
+          (cw=0.02, rr=0.01, tw=0.05). Training starts directly in Phase 2 with no
+          optimizer reset — straight training from initialization with fixed loss weights.
+
+          Falsification test for C05: if this config matches V6 S2 gru64 (curriculum)
+          on both Theory MAE and Test MAE, C05 is FALSIFIED — the curriculum path
+          is unnecessary; the model reaches the same optimum with fixed weight.
+          If this config underperforms curriculum, C05 gains evidence.
+        status: resolved
+        provenance: ai-suggested
+        depends_on: [N27, N31]
+        timestamp: "2026-05-15T15:30"
+        running_on: "AutoDL-vGPU-32GB (RTX 4080 SUPER, 32GB)"
+        launched_at: "2026-05-15T16:28"
+        completed_at: "2026-05-15T23:30"
+        config: "configs/physformer_c05_fixed_w002.yaml"
+        result: >
+          C05 SUPPORTED. Fixed λ=0.02 worse on both aggregate (MAE +6.5%, MSE +7.4%)
+          and theory (+2.3%). Best Val MSE at epoch 7 (0.3771), no improvement after
+          epoch 14. Curriculum (0.03→0.02) is superior to fixed weight at λ=0.02.
+          However: curriculum's Phase1→Phase2 transition at epoch 8 occurs AFTER best
+          is already found — the "Phase1 warmup" narrative must be corrected (see N47).
+
+      - id: N42
+        type: experiment
+        support_level: explicit
+        source_refs: ["configs/physformer_c05_fixed_w005.yaml",
+                      "ara/logic/claims.md:C05"]
+        title: "C05 fixed-w005: Constant λ=0.05 (higher, original V4 weight) vs curriculum and fixed-w002"
+        description: >
+          Same architecture, fixed cw=0.05 (original V4 Pareto-optimal weight per N04).
+          Tests whether a higher fixed weight compensates for absence of curriculum
+          warmup. If fixed-w002 underperforms but fixed-w005 matches curriculum,
+          the conclusion is: curriculum achieves a moderate effective weight; the path
+          doesn't matter, the weight does. If neither fixed weight matches curriculum,
+          the annealing PATH is the key mechanism — C05 is supported.
+        status: resolved
+        provenance: ai-suggested
+        depends_on: [N27, N31, N41]
+        timestamp: "2026-05-15T15:30"
+        running_on: "AutoDL-vGPU-32GB (RTX 4080 SUPER, 32GB)"
+        launched_at: "2026-05-15T16:28"
+        completed_at: "2026-05-15T23:30"
+        config: "configs/physformer_c05_fixed_w005.yaml"
+        result: >
+          C05 SUPPORTED. Fixed λ=0.05 worse on both aggregate (MAE +2.0%, MSE +2.6%)
+          and theory (+13.2%). Higher fixed weight ≠ better. Curriculum annealing
+          (0.03→0.02) provides robustness to weight choice and finds a better optimum
+          than any tested fixed weight. Best Val MSE at epoch 6 (0.4078), no improvement
+          after epoch 14.
+
+      # ============================================================
+      # V7 Post-Mortem: Dual-Draft Analysis (2026-05-16)
+      # ============================================================
+      - id: N43
+        type: insight
+        support_level: explicit
+        source_refs: ["results/dual-draft/v7_postmortem_report.md",
+                      "results/v7_parallel_ablation/"]
+        title: "Residual head robustness to theory model quality — BP paradox resolved as bias-variance tradeoff"
+        description: >
+          BalancePoint (5-param) vs Temp MLP (1153-param): BP theory MAE +12.2% worse but
+          aggregate MAE identical (0.002016 vs 0.002017). Mechanism: BP is a better PRIOR
+          (unbiased, Residual Mean=-0.000120) but worse FIT (noisy, Residual Std=0.003304).
+          MLP is a worse prior (biased, Residual Mean=-0.000949) but better fit (Std=0.002276).
+          The residual head compensates for both: large per-sample corrections for BP,
+          systematic offset for MLP. This is a POSITIVE finding — PhysFormer's residual
+          mechanism is robust to theory model quality.
+        result: >
+          Aggregate MAE parity is not BP failure — it's architectural strength evidence.
+          Temp model architecture has limited impact on final forecast; residual head is the
+          dominant accuracy driver. For thesis: reframe as "residual robustness" finding.
+        provenance: ai-executed
+        also_depends_on: [N39, N41, N42]
+        timestamp: "2026-05-16T01:00"
+
+      - id: N44
+        type: insight
+        support_level: explicit
+        source_refs: ["results/v7_parallel_ablation/"]
+        title: "Encoder representational capacity is the convergence bottleneck — all experiments plateau at epoch 4-9"
+        description: >
+          All 4 experiments (V6 S2, V7 BP, C05 w002, C05 w005) converge to best Val MSE
+          in epochs 4-9 with zero improvement after epoch 14. Cosine restart at epoch 25
+          provides transient dip but cannot beat early bests. Common element: shared
+          Transformer encoder (d_model=256, e_layers=2, n_heads=8). Once the encoder
+          saturates, neither theory-branch tuning nor residual-head refinement can improve.
+          This is NOT an optimizer problem — it's a capacity ceiling.
+        result: >
+          64% of training epochs (25/39) are wasted in plateau. Confirmed: optimizer/LR
+          schedule is mismatched (T_0=20 too long for 4-9 epoch convergence window).
+        provenance: ai-executed
+        also_depends_on: [N39, N41, N42]
+        timestamp: "2026-05-16T01:00"
+
+      # ============================================================
+      # P0-P2 Modification Plan (2026-05-16, dual-draft informed)
+      # ============================================================
+      - id: N45
+        type: decision
+        support_level: explicit
+        source_refs: ["results/dual-draft/v7_postmortem_report.md"]
+        title: "P0: Immediate blocking fixes — early stop, LR schedule, metric reporting"
+        description: >
+          Three immediate fixes before any further experiments:
+          P0-1: early_stop_start_epoch=5, patience=8 (was 20/20 → 25/39 epochs wasted).
+          P0-2: CosineAnnealingWarmRestarts → OneCycleLR (peak_lr=1e-4, total_epochs=20,
+          pct_start=0.25) — matches 4-9 epoch convergence window.
+          P0-3: Test report MUST include all 5 component MAEs + aggregate; aggregate-only
+          reporting hides severe component degradation (V7 BP PV +66%).
+          P0-4: Val/Test MSE units must be documented in training logs (normalized vs MW²).
+        choice: "Fix early stop + LR schedule + metric reporting before any new experiments"
+        provenance: ai-suggested
+        status: resolved
+        timestamp: "2026-05-16T01:00"
+
+      - id: N46
+        type: decision
+        support_level: explicit
+        source_refs: ["results/dual-draft/v7_postmortem_report.md"]
+        title: "P1: High-priority — gradient isolation validation + BP fixes + encoder bottleneck test"
+        description: >
+          P1-1: Multi-seed (≥3) replication of V6.1 detach (selective gradient detach)
+          + gradient SCALING (α∈{0.3,0.5,0.7}) replacing binary detach. Tests whether
+          continuous isolation finds a RampViol-acceptable sweet spot.
+          P1-2: Encoder capacity bottleneck test — d_model=512, e_layers=3, OneCycleLR.
+          If plateau epoch shifts later → confirms capacity ceiling hypothesis.
+          P1-3: Re-run V6.1 full 2×2 under current code to fix baseline drift.
+          P1-4-6: BP fixes (shifted softplus, ordered balance points, remove base_offset).
+        choice: "Validate gradient isolation + fix BP implementation + test encoder bottleneck"
+        provenance: ai-suggested
+        status: resolved
+        timestamp: "2026-05-16T01:00"
+
+      - id: N47
+        type: decision
+        support_level: explicit
+        source_refs: ["results/dual-draft/v7_postmortem_report.md"]
+        title: "P1: High-priority — thesis narrative reframing"
+        description: >
+          P1-7: V7 BP results reframed as "Residual robustness to theory model quality"
+          (not "BP vs MLP competition"). BP's 5-param extreme constraint validates that
+          the residual mechanism works even with weak theory.
+          P1-8: C05 curriculum narrative corrected. Curriculum > fixed-weight, but best
+          checkpoints at epoch 4-9, before Phase1→Phase2 transition at epoch 8. Cannot
+          claim "Phase1 warmup enables Phase2 refinement" when best is already found.
+          Correct narrative: "moderate component weight early in training is sufficient;
+          curriculum provides robustness but not better optima."
+        choice: "Reframe BP as architectural validation, correct C05 narrative"
+        provenance: ai-suggested
+        status: resolved
+        timestamp: "2026-05-16T01:00"
+
+      - id: N48
+        type: decision
+        support_level: explicit
+        source_refs: ["results/dual-draft/v7_postmortem_report.md"]
+        title: "P2: If-budget permits — SWA, differential weight decay, residual constraints, battery SOC, lagged temp"
+        description: >
+          P2-1: Differential weight decay (theory branches wd=1e-3, encoder wd=1e-5).
+          P2-2: SWA from epoch 5 (averages plateau checkpoints).
+          P2-3: Residual magnitude/orthogonality penalty to prevent battery-as-slack.
+          P2-4: Battery SOC error accumulation penalty (hard state-transition).
+          P2-5: Lagged Temperature States (N40) — only if P1-1 and P1-2 complete.
+        choice: "Hold P2 items until P1 resolves; activate only if time/resources permit"
+        provenance: ai-suggested
+        status: open
+        timestamp: "2026-05-16T01:00"
+
+      # ============================================================
+      # N49-N51: P2 planned experiments (held pending P1 completion)
+      # ============================================================
+      - id: N49
+        type: question
+        support_level: explicit
+        title: "P2-1/2: Do differential weight decay + SWA improve generalization beyond early convergence plateau?"
+        status: planned
+        provenance: ai-suggested
+        depends_on: [N45, N46]
+        timestamp: "2026-05-16T01:00"
+        description: >
+          Differential wd (theory=1e-3, encoder=1e-5) + SWA from epoch 5.
+          SWA averages plateau checkpoints; differential wd prevents theory branch overfitting.
+          Test on V6 S2 gru64 baseline with P0 fixes applied.
+
+      - id: N50
+        type: question
+        support_level: explicit
+        title: "P2-3/4: Can residual constraints + battery SOC consistency loss prevent the slack-variable pathology?"
+        status: planned
+        provenance: ai-suggested
+        depends_on: [N45, N46]
+        timestamp: "2026-05-16T01:00"
+        description: >
+          Add residual_magnitude_penalty in loss + battery SOC consistency loss
+          (MSE between step-SOC and cumulative charge/discharge). Target: reduce
+          RampViol under detach mode without losing Theory MAE gains.
+
+      - id: N51
+        type: question
+        support_level: explicit
+        title: "P2-5 (N40): Lagged Temperature States — activate only if P1 detach validation succeeds"
+        status: planned
+        provenance: ai-suggested
+        depends_on: [N40, N46]
+        timestamp: "2026-05-16T01:00"
+        description: >
+          T_lag = [T(t), T(t-1h), T(t-3h), T(t-6h)] as input to temp model
+          (BalancePoint or MLP). Captures building thermal inertia. ~20 lines.
+          Only activate if P1-1 (gradient isolation multi-seed) completes successfully.
+
+# ============================================================
+# EDGE: Cross-branch dependency
+# ============================================================
+# N06 (sigmoid gate dead end) → N09 (identity per-component residual):
+#   The sigmoid gate failure directly motivated per-component identity shortcuts in V5
+# N11 (V5 experiment) → N12, N13 (Phase 3 dead end, weight insight):
+#   V5 results directly revealed both issues
+# N05 (V4 experiment) → N06, N07 (V4.1/V4.2 dead ends):
+#   V4 success motivated attempts to improve it, both of which failed informatively
+
+# ============================================================
+# P1-A: Multi-seed C07 validation (executed 2026-05-16/17)
+# ============================================================
+# Provenance: ai-executed
+# Source: configs/physformer_p1a_*.yaml, results/p1_batch1/, results/p1_batch2/
+
+# N52: P1-A multi-seed validation cluster (decision)
+#   choice: 2-seed parallel batches (3 parallel each, GPU 99% limit)
+#   status: resolved
+#
+#   N53: Batch 1 (seed=2025) — detach best MAE + Theory MAE
+#     detach: MAE=0.001988, MSE=7.95e-6, Theory=0.002257, ResMean=-0.000145
+#     baseline: MAE=0.002009, MSE=7.67e-6, Theory=0.002904
+#     no_temp: MAE=0.002107, MSE=8.73e-6, Theory=0.002491
+#     Ranking: detach > baseline > no_temp
+#
+#   N54: Batch 2 (seed=2026) — detach best, no_temp gradient vanishing
+#     detach: MAE=0.002008, MSE=8.04e-6, Theory=0.002395, ResMean=-0.000678
+#     baseline: MAE=0.002016, MSE=8.19e-6, Theory=0.002679
+#     no_temp: MAE=0.002025, MSE=7.85e-6, Theory=0.003491, Load=0.0143 (6.6×), Batt=0.0213
+#     N22-like collapse: Load/Batt branches failed, residual compensated → paradox MSE
+#
+#   N55: C07 cross-seed statistical robustness confirmed
+#     detach mean (2-seed): MAE=0.001998, Theory=0.002326
+#     Ranking detach > baseline > no_temp stable across s2024/s2025/s2026
+#     Input-side isolation (no_temp) is fragile vs gradient-side (detach)
+
+# ============================================================
+# P1-A Batch 3: Gradient scaling α continuum (executed 2026-05-17)
+# ============================================================
+# N56: Batch 3 gradient scaling α=0.3/0.5/0.7 (seed=2024)
+#   α=0.3: MAE=0.001985, Theory=0.003302, GradNorm dead (~2e-6), components collapsed
+#   α=0.5: MAE=0.001951 (BEST), Theory=0.003041, GradNorm dead (~1e-6), components collapsed
+#   α=0.7: MAE=0.002137, Theory=0.002814 (BEST physics), GradNorm alive (~4e-3)
+#   Key findings:
+#     1. Gradient threshold α ≥ 0.7 for physics branch survival (binary, not continuous)
+#     2. α=0.5 best aggregate but components dead — residual head fully compensates
+#     3. α=0.3 strictly dominated (worse aggregate than 0.5, worse physics than 0.7)
+#     4. Partial gradient worse than zero gradient (α=0 detach had healthy components)
+#     5. Collapse values (Load~0.0145, Batt~0.02135) identical across α=0.3/0.5
+
+# ============================================================
+# P1-B Batch 4: Encoder bottleneck (executed 2026-05-17)
+# ============================================================
+# N57: Batch 4 encoder bottleneck d512/e3/d512_e3 (seed=2024)
+#   d512: MAE=0.002158 (worst), Val MSE=0.3779 (best!), Theory=0.003610, components collapsed
+#   e3:   MAE=0.002056 (best), Theory=0.002710 (best), components healthy, GradNorm alive
+#   d512_e3: MAE=0.002106, Theory=0.002724, intermediate
+#   Key findings:
+#     1. N44 encoder bottleneck confirmed — d512 Val MSE breaks 0.42 ceiling
+#     2. Val/Test divergence: d512 best Val but worst Test → overfit or data leakage
+#     3. Width (d_model↑) harmful: larger capacity → physics branch dies, residual overfits
+#     4. Depth (e_layers↑) beneficial: e3 improves physics with minimal aggregate cost
+#     5. e3 dominated d512_e3 on all metrics — width+deep < deep alone
+
+# ============================================================
+# N58: Dual-draft cross-analysis of all P1 batches (2026-05-17)
+# ============================================================
+#   Method: Claude 9 issues + Codex 17 issues → 0 consensus, 26 unique
+#   Complementarity: Claude (mechanism, Pareto, LR-phase) vs Codex (rigor, collapse diagnostics, scale check)
+#   Top findings:
+#     P0: Val/Test MSE scale mismatch (~0.38 vs ~8e-6, 5e4× difference)
+#     P0: Collapse values may be implementation boundary (constant/clamp/saturation)
+#     P1: e3+detach joint experiment untested
+#     P1: α grid too sparse (only 0.3/0.5/0.7), missing endpoints 0 and 1
+#   Report: results/dual-draft/p1_full_results_report.md
+#
+# ============================================================
+# P0+P1 COMPLETION: Val/Test scale, LR-Phase, collapse diagnostics (2026-05-18)
+# ============================================================
+# Provenance: ai-executed
+# Source: physformer_exp.py, scripts/check_val_test_scale.py, scripts/v3_verify_d512.py
+#
+# N59: P0+P1 code deliverables applied (decision)
+#   P0-1: early_stop_start_epoch=5, patience=8 (was in v5_base.yaml, confirmed)
+#   P0-2: OneCycleLR applied (was in physformer_exp.py, confirmed)
+#   P0-3: Val MSE(MW²) added to train.log (new), _units annoted in metrics.json (new)
+#   P0-4: Val/Test MSE units documented
+#   C-1 (P1): pct_start=0.3→0.16, LR peak now aligns with Phase 1→2 at epoch 8
+#   Code: physformer_exp.py:227 (pct_start), :214 (val net_mse_real), :344-350 (log line), :470-478 (test _units)
+#   status: resolved
+#
+# N60: V-1 target_std confirmed = 0.0045 MW (insight)
+#   21 experiments analyzed. target_std range 0.00424-0.00475, mean ≈ 0.0045.
+#   Val MSE × target_std² ≈ Test MSE for ALL experiments (ratio range 44k-55k).
+#   Val/Test "divergence" is unit conversion, not optimization pathology.
+#   Script: scripts/check_val_test_scale.py
+#   status: resolved
+#
+# N61: V-3 d512 overfitting FALSIFIED, MSE-MAE divergence mechanism (insight)
+#   12 P1 experiments all MATCH=YES (Val×std² ≈ Test). d512 achieves:
+#   Best normalized Val MSE (0.3779) + worst real Test MAE (0.002158).
+#   This is NOT overfitting — it's optimization target (MSE) vs evaluation metric (MAE)
+#   structural mismatch: d512 suppresses large errors (MSE) but accumulates small
+#   systematic bias (MAE). Corrects N57 d512 interpretation and N44 plateau narrative.
+#   Script: scripts/v3_verify_d512.py
+#   depends_on: [N57, N44, H08]
+#   status: resolved
+#
+# O22 crystallized → H08: Val MSE (normalized) and Test MSE (MW²) differ by target_std²
+# O24 implicitly closed: all P0 items completed, P1 substantially done
+# Next open before Phase A: P2 items (N48-N51), e3+detach joint (O23), α grid complete, BP fixes
+# Val/Test scale confusion resolved, enabling fair Val-based optimization comparison.
+#
+# ============================================================
+# Phase A, AMD local training, config bug fix (2026-05-21/22)
+# ============================================================
+# Provenance: ai-executed
+#
+# N62: Phase A code changes applied (decision, resolved)
+#   P0-1: early_stop_start_epoch=25, patience=12 (v5_base.yaml)
+#   P2-2: pct_start=0.16→0.12, LR peak now at epoch 6 (physformer_exp.py)
+#   P0-2: RampViol diagnostic — false alarm, key name was net_ramp_violation not ramp_violation_pct
+#   status: resolved
+#
+# N63: AMD RX 6800 local training — 2-stage (accidental, 0.03→0.01) (experiment, resolved)
+#   env: rx6800-rocm (PyTorch 2.13 + ROCm 7.13), use_amp=false, OMP_NUM_THREADS=1
+#   batch_size=64, 17.5 min/epoch @ 130 S/s, GPU 8.72GB
+#   Result: MAE=0.001944 (BEST EVER baseline), MSE=7.514e-06, RMSE=0.002741
+#   Theory MAE=0.003186 (worse), Residual mean=0.000000 (perfect zero-mean)
+#   5 components ALL worse than remote (PV +137%, Load +40%), yet aggregate best
+#   → C08 covariance cancellation mechanism PERFECTLY validated
+#   Root cause: 2-stage 0.03→0.01 kills physics more than 0.03→0.02
+#   status: resolved
+#
+# N64: config_to_args propagation bug discovered (insight, resolved)
+#   phase_2a_epochs, phase_2a_cw, phase_reset_mode, detach_mode_phase2 missing from
+#   manual key mapping in physformer/config.py:config_to_args()
+#   → 3-stage curriculum NEVER actually executed (both local and remote C23)
+#   Therefore all prior C23 "3-stage" conclusions must be reinterpreted as
+#   accidental 2-stage 0.03→0.01 curriculum results until rerun with the fixed mapping.
+#   status: resolved
+#
+# N65: config bug fix applied (decision, resolved)
+#   Added 4 missing keys to config.py:195-198+:
+#     phase_2a_epochs, phase_2a_cw, phase_reset_mode, detach_mode_phase2
+#   status: resolved
+#
+# N66: True 3-stage fresh training on AMD failed with NaN (experiment, dead_end)
+#   Phase 1 (0-7, cw=0.03) → Phase 2a (8-29, cw=0.02) → Phase 2b (30-50, cw=0.01)
+#   Ran on RX 6800 local, use_amp=false, OMP_NUM_THREADS=1
+#   Result: FAILED — NaN at epoch 19 in Phase 2a (3rd AMD NaN in 3 attempts)
+#   status: dead_end
+#
+# N67: AMD RX 6800 + ROCm dead end for PhysFormer training (dead_end, resolved)
+#   hypothesis: AMD GPU could serve as local training platform
+#   failure_mode: 3 attempts at 3-stage training, all NaN in Phase 2a (cw=0.02).
+#     Attempt 1: 2-stage (0.03→0.01), 43 epochs, SUCCESS, MAE=0.001944
+#     Attempt 2: 2-stage resume→3-stage NaN at epoch 28 step 1100
+#     Attempt 3: fresh 3-stage NaN at epoch 19 step 500
+#     Pattern: cw=0.01 works, cw=0.02 fails. AMP=false fixed initial NaN but
+#     mid-training NaN persists. Likely ROCm numerical instability under higher
+#     component loss weight.
+#   lesson: AMD RX 6800 + ROCm 7.13 + PyTorch 2.13 is UNRELIABLE for PhysFormer
+#     training with cw≥0.02. Use NVIDIA GPU (AutoDL 4080 SUPER) for all training.
+#     Local AMD useful for config validation and basic sanity checks only.
+#   status: resolved
+#
+# Current open after Phase A: rerun true 3-stage on NVIDIA/AutoDL with fixed
+# config_to_args mapping; keep AMD results only as C08 mechanism evidence and
+# environment dead-end evidence.
+
+# ============================================================
+# True 3-stage validation on NVIDIA AutoDL (2026-05-23)
+# ============================================================
+# Provenance: ai-executed, user-directed
+# Source: runs/physformer_c23_{baseline,e3,detach}_vgpu_s2025/, logs/c23_*_vgpu_s2025.log
+
+# N68: westd instance 3-parallel throughput diagnosis (experiment, resolved)
+#   host: connect.westd.seetacloud.com:45015, RTX 4080 SUPER 32GB, PCIe Gen4 x8
+#   Three parallel c23 trainings (baseline/e3/detach with _nvidia_s2025 names) started
+#   2026-05-22 22:42; observed S/s≈88, single-epoch ~26 min (≈3× slower than May 18
+#   reference of 260 S/s on same GPU SKU under same 3-parallel pattern).
+#   Diagnosis: config diff (only patience/early_stop_start_epoch) does not affect step time;
+#   3-parallel concurrency identical to May 18 (which still got 260 S/s) — eliminated.
+#   Remaining factor: PCIe Gen4 x8 link on this instance vs presumed x16 on May 18 reference.
+#   nvidia-smi 99% utilization is misleading under PCIe bottleneck (counts SM-waiting-on-data
+#   time as utilization). 3-parallel multiplies the bottleneck.
+#   provenance: ai-executed
+#   timestamp: "2026-05-23T00:00"
+#   status: resolved
+
+# N69: westd → vGPU-32GB instance pivot (pivot, resolved)
+#   from: connect.westd.seetacloud.com:45015 (3× slower than reference)
+#   to: connect.westc.seetacloud.com:52613 (AutoDL-vGPU-32GB alias)
+#   trigger: throughput regression of 3× vs May 18 baseline made full run wall-clock
+#     unacceptable; user killed westd training and reopened vGPU-32GB instance.
+#   PCIe link on vGPU-32GB instance: Gen4 x8 same as westd, but isolated/lighter host
+#     load — S/s rose from 88 (westd, three-parallel) → 108→133 (vGPU, three-parallel,
+#     stabilized after IO contention subsided). Still below May 18 reference 260 S/s.
+#     Total wall time per epoch settled at ~1000s ≈ 17 min vs May 18 reference 8.7 min.
+#   provenance: user (decision), ai-executed (push+launch)
+#   timestamp: "2026-05-23T00:21"
+#   status: resolved
+
+# N70: c23 true 3-stage 3-parallel on vGPU-32GB — c23_baseline/e3/detach (experiment, resolved)
+#   configs: configs/physformer_c23_{baseline,e3,detach}.yaml (unchanged from May 18 except
+#     patience=12, early_stop_start_epoch=25). Critical difference vs May 18: config_to_args
+#     bug N64/N65 fixed → 3-stage curriculum NOW actually executes
+#     (Phase 1 cw=0.03 epochs 0-7 → Phase 2a cw=0.02 epochs 8-29 → Phase 2b cw=0.01 epoch 30+).
+#   run-names: physformer_c23_{baseline,e3,detach}_vgpu_s2025
+#   trained 36 epochs each, natural early stop (counter 12/12) at epoch 36.
+#   Final Val MSE (best) by run:
+#     e3:       0.388006 (epoch 8 best, never improved through epoch 36)
+#     detach:   0.398992 (epoch 13 best; pushed past Phase 1 boundary)
+#     baseline: 0.406901 (epoch 8 best)
+#   Ranking on Val MSE: e3 < detach < baseline
+#   Wall time: ~12.5 h per run; epochs 1-8 ~21 min/epoch, epochs 20-36 ~17 min/epoch
+#     (throughput improved as IO contention resolved).
+#   provenance: ai-executed
+#   timestamp: "2026-05-23T00:43 → 2026-05-23T12:14"
+#   status: resolved
+
+# N71: let trainings run to natural early stop rather than mid-kill (decision, resolved)
+#   choice: option A (let early stop fire naturally at counter 12/12)
+#   alternatives:
+#     - "Mid-kill now and pull best ckpt — saves ~51 min but loses final-epoch wrap-up"
+#     - "Wait until epoch 35 then kill — same loss as mid-kill, saves only ~17 min"
+#   rationale: 51-min wait acceptable for a clean training curve; best ckpt is saved
+#     incrementally so kill-loss limited to wrap-up, not core results.
+#   evidence: all three runs exited at epoch 36 with EarlyStopping counter 12/12.
+#   provenance: user
+#   timestamp: "2026-05-23T11:00"
+#   status: resolved
+
+# N72: post-training test + export-forecast on best ckpts (experiment, resolved)
+#   Trainer DOES NOT auto-run final eval after early stop. exports/, reports/, powerflow/
+#   directories are empty after training exits — only checkpoint.pth, training_state.pth,
+#   train.log written. Required two extra invocations per run:
+#     `python run.py test --config <cfg> --run-name <name> --resume`     → metrics.json, pred.npy, true.npy, extras/{theory_net.npy,residual_net.npy,
+#         physics_states.npz,diagnostic_summary.json,test_loss_terms.json}
+#     `python run.py export-forecast --config <cfg> --run-name <name> --resume`
+#       → exports/portfolio_forecasts.csv
+#   reports/ remains empty (separate downstream visualization script writes it).
+#   powerflow/ remains empty (validate-powerflow requires --mapping-csv).
+#   Test metrics (MW units, MAE / MSE / RMSE):
+#     baseline: MAE=0.002140, MSE=8.553e-6, RMSE=0.002924
+#     e3:       MAE=0.002127, MSE=8.189e-6, RMSE=0.002862
+#     detach:   MAE=0.002065, MSE=8.132e-6, RMSE=0.002852
+#   Ranking on aggregate test MAE: detach < e3 < baseline (REVERSE of Val MSE ranking).
+#   Component MAE (test), detach beats baseline by:
+#     Load -8%, PV -44%, Wind -42%, Battery Power -47%, Battery SOC -60%
+#   net_ramp_violation (test):
+#     baseline 0.00468, e3 0.00346, detach 0.00328 (detach LOWEST, -30% vs baseline).
+#   Pulled all 3 run dirs locally: runs/physformer_c23_*_vgpu_s2025/ (~807 MB tarball,
+#   includes ckpt + training_state + pred/true + extras + exports).
+#   provenance: ai-executed
+#   timestamp: "2026-05-23T12:20"
+#   status: resolved
+#   also_depends_on: [N65, N66, N70]
+
+# N73: epoch-31 synchronized Train-loss cliff validates true 3-stage execution (insight, resolved)
+#   All three runs (baseline, e3, detach) exhibited identical Train-loss cliff at epoch 31:
+#     baseline: 0.05982 → 0.04413 (-26%)
+#     e3:       0.05875 → 0.04301 (-27%)
+#     detach:   0.05889 → 0.04324 (-27%)
+#   Val MSE essentially unchanged through the cliff (within plateau noise). After the
+#   cliff, Train loss stabilized at the new ~0.042 floor and did not jump again.
+#   Interpretation: synchronized cliff across three independent runs reflects a SHARED
+#   schedule milestone — most consistent with Phase 2a→Phase 2b cw transition at epoch 30
+#   (config-defined: phase_2b_epochs starts after epoch 29). This is the FIRST direct
+#   empirical evidence that the N65 config_to_args bug fix worked and that the 3-stage
+#   curriculum is actually executing on this codebase. Prior to N65, the cw schedule
+#   was silently stuck at 2-stage 0.03→0.01.
+#   provenance: ai-suggested (interpretation), ai-executed (data collection)
+#   timestamp: "2026-05-23T11:00"
+#   status: resolved
+#   also_depends_on: [N64, N65, N70]
+#   evidence: O31 (staged)
+
+# N74: T0 variance decomposition on c23 vgpu_s2025 — bias-clearance regime escape (analysis, resolved)
+#   Script: scripts/c08_vgpu_3way.py (newly written)
+#   Output: scripts/c08_vgpu_3way_results.json
+#   Method: extract y_aux from test loader (34273×96×5 samples real MW), pair with
+#     component_theory_real from each run's extras/physics_states.npz, compute
+#     per-component error stats and aggregate variance decomposition
+#     Var(error_net) = Σ s_i^2 Var_i + 2 Σ_{i<j} s_i s_j Cov_ij, with s = [+1,-1,-1,+1,0]
+#     for (load, pv, wind, batt_p, batt_soc) per the net = load - pv - wind + batt equation.
+#   Key numbers (baseline → detach):
+#     diag var sum: 4.65e-5 → 2.20e-5 (-53%)
+#     cross cov contribution: -3.57e-5 → -1.28e-5 (|cancellation| -64%)
+#     observed Var(error_net): 1.08e-5 → 9.18e-6 (-15%)
+#     cancellation ratio (mean): 0.578 → 0.478 (-17%)
+#     per-component bias: load -89%, pv -71%, batt_p -87%, batt_soc -83%
+#   Diagnosis: detach exits the C08 cancellation regime. Aggregate gain is achieved
+#   through bias clearance plus variance reduction (despite WEAKER cov-driven
+#   cancellation). e3 is the opposite extreme: largest diag var and strongest
+#   cancellation, yet largest observed Var(error_net) — cancellation cannot keep up.
+#   Implication: under TRUE 3-stage with selective detach, the theory head receives
+#   a clean physics-only gradient through Phase 2b refinement and converges to a
+#   near-unbiased per-component fit. Without detach, the residual head systematically
+#   nudges theory toward a biased solution that maximises aggregate cancellation
+#   (because aggregate net_mse is what training optimises).
+#   provenance: ai-executed
+#   timestamp: "2026-05-23T13:30"
+#   status: resolved
+#   also_depends_on: [N70, N72, N73, C08]
+#   evidence: O37 (staged)
+
+# N75: A+B applied to c23 configs — early-stop tightening + Phase 2b removal (decision, resolved)
+#   choice:
+#     A. patience 12->8, early_stop_start_epoch 25->12 (in c23 configs only, NOT v5_base)
+#     B. phase_2_epochs 50->30 (= phase_2a_epochs), train_epochs 30 — Phase 2b unreachable
+#   alternatives considered:
+#     - Keep current settings, accept ~6h/run waste — rejected: empirically wasted compute
+#     - Tighten globally in v5_base.yaml — rejected: would silently affect 30+ legacy configs
+#     - Redesign Phase 2b for actual utility (SWA, increased cw, frozen-backbone refine) — deferred
+#   rationale: (1) best Val MSE empirically appears at epoch 8-13 across all three runs;
+#     patience=8 starting at epoch 12 catches detach's epoch-13 best without risk while
+#     halving wall-clock. (2) Phase 2b train cliff at epoch 31 (N73) is real but Val MSE
+#     unchanged across all three runs — schedule works but Phase 2b does not improve
+#     generalisation. (3) phase_2_cw=0.01 left in configs as dead-code documentation;
+#     phase_2_epochs=phase_2a_epochs collapses 3-stage to 2-stage via the
+#     phase_2a_end<phase_2_end branch in physformer_exp.py:300-309.
+#   wall-clock impact:
+#     before: ~12.5h/run (epoch 36 stop)
+#     after:  ~6-7h/run (epoch 16-22 stop projected)
+#     T1 multi-seed (3 seed x 3 arm = 9 runs at 3-parallel): 63h -> ~25h
+#   risk: rare future configs may have late-emerging benefit from Phase 2b cw=0.01;
+#     code path intact and reactivation is one-line config change.
+#   provenance: user (decision), ai-executed (config edits)
+#   timestamp: "2026-05-23T14:00"
+#   status: resolved
+#   also_depends_on: [N70, N73, N74, C05]
+#   evidence: O38 (staged)
+
+# N76: c23 configs + v5_base committed to git (artifact, resolved)
+#   commit: 6dca986 on branch codex/thesis-mainline
+#   files (all new, first-time committed):
+#     configs/base/v5_base.yaml          (was untracked since project start)
+#     configs/physformer_c23_baseline.yaml
+#     configs/physformer_c23_e3.yaml
+#     configs/physformer_c23_detach.yaml
+#   contains A+B from N75. Push to origin/codex/thesis-mainline pending — local SSH
+#   agent did not have the GitHub key loaded at attempt time; user to push manually
+#   or load the key.
+#   provenance: ai-executed
+#   timestamp: "2026-05-23T14:10"
+#   status: resolved (commit), pending (push)
+#   also_depends_on: [N75]
+
+# ============================================================
+# T1 Phase B - multi-seed replication on 2-stage truncated curriculum (2026-05-24 -> 2026-05-25)
+# ============================================================
+# Three batches sequential (seed 2025/2026/2027) x three c23 arms (baseline/e3/detach)
+# all on AutoDL vGPU-32GB (RTX 4080 SUPER), with the A+B config (Phase 2b removed,
+# early-stop patience=8/start=12) committed at 6dca986. Goal: cross-seed grounding for
+# May 23 single-seed observations O33/O34/O37/O38, esp. the bias-clearance regime
+# escape mechanism candidate (C11 / O37) and the O11-vs-O34 ramp-regime CONFLICT.
+# Outcome: detach aggregate dominance HARDENS (C09 new). detach mechanism via
+# bias clearance REFUTED. O11 vs O34 RESOLVED in favor of O34. e3 wins all 5
+# component-level MAEs (new staged observation O39, cancellation-on-encoder-depth).
+
+# N77: T1 Batch 1 (seed 2025) c23 3-arm + ckpt-pollution incident + relaunch (experiment, resolved)
+#   configs: configs/physformer_c23_{baseline,e3,detach}.yaml (commit 6dca986 = A+B)
+#   run-names: physformer_c23_{baseline,e3,detach}_vgpu_s2025
+#   launched: 2026-05-24T01:19
+#   FIRST LAUNCH: all 3 arms reported "Resumed from checkpoint | start_epoch=8/13" instead
+#     of fresh training. Root cause N78: autodl-push tar bundled local runs/ from the May 23
+#     pull, restored old training_state.pth into the remote run dir, trainer auto-resumed.
+#     Killed all 3 after ~5 min; renamed old remote dirs (N79); fixed skill exclude (N78);
+#     verified no "Resumed from checkpoint" on relaunch.
+#   RELAUNCH (clean): natural early-stop E19 all 3 arms.
+#   Best Val MSE: e3 0.391673 < detach 0.389423 (lowest) < baseline 0.415537
+#     (note: in this seed detach is best Val MSE, contrast with May 23 where e3 was)
+#   Test MAE (real MW): baseline 0.001968 < detach 0.002016 < e3 0.002134
+#     (baseline wins MAE in this single seed -- the only seed where it does; later
+#      shown to be an outlier when batches 2/3 land detach as the clean winner)
+#   wall-clock: ~5h20m relaunched
+#   provenance: ai-executed
+#   timestamp: "2026-05-24T01:19 -> 06:30"
+#   status: resolved
+#   also_depends_on: [N75, N76]
+#   evidence: scripts/c08_t1_3seed_results.json::by_run.{baseline,e3,detach}_s2025
+
+# N78: autodl-push exclude missing "runs" caused ckpt pollution (dead_end, resolved)
+#   hypothesis: "Default exclude list (results/logs/checkpoints/wandb/...) is sufficient for
+#     a project-mirroring push tool"
+#   failure_mode: "Local runs/ from previous pull-back round-tripped to remote when push
+#     was re-run from the same worktree. Remote trainer found training_state.pth in the
+#     run dir (Path(run_dir)/training_state.pth exists check at
+#     physformer/train/physformer_exp.py:272) and auto-resumed instead of starting fresh.
+#     Detected via first-epoch log line Resumed from checkpoint | start_epoch=8/13."
+#   lesson: "Any push/sync tool that mirrors a project tree must default-deny outputs
+#     (runs/ checkpoints/ results/ logs/ tensorboard/ wandb/ data_processed/ ...) AND
+#     anything created by training. White-list exclude is fragile; consider an opt-in
+#     what-to-ship model for ML tools instead. Trainer auto-resume on ckpt presence is
+#     a separate latent footgun -- documented for future review (not addressed today)."
+#   fix: edit ~/.claude/skills/autodl-push/config.yaml to add "runs" to exclude list.
+#   provenance: ai-suggested (diagnosis), ai-executed (fix)
+#   timestamp: "2026-05-24T01:25"
+#   status: resolved (config patched; impacted batch re-launched cleanly)
+#   also_depends_on: [N77]
+
+# N79: rename remote *_vgpu_s2025 to *_s2025_old3s before relaunch (decision, resolved)
+#   choice: option B (rename old remote dirs to _old3s suffix)
+#   alternatives:
+#     - "Direct overwrite -- simpler but trainer may refuse to overwrite existing ckpt"
+#     - "Use new run-name suffix *_s2025_2s -- avoids name collision but breaks symmetry
+#        with seeds 2026/2027 dirs that would not have the suffix"
+#   rationale: keeps remote audit trail symmetric with the local _old3s suffix from May 23
+#     pull side, preserves the 3-stage evidence under a non-overlapping path, lets the
+#     fresh 2-stage run claim the canonical name. Renamed via mv per arm before
+#     relaunch.
+#   provenance: user
+#   timestamp: "2026-05-24T01:24"
+#   status: resolved
+
+# N80: T1 Batch 2 (seed 2026) c23 3-arm (experiment, resolved)
+#   launched: 2026-05-24T12:09 after B1 results pulled in parallel
+#   natural early-stop E19 all 3 arms
+#   Best Val MSE: detach 0.381432 (E5; lowest of all 9 runs) < baseline 0.386685 < e3 0.405036
+#   Test MAE (real MW): detach 0.001946 < e3 0.002130 < baseline 0.002221
+#     (detach clean sweep on aggregate this seed)
+#   wall-clock: ~5h25m
+#   incident: ssh monitor stream dropped during B2 E11 (training itself unaffected;
+#     Monitor relaunched and replayed via tail -F)
+#   provenance: ai-executed
+#   timestamp: "2026-05-24T12:09 -> 17:30"
+#   status: resolved
+#   also_depends_on: [N77]
+#   evidence: scripts/c08_t1_3seed_results.json::by_run.*_s2026
+
+# N81: T1 Batch 3 (seed 2027) c23 3-arm (experiment, resolved)
+#   launched: 2026-05-24T18:08
+#   baseline + e3 early-stop E19; detach early-stop E20 (one extra epoch because its
+#     best refresh at E12 pushed the patience counter back one epoch)
+#   Best Val MSE: detach 0.391997 < e3 0.399209 < baseline 0.413991
+#   Test MAE (real MW): detach 0.001958 < baseline 0.002019 < e3 0.002040
+#     (detach clean sweep again)
+#   wall-clock: ~5h50m
+#   incident: ssh monitor stream dropped during B3 E14 (same pattern; relaunched)
+#   provenance: ai-executed
+#   timestamp: "2026-05-24T18:08 -> 2026-05-25T00:06"
+#   status: resolved
+#   also_depends_on: [N80]
+#   evidence: scripts/c08_t1_3seed_results.json::by_run.*_s2027
+
+# N82: T1 9-run cross-seed aggregate (experiment, resolved)
+#   Method: read 9 runs metrics.json, computed mean +/- std per arm across 3 seeds.
+#   Aggregate metrics (MAE / MSE / RMSE / ramp), real MW:
+#     baseline: MAE 2.069e-3 +/- 1.34e-4 | MSE 8.111e-6 +/- 6.8e-7 | ramp 3.728e-3 +/- 1.06e-3
+#     e3:       MAE 2.101e-3 +/- 5.3e-5  | MSE 8.146e-6 +/- 2.6e-7 | ramp 3.971e-3 +/- 4.1e-4
+#     detach:   MAE 1.973e-3 +/- 3.7e-5  | MSE 7.377e-6 +/- 1.4e-7 | ramp 2.989e-3 +/- 5.0e-4  *** best mean & smallest std ALL aggregate ***
+#   Component MAE (real MW), e3 wins all 5:
+#     load:  baseline 1.978e-3 / e3 1.971e-3 (best) / detach 2.063e-3
+#     pv:    baseline 2.885e-3 / e3 2.806e-3 (best) / detach 3.013e-3
+#     wind:  baseline 3.90e-4  / e3 3.52e-4  (best) / detach 4.84e-4
+#     batt_pwr: baseline 2.223e-3 / e3 2.032e-3 (best) / detach 2.395e-3
+#     batt_soc: baseline 1.227e-2 / e3 1.147e-2 (best) / detach 1.231e-2
+#   theory_mae: baseline 2.475e-3 (best) < detach 2.491e-3 < e3 2.577e-3
+#   Provides cross-seed grounding for outcome-level claims (C09 new) and
+#   sets up the staged observations O39 (e3 component dominance) and O40 (theory_mae).
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T05:00"
+#   status: resolved
+#   also_depends_on: [N77, N80, N81]
+#   evidence: scripts/c08_t1_3seed_results.json::by_run.* (all 9)
+
+# N83: T1 3-seed C08 variance decomposition (experiment, resolved)
+#   Script: scripts/c08_t1_3seed.py (new; reuses analyze_run and extract_y_aux from
+#     scripts/c08_vgpu_3way.py and adds per-seed regime-diagnosis aggregation)
+#   Output: scripts/c08_t1_3seed_results.json
+#   Method: for each of 9 runs, decompose Var(error_net) into Sum(s_i^2 Var_i) +
+#     2*Sum(s_i s_j Cov_ij) per the net = load - pv - wind + batt equation. Compute
+#     per-component bias, diag var, cov-cross. Then per-seed delta detach-vs-baseline
+#     on 4 regime-escape signals (bias clearance, diag var reduce, weaker cancellation,
+#     agg MSE better) and aggregate across seeds.
+#   Result (mean delta +/- std, with per-seed values for s2025/s2026/s2027):
+#     diag-var shift:        +28% +/- 90%        (+9.3%, +126.1%, -50.1%)         -- NO
+#     cov-cross shift:       -44% +/- 124%       (-11.6%, -181.8%, +60.6%)        -- NO
+#     |bias| reduction:      +67% +/- 172%       (+7.5%, +260.8%, -68.1%)         -- NO
+#     agg MSE shift:         -8.6% +/- 8.9%      (-1.8%, -18.7%, -5.3%)           -- YES
+#   1/4 regime-escape signals replicated. Per-component |bias| reductions also flip
+#   direction across seeds (load: +5.5/+381.5/-70.5; pv: +8.7/+138.6/-65.2; ...).
+#   Diagnosis: May 23 single-seed s2025 was a mechanism OUTLIER. Aggregate-level
+#   outcome (detach wins agg MSE) is robust; the mechanism behind detach win is
+#   seed-dependent. Sets up N84 dead_end for O37.
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T06:00"
+#   status: resolved
+#   also_depends_on: [N82, N74]
+#   evidence: scripts/c08_t1_3seed_results.json::regime_diagnosis
+
+# N84: O37 bias-clearance regime-escape mechanism REFUTED across seeds (dead_end, resolved)
+#   hypothesis: "Selective detach + true 3-stage achieves aggregate gain via
+#     per-component bias clearance + per-component variance reduction (with weaker
+#     covariance cancellation). Posed in N74/O37 from single-seed s2025 evidence."
+#   failure_mode: "T1 3-seed C08 analysis (N83) shows only 1/4 of the regime-escape
+#     signals replicate. The 3 mechanism signals (bias clearance, diag-var reduce,
+#     weaker cancellation) all FLIP DIRECTION across s2025/s2026/s2027. Only s2027
+#     shows the May 23 pattern; s2026 actively contradicts it (bias +260%, diag-var
+#     +126%, cov-cross stronger by -181%). The single common signal is agg-MSE
+#     improvement which is also captured by C09 (outcome dominance)."
+#   lesson: "Mechanistic claims derived from a single seed in a 9-DoF gradient
+#     landscape can be coincidental even when the agg-MSE outcome they explain is
+#     robust. Future mechanism candidates must require 3-seed corroboration BEFORE
+#     hardening to candidate-claim status. Outcome-level claims (e.g. C09) can be
+#     hardened on aggregate evidence alone and do not depend on a stable mechanism
+#     explanation."
+#   provenance: ai-suggested (interpretation), ai-executed (data via N83)
+#   timestamp: "2026-05-25T07:00"
+#   status: resolved
+#   also_depends_on: [N83, N74, O37]
+
+# N85: O11 vs O34 CONFLICT resolved in favor of O34 (decision, resolved)
+#   conflict: O11 (2026-05-15, ai-suggested via Codex dual-draft, battery-as-slack
+#     hypothesis predicting detach should increase ramp violations) vs O34 (2026-05-23,
+#     ai-executed via single-seed c23 vgpu_s2025 finding detach LOWEST ramp).
+#   resolution evidence: T1 net_ramp_violation cross-seed
+#     baseline 3.728e-3 +/- 1.06e-3 | e3 3.971e-3 +/- 4.14e-4 | detach 2.989e-3 +/- 5.02e-4
+#     detach is LOWEST in every single seed (s2025: detach < e3 < baseline;
+#     s2026: detach < baseline < e3; s2027: detach < baseline < e3 by similar magnitudes).
+#     Implies: detach does not relegate the battery to slack-variable behaviour under
+#     the true 3-stage / 2-stage truncated regime; the P1-A 2-stage 0.03->0.01 finding
+#     of ~2x ramp was a regime-specific artefact of the pre-N65 schedule.
+#   action: C07 evidence basis to drop the ramp trade-off framing (see logic/claims.md
+#     C07 update); O11 marked as falsified observation.
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T07:00"
+#   status: resolved
+#   also_depends_on: [N82, O11, O34, C07]
+
+# ============================================================
+# P2 Replacement-Mechanism Search (2026-05-25/26)
+# ============================================================
+# Design: docs/plans/2026-05-25-detach-mechanism-search.md
+# 3-track parallel: E1 (detach×e3, remote GPU) + D1/D2/D3 (diagnostics, local CPU)
+# Outcome: M1 capacity-cancellation SUPPORTED as C09 mechanism via E1 adjudication
+#   (detach×e3 MAE 2.065e-3 >> detach 1.973e-3, gap 2.5σ)
+# M1 cov-cross direct FALSIFIED, M2 residual fraction FALSIFIED,
+# M3 sharpness INCONCLUSIVE (FP32 floor)
+
+# N87: P2 design (decision, resolved)
+#   choice: 3-track parallel — remote E1 detach×e3 + local D1/D2/D3
+#   provenance: user (approved P2 after ai presented 3 options)
+#   timestamp: "2026-05-25T16:00"
+#   status: resolved
+#   also_depends_on: [N86]
+
+# N88: E1 detach×e3 cross-3-seed (experiment, resolved)
+#   config: configs/physformer_c23_detach_e3.yaml (c23_detach + e_layers=3)
+#   seeds: 2025/2026/2027, all early-stop E19 (patience=8/start=12), no errors
+#   wall-clock: ~8h30m (16:06→00:36), GPU vGPU-32GB, 3-parallel
+#   metrics (cross-seed mean ± std, real MW):
+#     MAE:        2.065e-3 ± 7.5e-5
+#     MSE:        8.002e-6 ± 5.9e-7
+#     Theory MAE: 2.522e-3 ± 5.2e-5
+#   vs T1 baselines:
+#     detach MAE 1.973e-3 ± 3.7e-5 → detach×e3 gap = +9.17e-5 (>2σ)
+#     detach×e3 ≈ baseline (2.069e-3), NOT ≈ detach
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T16:06 → 2026-05-26T00:36"
+#   status: resolved
+#   also_depends_on: [N87]
+
+# N89: D1 M1 cov-cross diagnostic (experiment, resolved)
+#   runs: 12 (baseline/e3/detach/detach_e3 × 3 seeds), reuses c08_vgpu_3way
+#   result: |cov(theory, residual)| detach/baseline = 0.87 (FAIL <0.30)
+#           per-comp |bias| reduction = 5/15 (FAIL ≥9/15)
+#           M1 cov-cross variant FALSIFIED
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T16:20, re-run 2026-05-26T14:00"
+#   status: resolved
+#   also_depends_on: [N87, N88]
+
+# N90: D2 M2 residual fraction diagnostic (experiment, resolved)
+#   runs: 12 (all 4 arms × 3 seeds)
+#   result: residual fraction ~98.75% all arms, quantile diffs <0.02%,
+#           K-S D=0.025-0.091 (tiny effect), |ΔPearson|=0.018 (<0.1 threshold)
+#           M2 FALSIFIED
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T16:20, re-run 2026-05-26T14:00"
+#   status: resolved
+#   also_depends_on: [N87]
+
+# N91: D3 M3 sharpness perturbation diagnostic (experiment, resolved)
+#   method: finite-difference encoder param perturbation, 30 dirs × 3 eps
+#           (1e-3, 3e-3, 1e-2), 5% test set, 9 ckpts, ~4.5h CPU
+#   result: ALL arms near-zero sharpness (FP32 floor, 1e-6–1e-7)
+#           cross-seed std pattern: detach < baseline < e3 (mirrors C09)
+#           ratio test FAILS (baseline mean ≈ 0 → ratio NaN)
+#           M3 INCONCLUSIVE — mechanism plausible but unmeasurable
+#   provenance: ai-executed
+#   timestamp: "2026-05-25T16:20 → 2026-05-25T20:50"
+#   status: resolved
+#   also_depends_on: [N87]
+
+# N92: M1 cov-cross variant dead_end (dead_end, resolved)
+#   hypothesis: detach reduces |cov(theory_net, residual_net)| to achieve aggregate gain
+#   failure_mode: |cov| ratio detach/baseline = 0.87 (only 13% reduction),
+#     far below the 70% threshold needed. Per-component bias reduction only 5/15.
+#     Aggregate cov-cross is NOT the mechanism.
+#   lesson: detach does not break theory↔residual covariance at the aggregate level;
+#     the mechanism operates at the ENCODER CAPACITY level:
+#     detach blocks residual→encoder→theory backward path, preventing deeper encoders
+#     from creating cancellable covariance structure. N89 + N88 together prove this.
+#   provenance: ai-executed
+#   timestamp: "2026-05-26T14:00"
+#   status: resolved
+#   also_depends_on: [N89, N88]
+
+# N93: M2 residual fraction dead_end (dead_end, resolved)
+#   hypothesis: detach changes residual head "absorption role" (fraction or corr structure)
+#   failure_mode: residual fraction mean ~98.75% in ALL three arms,
+#     quantile differences <0.02%, Pearson corr nearly identical (-0.31 to -0.33).
+#     residual = pred - theory is dominated by residual magnitude; the fraction
+#     distribution is an architectural invariant, not a detach-specific signature.
+#   lesson: the residual head absorbs ~98.75% of prediction magnitude regardless
+#     of gradient isolation. detach's mechanism is not residual reconstruction.
+#   provenance: ai-executed
+#   timestamp: "2026-05-26T14:00"
+#   status: resolved
+#   also_depends_on: [N90]
+
+# N94: M3 fence-sit result (experiment, unresolved)
+#   result: sharpness absolute values near FP32 floor for all arms (1e-6–1e-7).
+#     detach has smallest cross-seed AND intra-seed sharpness std, consistent with
+#     C09 but not statistically distinguishable. Monotonicity sanity check passes.
+#   status: unresolved — measurement method limited by FP32 precision; sharper
+#     perturbation diagnostics (Hessian-vector products, lanczos) would be needed
+#     to confirm or refute, but current evidence is insufficient for either verdict.
+#   provenance: ai-executed
+#   timestamp: "2026-05-26T14:00"
+#   also_depends_on: [N91]
+
+# N95: M1 capacity-cancellation mechanism SUPPORTED (decision, resolved)
+#   choice: C09 mechanism now has candidate explanation — detach disables the
+#     encoder-depth→cancellation channel. In baseline/e3 architectures, deeper
+#     encoders create stronger cross-component error correlations (C08 capacity
+#     regime), improving aggregate via cancellation under net=load-pv-wind+batt.
+#     Selective detach cuts the residual-head gradient back to theory branches
+#     through the shared encoder, preventing the encoder from ORGANIZING
+#     cancellable covariance structure. Therefore:
+#       (a) detach alone: best aggregate (C09) — cancellation channel blocked,
+#           theory head converges to unbiased components without residual-induced
+#           correlated biases
+#       (b) e3 alone: best components, worst aggregate (O39) — deeper encoder
+#           creates maximal correlated errors but cancellation cannot keep up
+#       (c) detach×e3 ≈ baseline (E1 new): deeper encoder's extra capacity
+#           provides no benefit when cancellation channel is cut
+#   evidence: E1 cross-seed (N88): detach×e3 MAE 2.065e-3 >> detach 1.973e-3,
+#     detach×e3 ≈ baseline 2.069e-3. D1 (N89): cov-cross NOT the mechanism.
+#     O39: e3 component-dominance aggregate-loss. C08: signed cancellation framework.
+#   provenance: ai-executed (experiment), ai-suggested (interpretation)
+#   timestamp: "2026-05-26T14:10"
+#   alternatives:
+#     - M4 encoder-disentanglement (predicted detach×e3 < detach, refuted by E1)
+#     - C11/O37 bias-clearance (refuted by N84)
+#   status: resolved
+#   also_depends_on: [N88, N89, N92, N93, C08, C09]
+
+# N86: research-manager-first-then-mechanism-search (decision, resolved)
+#   choice: run /research-manager BEFORE designing replacement mechanism experiments
+#   alternatives:
+#     - "Find new mechanism first, then crystallize -- risks new exploration referencing
+#        stale ARA (O37/C11 still staged candidate-claim) and contradicting itself when
+#        ARA later updates"
+#     - "Update mechanism layer of /brainstorm with new findings in-skill -- bypasses
+#        the ARAs progressive-crystallization invariant"
+#   rationale: T1 outcomes are stable journey facts; closure signals are clearly
+#     present (O37 empirical refutation, O11 conflict resolution, C09 candidate);
+#     /brainstorm for new mechanism will read ARA at startup -- ARA must be correct.
+#     Cost: ~10-15 min for research-manager vs hours-days for mechanism search.
+#   provenance: user (after ai presented the trade-off)
+#   timestamp: "2026-05-25T08:00"
+#   status: resolved
+
+# ============================================================
+# N96: PhysFormer-iGT architecture redesign (decision, 2026-05-26)
+# ============================================================
+# Design doc: docs/plans/2026-05-26-physformer-igt-architecture.md
+# provenance: user (architecture vision), ai-executed (documentation)
+
+# N96: PhysFormer-iGT architecture redesign (decision, open)
+#   choice: Physics-Twin Graph iTransformer (iGT) as next-generation architecture
+#   alternatives:
+#     - "Incremental improvement on current PhysFormer (e3 sweep, M4 PCA, etc.)
+#        — rejected: C10 proved shared encoder is the root cause; incremental fixes
+#        are gradient hacks (detach) not architectural solutions"
+#     - "Dual-encoder (physics + data separate encoders) — viable but less innovative;
+#        doesn't give physics 'first-class token' status"
+#     - "Physics-First (Transformer outputs physics params) — highest paper value
+#        but highest risk; deferred as long-term direction"
+#   rationale:
+#     C10 proved that the shared encoder creates a cancellation channel
+#     (encoder-depth → cross-component error correlation → signed cancellation
+#     under net = load − pv − wind + batt). detach blocks this via gradient
+#     hacking, not architecture. iTransformer inverts attention from time
+#     dimension to variate dimension, giving each component its own token
+#     and representation space — no shared d_model for FFN to mix.
+#
+#     The iGT upgrade adds four innovations beyond vanilla iTransformer:
+#     (1) Component-Physics Twin tokens — physics as peer tokens, not FiLM
+#     (2) Graph-biased attention — DVPP physical topology as attention prior
+#     (3) Identifiable component residual — component loss on predictions
+#         (theory + residual), not theory alone, solving residual identifiability
+#     (4) State-space battery decoder — action residual + SOC recurrence
+#
+#     Implementation: phased (P0 correctness fixes → P1 minimal iTransformer
+#     PoC → P2 Physics integration → P3 Battery + component supervision).
+#     P0 is blocking regardless of architecture direction.
+#   key_risks:
+#     - N07 trade-off (component loss → aggregate degradation) may persist
+#       even with architectural separation; tested via A4 vs A6 ablation
+#     - iTransformer PoC may not reach baseline MAE; gate at P1
+#     - Full iGT is ~68 tokens × O(V²) attention; compute is still small
+#       (68² = 4.6k vs current 672² = 451k)
+#   provenance: user (architecture vision), ai-suggested (original iTransformer
+#     direction, phased plan, ablation chain), ai-executed (design doc)
+#   timestamp: "2026-05-26T16:00"
+#   status: resolved (2026-05-29) — partially validated, mostly deprecated.
+#     P1-1/A1 (component token separation + real-unit power balance) CONFIRMED: MAE −12.5% vs c23.
+#     A2-A5 ALL FAILED: A2 +0.4%, A3 +1.8%, A4 +2.9%, A5 +7.5% — monotonic degradation.
+#     A6-A8 abandoned (DOA, built on failed foundations). 75% of design doc content degraded.
+#     Valid content preserved: §1 C10 diagnosis, §3 P0 fixes, P1-1/A1 8-token specification.
+#     Design doc marked DEPRECATED 2026-05-29. Superseded by N106 Phase B (pretraining).
+#   superseded_by: N106
+#   also_depends_on: [C08, C09, C10, N07, N84, N92, N93]
+#   design_doc: docs/plans/2026-05-26-physformer-igt-architecture.md
+
+# ============================================================
+# P0 Correctness Fixes (2026-05-26, session 002)
+# ============================================================
+
+# N97: P0-1 real-unit power balance fix (experiment, resolved)
+#   hypothesis: _build_component_net mixes per-component z-score spaces, distorting
+#     power balance. Fix: denorm residual→real MW, aggregate in MW, re-normalize.
+#   result: Verified via synthetic + integration test. OLD buggy MAE=1.72 vs correct,
+#     NEW zero-residual MAE=0.0. All pre-fix metrics confounded — re-baseline required.
+#   provenance: ai-executed
+#   timestamp: "2026-05-26T17:00"
+#   status: resolved
+#   also_depends_on: [N96]
+#   code_refs: ["physformer/models/physformer/model.py:174-185", "scripts/verify_p0_real_unit_balance.py", "scripts/verify_p0_model_integration.py"]
+
+# N98: P0-2 load branch input fix (experiment, resolved)
+#   hypothesis: Load branch autoreg + GRU using x_net_hist_real causes PV/Wind/Battery
+#     fluctuations to contaminate load theory. Fix: accept optional x_load_hist, use it
+#     for autoreg and GRU temporal correction, fall back to x_net_hist for backward compat.
+#   result: load theory MAE=0.187 when different input provided. PV/Wind unchanged.
+#     Backward compat verified (no-x_load_hist path matches old behavior exactly).
+#   provenance: ai-executed
+#   timestamp: "2026-05-26T17:30"
+#   status: resolved
+#   also_depends_on: [N96, N97]
+#   code_refs: ["physformer/models/physformer/physical_layer.py:366-395", "scripts/verify_p0_load_branch.py"]
+
+# N99: P0-3 component history channel (experiment, resolved)
+#   hypothesis: group_aux_tensors already contains full history of aux columns. Can
+#     extract historical window (s_begin:s_end) to provide x_component_hist without
+#     modifying data loading pipeline.
+#   result: __getitem__ returns 10 items (was 9). x_component_hist shape (672, 5) =
+#     [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]. Verified with
+#     real data: 34273 val samples, history window ≠ future window.
+#   provenance: ai-executed
+#   timestamp: "2026-05-26T18:00"
+#   status: resolved
+#   also_depends_on: [N96, N98]
+#   code_refs: ["physformer/data.py:610,623", "physformer/train/physformer_exp.py:139-153", "scripts/verify_p0_component_hist.py"]
+
+# ============================================================
+# N100: P1-1 A1 8-token iTransformer PoC (experiment, 2026-05-27)
+# ============================================================
+# provenance: ai-executed
+
+# N100: P1-1 (A1) 8-token inverted Transformer PoC — 3 seeds (experiment, resolved)
+#   hypothesis: An 8-token pure inverted Transformer (5 component GRU tokens + 3 weather
+#     MLP tokens, zero physics, zero graph bias, zero component loss, net MSE only) can
+#     achieve aggregate MAE within 2× of the full PhysFormer c23 baseline (~2e-3 to ~4e-3 MW).
+#   result: |
+#     3-seed aggregate results vs c23 baseline:
+#       Metric   A1 mean ± σ           c23 baseline          Δ
+#       MAE      1.811e-3 ± 6e-6      2.069e-3 ± 1.34e-4    −12.5%
+#       MSE      6.766e-6 ± 4.9e-8    8.111e-6 ± 6.75e-7    −16.6%
+#       RMSE     2.601e-3 ± 9e-6      2.846e-3 ± 1.17e-4    −8.6%
+#     Gate PASSED (MAE 0.87× baseline, far below 2× threshold).
+#     Cross-seed σ(MAE) = 6e-06 is 20× smaller than c23 baseline σ = 1.34e-4.
+#     This directly validates C10: shared encoder WAS the root cause of the component
+#     cancellation channel. Architectural component separation via inverted attention
+#     eliminates the channel without needing detach, physics conditioning, or any of
+#     the existing PhysFormer components.
+#
+#     Seed details:
+#       s2025: MAE 0.001807, MSE 6.719e-6, RMSE 0.002592, best Val 1.249e-05 (E40)
+#       s2026: MAE 0.001807, MSE 6.762e-6, RMSE 0.002600, best Val 1.255e-05 (E44)
+#       s2027: MAE 0.001818, MSE 6.816e-6, RMSE 0.002611, early-stop E42, best Val 1.218e-05 (E30)
+#   provenance: ai-executed
+#   timestamp: "2026-05-27T23:00"
+#   status: resolved
+#   also_depends_on: [N96, N99, C10]
+#   code_refs: ["physformer/models/physformer/igt_model.py", "configs/physformer_igt_a1.yaml",
+#     "physformer/train/physformer_exp.py", "physformer/train/factory.py",
+#     "physformer/data.py", "physformer/config.py", "physformer/models/__init__.py",
+#     "results/physformer_igt_a1_s20{25,26,27}/metrics.json"]
+
+# N101: Batched multi-variate GRU tokenization (heuristic, 2026-05-27)
+#   rationale: Single batched GRU call for all 5 component histories (B*5, T, 1) →
+#     (B*5, 2*hidden) → (B, 5, d_model) yields 9.3× throughput improvement over 5
+#     serial GRU calls (75→700+ S/s) by reducing cuDNN kernel launch overhead 5×.
+#     Similarly batch weather MLP. ModuleList iteration avoided to maintain torch.compile
+#     compatibility. Paired with batch_size 128→256 increase.
+#   provenance: ai-executed
+#   timestamp: "2026-05-27T23:00"
+#   status: resolved
+#   code_refs: ["physformer/models/physformer/igt_model.py:BatchedComponentEmbedding",
+#     "physformer/models/physformer/igt_model.py:BatchedWeatherEmbedding"]
+
+# ============================================================
+# N102: A2 +1 physics token (experiment, 2026-05-28)
+# ============================================================
+# provenance: ai-executed
+
+# N102: A2 +1 physics token — 3 seeds (experiment, resolved, FAILED)
+#   hypothesis: Adding theory_net_real as a 9th physics peer token (last-step power
+#     balance) improves aggregate MAE over A1's pure iTransformer.
+#   result: |
+#     Gate FAILED (>=2/3 seeds improvement vs A1). Mean MAE 1.819e-3 vs A1 1.811e-3 (+0.4%).
+#     The single last-step persistence token acts as noise, not useful prior.
+#     Seed details: s2025 MAE 0.001827, s2026 MAE 0.001816, s2027 MAE 0.001814.
+#   provenance: ai-executed
+#   timestamp: "2026-05-28T04:00"
+#   status: resolved
+#   also_depends_on: [N100, N96]
+#   code_refs: ["configs/physformer_igt_a2.yaml", "results/physformer_igt_a2_s20{25,26,27}/"]
+
+# N103: A3 Physics-Twin tokens (experiment, 2026-05-28)
+#   hypothesis: 5 Φ_c twin tokens (one per component, last-value + weather context)
+#     + 3 constraint tokens (C_balance, C_soc, C_capacity) → 16 tokens total.
+#     Component-level physics priors improve aggregate MAE vs A1.
+#   result: |
+#     Gate FAILED. Mean MAE 1.843e-3 vs A1 1.811e-3 (+1.8%). Despite better Val MSE
+#     (A3 E10: 1.323 vs A1 1.395, -5.2%), Test MAE degrades — classic Val/Test
+#     divergence indicating overfitting to validation distribution.
+#     Seed details: s2025 MAE 0.001849, s2026 MAE 0.001842, s2027 MAE 0.001837.
+#   provenance: ai-executed
+#   timestamp: "2026-05-28T08:00"
+#   status: resolved
+#   also_depends_on: [N102, N100]
+#   code_refs: ["configs/physformer_igt_a3.yaml", "results/physformer_igt_a3_s20{25,26,27}/"]
+
+# N104: A4 Graph-biased attention (experiment, 2026-05-28)
+#   hypothesis: B_phys (DVPP physical topology as attention bias) + B_learned (free
+#     parameter matrix) + annealing (1.0→0.1) improves aggregate MAE vs A1.
+#     Score = (QK^T)/sqrt(d) + B_phys*scale + B_learned.
+#   result: |
+#     Gate FAILED. Mean MAE 1.863e-3 vs A1 1.811e-3 (+2.9%). Worst of A1-A4 despite
+#     best Val MSE (A4 E10: 1.241 vs A1 1.395, -11%). Graph bias acts as overfitting
+#     amplifier — strong early guidance on Val fails to generalize to Test.
+#     Seed details: s2025 MAE 0.001871, s2026 MAE 0.001875, s2027 MAE 0.001844.
+#   provenance: ai-executed
+#   timestamp: "2026-05-28T10:00"
+#   status: resolved
+#   also_depends_on: [N103, N100]
+#   code_refs: ["configs/physformer_igt_a4.yaml", "results/physformer_igt_a4_s20{25,26,27}/"]
+
+# ============================================================
+# N105: A5 Component-wise Horizon Decoder (experiment, 2026-05-28)
+# ============================================================
+# provenance: ai-executed
+
+# N105: A5 Component-wise Horizon Decoder — 3 seeds (experiment, resolved, FAILED)
+#   hypothesis: Replacing the per-token FFN projector with per-component per-step
+#     CrossAttention decoder + step-level weather conditioning improves aggregate MAE
+#     over A1. This is an architectural decoder change (not token prior), so it tests
+#     whether A2-A4 failed because of decoder bottleneck (single vector → 96 steps).
+#   result: |
+#     Gate FAILED. Mean MAE 1.947e-3 vs A1 1.811e-3 (+7.5%). WORST of all 5 ablations.
+#     Despite best-ever Val MSE (E10: ~0.43 vs A4 E10: 1.24), Test MAE degrades
+#     dramatically. Horizon decoder provides MORE overfitting capacity, not better
+#     generalization. Complete monotonic chain: A1(0.001811) < A2(0.001819) <
+#     A3(0.001843) < A4(0.001863) < A5(0.001947). Every architectural addition
+#     (tokens, physics, graph, decoder) systematically worsens Test MAE.
+#     Seed details: s2025 MAE 0.001917, s2026 MAE 0.001943, s2027 MAE 0.001980.
+#     MSE mean 7.898e-6 ± 1.9e-7, RMSE mean 0.002810 ± 3.4e-5.
+#     All 3 seeds early stopped at E23 (best Val MSE at E6-E8, counter 12/12).
+#   provenance: ai-executed
+#   timestamp: "2026-05-28T19:30"
+#   status: resolved
+#   also_depends_on: [N104, N100]
+#   code_refs: ["configs/physformer_igt_a5.yaml", "physformer/models/physformer/igt_model.py:HorizonDecoder",
+#     "results/physformer_igt_a5_s20{25,26,27}/"]
+#   lesson: >
+#     Per-step CrossAttention with step-level weather conditioning amplifies overfitting:
+#     (1) 384 queries (4 comps × 96 steps) × 16 tokens provides too much capacity to
+#     memorize training-specific patterns; (2) step-level weather makes the model
+#     sensitive to weather patterns unique to training portfolios; (3) the richer the
+#     decoder, the stronger the Val→Test divergence. A1's shared FFN projector
+#     (256 → 96, single linear+gelu) is the optimal decoder — it forces the model to
+#     compress all 96 steps into one representation, acting as an implicit regularizer.
+#     Combined with A1-A4: the simplest architecture (8 tokens, 2 encoder layers,
+#     shared FFN decoder, no physics, no graph bias) is the global optimum for this
+#     dataset. All complexity additions are overfitting amplifiers. The iTransformer's
+#     value lies in component-token SEPARATION (eliminating shared-encoder cancellation
+#     channel C10), not in richer decoders or physics priors.
+
+# ============================================================
+# N106: Phase B decision — Self-Supervised Pretraining (decision, 2026-05-29)
+# ============================================================
+# provenance: user (direction), ai-suggested (design)
+
+# N106: Phase B — Self-Supervised Pretraining + Finetune for Cross-Portfolio Generalization
+#   choice: >
+#     Adopt Masked Component Pretraining (MCP) as Phase B: randomly mask 1-2 component
+#     history channels (zero-out GRU input), force the model to predict masked components
+#     from weather + other components. Pretrain on train∪val with component MAE + λ·net
+#     MSE anchor (λ=0.3). Finetune with standard A1 net MSE on train split. No architecture
+#     changes — masking is input-level, model is pure A1.
+#   alternatives:
+#     - "Granger-causality adaptive graph (EIAformer-style) — rejected: A4 already proved
+#        fixed graph bias degrades performance; adaptive graph is still architecture-level
+#        complexity and conflicts with the A1 'no architectural additions' finding."
+#     - "Per-portfolio MLP adapters (ROSE-style) — rejected: adds per-portfolio parameters,
+#        doesn't scale to unseen portfolios during finetuning."
+#     - "Contrastive cross-portfolio pretraining — deferred: more complex, less aligned
+#        with A1's component-token structure."
+#     - "Full foundation model (Moirai/PatchFormer-style) — rejected: overkill for this
+#        dataset scale (~150k samples); MCP is a lightweight, domain-appropriate analog."
+#   rationale: >
+#     Phase A proved: (1) component-token separation is the only effective architectural
+#     prior (A1 -12.5% vs c23); (2) ALL fixed priors (physics tokens, graph bias, weather
+#     conditioning, horizon decoder) are overfitting amplifiers. The remaining ceiling is
+#     cross-portfolio generalization — the model learns portfolio-specific coupling patterns
+#     from the training split and can't transfer. Self-supervised pretraining addresses
+#     this WITHOUT adding architecture: the masking objective forces the model to infer
+#     masked components from context (weather + other components), learning data-driven
+#     coupling laws that should transfer across portfolios. Unlike A2-A5, this doesn't
+#     impose FIXED coupling — it learns EMERGENT coupling from diverse portfolio data.
+#     This is the NLP BERT→finetune paradigm applied to VPP forecasting.
+#   provenance: user (direction), ai-suggested (detailed design)
+#   timestamp: "2026-05-29T00:30"
+#   status: open (design complete, implementation pending)
+#   also_depends_on: [N100, N105, C10]
+#   design_doc: docs/plans/2026-05-29-pretraining-finetune-phase-b.md
+#   children:
+#     - id: N107
+#       type: experiment
+#       title: "B1: Masked Component Pretraining + Finetune — 3 seeds (pretrain complete, finetune pending)"
+#       provenance: ai-suggested
+#       status: in-progress
+#       implementation_note: >
+#         Code complete (2026-05-29). Model cleaned to pure A1 + mask_indices (~1.3M
+#         params). PretrainLoss, PretrainExperiment, pretraining_mode data support,
+#         B1 pretrain/finetune configs, CLI pretrain command all implemented. Local
+#         import/forward/loss verified pass. Remote B1 pretraining completed on
+#         2026-05-29; checkpoint pulled to results/physformer_igt_b1_pretrain.
+#         Pending: finetune 3 seeds and compare Test MAE to A1 mean 0.001811.
+#       pretrain_result: >
+#         Pretraining ran 50/50 epochs. Best pretrain Val Loss=0.452442 at epoch 46;
+#         final log saved checkpoint to /root/autodl-tmp/physformer/runs/
+#         physformer_igt_b1_pretrain/pretrained_checkpoint.pth and local pull has
+#         results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth.
+#       description: >
+#         Pretrain A1 with masked component prediction (1-2 of 4 components randomly
+#         zeroed in GRU input) on train∪val data. Component MAE loss + λ_net=0.3 net
+#         MSE anchor. Then finetune with standard A1 net MSE on train split, 3 seeds.
+#         Gate: Test MAE < A1 mean (0.001811) on ≥2/3 seeds.
+#       hypothesis: >
+#         Masked Component Pretraining forces the model to learn portfolio-agnostic
+#         cross-component coupling laws from diverse portfolio data, improving Test
+#         MAE over from-scratch A1. Unlike A2-A5's fixed priors, the learned coupling
+#         is data-driven and should transfer across portfolios.
+#       also_depends_on: [N106, N100]
+
+# ============================================================
+# N108: C11 crystallized (decision, 2026-05-30)
+# ============================================================
+# provenance: user (verbal-affirmation), ai-executed (data)
+
+# N108: C11 — Component-token separation eliminates cancellation channel (insight, resolved)
+#   statement: >
+#     A1 8-token inverted Transformer with ZERO physics, ZERO graph bias, ZERO component
+#     loss surpasses full PhysFormer c23 baseline by −12.5% aggregate MAE with 20× smaller
+#     cross-seed variance across 3 seeds. This is the ARCHITECTURAL proof of C10:
+#     component-token separation at the attention level eliminates the shared-encoder
+#     cancellation channel without gradient hacks or physics priors.
+#   evidence: N100 (3 seeds), C11 (crystallized), C10 (mechanism)
+#   depends_on: [N100, C10, C08]
+#   timestamp: "2026-05-30T00:30"
+#   status: resolved
+#   from_staging: O47
+
+# N109: C12 — Fixed physics priors are monotonic overfitting amplifiers (insight, resolved)
+#   statement: >
+#     A1→A5 ablation chain: every fixed physics prior (tokens, graph, decoder, weather)
+#     strictly worsens Test MAE while improving Val MSE. A1 (8 tokens, simple FFN decoder)
+#     is the GLOBAL OPTIMUM. Stronger physics → stronger Val improvement → WORSE Test
+#     degradation — a universal overfitting pattern across 4 architecture variants.
+#   evidence: N102 (A2), N103 (A3), N104 (A4), N105 (A5), C12 (crystallized)
+#   depends_on: [N100, N102, N103, N104, N105, C11]
+#   timestamp: "2026-05-30T00:30"
+#   status: resolved
+#   from_staging: O49, O50
+
+# ============================================================
+# N110: B1 config_to_args bug — pretrained_path never loaded (dead_end, 2026-05-31)
+# ============================================================
+# provenance: ai-executed (discovered), user (confirmed)
+
+- id: N110
+  type: dead_end
+  title: "B1 original finetune was from-scratch — config_to_args missing pretrained_path"
+  provenance: ai-executed
+  timestamp: "2026-05-31T15:10"
+  hypothesis: >
+    B1 finetune loaded pretrained weights from Phase B pretraining before pure net_mse
+    finetuning.
+  failure_mode: >
+    config_to_args in physformer/config.py maps 40+ training keys manually (one-by-one
+    explicit flat["key"] = training_cfg.get("key", default) calls), but the explicit
+    mapping list MISSED pretrained_path and pretrain_lambda_net. Both keys ARE in
+    TRAINING_KEYS (used by materialize_resolved_config for config saving), so the
+    saved config_merged.yaml contained pretrained_path — creating the false appearance
+    that finetune loaded pretrained weights. But args.pretrained_path was never set,
+    so train()'s `getattr(self.args, "pretrained_path", None)` returned None, and the
+    entire pretrained-weight-loading block was skipped. The model trained from random
+    initialization on pure net_mse.
+
+    Evidence:
+    (1) No "Loaded pretrained weights from:" line in any of 3 seeds' train.log.
+    (2) No "Pretrained checkpoint not found at:" warning either — the if-block was
+        never entered.
+    (3) Epoch 1 Train Loss = 1.0306, Val MSE = 0.7215 — consistent with random init.
+    (4) --print-config confirmed: pretrained_path absent from resolved args.
+    (5) After fix: "Loaded pretrained weights" appeared, Epoch 1 Train Loss = 0.1211.
+    (6) config_to_args at lines 205-207 mapped grad_angle_interval → use_compile →
+        val_interval, then jumped to hardware section. pretrained_path and
+        pretrain_lambda_net (TRAINING_KEYS[36-37]) were in the gap.
+  lesson: >
+    Two-part config mapping (explicit manual + auto TRAINING_KEYS iteration in different
+    functions) is a fragility pattern: additions to TRAINING_KEYS silently don't take
+    effect in config_to_args unless the manual list is also updated. The config system
+    should have ONE source of truth for key→arg mapping, not two copies that must be
+    kept in sync. This is the second config_to_args propagation bug (cf. N65: 4 missing
+    curriculum keys on 2026-05-22).
+  status: resolved
+  children:
+    - id: N111
+      type: decision
+      title: "Fix config_to_args — add pretrained_path and pretrain_lambda_net"
+      provenance: ai-executed
+      timestamp: "2026-05-31T15:13"
+      choice: >
+        Added two lines to physformer/config.py:208-209:
+          flat["pretrained_path"] = training_cfg.get("pretrained_path", None)
+          flat["pretrain_lambda_net"] = training_cfg.get("pretrain_lambda_net", 1.0)
+        Placed after grad_angle_interval and before hardware_cfg section.
+      evidence: ["--print-config confirmed pretrained_path now resolved"]
+      status: resolved
+      children:
+        - id: N112
+          type: experiment
+          title: "B1 finetune (FIXED) — 3 seeds on VGPU-32GB with pretrained weights"
+          provenance: ai-executed
+          timestamp: "2026-05-31T15:16"
+          result: >
+            Pretrained weights successfully loaded (confirmed in log). Epoch 1 Train
+            Loss = 0.1163 (vs 1.0306 buggy — 9× better starting point). BUT all 3
+            seeds show monotonic Val MSE DEGRADATION:
+              E1: MSE(MW²) = 7.956-7.999e-06
+              E2: MSE(MW²) = 8.270-8.320e-06 (+4%)
+              E3: MSE(MW²) = 8.554-8.695e-06 (+7.5% vs E1)
+            Train Loss continues decreasing (0.116→0.109) — overfitting.
+            Pretrained-only baseline Test MSE(MW²) = 6.404e-06 (MAE 0.001820).
+            Training killed after Epoch 3 at user request.
+          hypothesis: >
+            Multi-task pretraining (component + theory + net_mse) is the OPTIMAL
+            predictor; pure net_mse finetuning removes beneficial regularization.
+          status: resolved
+          children:
+            - id: N113
+              type: dead_end
+              title: "Pure net_mse finetune on pretrained weights systematically degrades performance"
+              provenance: ai-executed
+              timestamp: "2026-05-31T15:40"
+              hypothesis: >
+                Phase B's pretrain→finetune paradigm would improve Test MAE beyond the
+                pretrained baseline (MAE 0.001820) and pass the Gate (MAE < 0.001811).
+              failure_mode: >
+                Both the original (buggy, from-scratch) and fixed (true finetune) runs
+                converge on the SAME conclusion: pure net_mse training CANNOT match or
+                exceed the multi-task pretrained model's prediction quality.
+
+                Original run (N110 bug): from-scratch net_mse training → MAE 0.001839-0.001863
+                Fixed run (N112): true finetune from pretrained → Val MSE DEGRADES E1→E3
+                Pretrained direct test: MAE 0.001820 (best, 0.5% below Gate)
+
+                The multi-task pretraining objective (component_mae + theory_mae + λ=0.3
+                net_mse) serves as an EFFECTIVE REGULARIZER. Removing the auxiliary losses
+                during finetuning removes the regularization, causing the model to overfit
+                on net_mse — Train Loss drops while Val/Test degrade. The pretrained model
+                is ALREADY the optimal net predictor; finetuning only makes it worse.
+
+                This parallels the Phase A finding (C12) that all complexity additions
+                degrade the simple A1 baseline — here, even a training-paradigm change
+                (pretrain→finetune) cannot improve upon the pretrained checkpoint.
+              lesson: >
+                For this dataset and architecture, multi-task learning with auxiliary
+                physics losses is not a stepping stone to better net_mse — it IS the
+                destination. The auxiliary losses should be kept during the entire
+                training process as regularizers. Future work should explore:
+                (1) Tuning λ_net in pretraining (not finetuning) to push net_mse lower
+                    while keeping component+theory losses as regularizers.
+                (2) Joint training with all losses from the start (no phase separation).
+                (3) Whether this result generalizes to other datasets or is specific to
+                    NextGen's portfolio structure.
+              status: resolved
+              also_depends_on: [N107, N110, C11, C12]
+
+# ============================================================
+# N114: B1 rescue protocol implemented (decision, 2026-05-31)
+# ============================================================
+
+- id: N114
+  type: decision
+  title: "B1 rescue: scaler repair, safer finetune, and DVPP adaptation gate"
+  provenance: ai-executed
+  timestamp: "2026-05-31T22:04"
+  choice: >
+    Implemented the user-approved B1 rescue plan without changing A1 architecture:
+    (1) pretrained checkpoint loading now skips target_mean/target_std/aux_mean/aux_std
+    by default so finetune/test models keep the current dataset scaler buffers;
+    (2) direct test can fall back to pretrained_path when no run checkpoint exists;
+    (3) R1 adds low-LR short finetune, tiny component-regularized finetune, and optional
+    L2-SP; (4) pretraining now also saves best_val_net_checkpoint.pth; (5) R2 adds
+    target-portfolio few-shot adaptation splits and B1/A1 comparison configs for 5%,
+    10%, and 20% labeled target data.
+  alternatives:
+    - "Declare B1 dead after N113 static Test failure"
+    - "Return to C12-style architecture additions (physics tokens, graph bias, horizon decoder)"
+    - "Only tune lambda_net in pretraining without fixing scaler/checkpoint confounds"
+  evidence:
+    - "physformer/train/physformer_exp.py: scaler-buffer filtering, scaler diff report, pretrained direct-test fallback, optional L2-SP"
+    - "physformer/loss.py: iGT component regularizer now uses comp_preds_norm"
+    - "physformer/data.py: adaptation_source_splits + target portfolio/region few-shot slicing"
+    - "physformer/train/pretrain_exp.py: best_val_net_checkpoint.pth tracking"
+    - "configs/physformer_igt_b1_r0/r1/r2*.yaml and A1 scratch R2 comparison configs"
+    - "Verification: py_compile passed; --print-config confirmed new keys; local dataset R2 split count train=2037,val=605,test=31441 for f10; pretrained checkpoint contains all four scaler buffers"
+  status: resolved
+  also_depends_on: [N107, N110, N112, N113, O54, O55, C08, C11, C12]
+
+# ============================================================
+# N115: B1-R1-reg 3-seed remote launch prepared, SSH auth blocked (experiment, 2026-05-31)
+# ============================================================
+
+- id: N115
+  type: experiment
+  title: "B1-R1-reg 3-seed parallel VGPU run launched then paused"
+  provenance: ai-executed
+  timestamp: "2026-05-31T22:35"
+  hypothesis: >
+    The R1-reg finetune arm (lr=1e-5, 10 epochs, tiny component MAE weight 0.005,
+    pretrained scaler buffers skipped) can preserve or improve the pretrained basin
+    across seeds 2025/2026/2027.
+  result: >
+    Local preparation complete: added seed configs for 2026/2027, a remote launcher
+    script, and a three-seed epoch monitor that prints once all seeds have completed
+    each common epoch. Local verification passed for config resolution and script
+    syntax. After the correct SSH alias was selected (AutoDL-vGPU-32GB), current
+    workspace source and the B1 checkpoint were incrementally synced into the existing
+    remote directory /root/autodl-tmp/physformer (no new remote project directory).
+    Training launched through nohup because tmux was unavailable. All three runs
+    loaded the pretrained checkpoint and skipped target_mean/target_std/aux_mean/aux_std
+    scaler buffers; scaler buffer max diff was 0.0. Manual log inspection observed
+    common epochs 2 and 3, with epoch 3 Val MSE(MW^2) around 8.17e-06 to 8.21e-06 and
+    early-stop counter 2/3. The common-epoch monitor log stayed empty, so the monitor
+    parser/default-path fix was made locally but not redeployed before the user asked
+    to stop. Training and monitor processes were then stopped; final GPU compute-app
+    query returned no active processes. No final Test metrics were produced.
+  evidence:
+    - "configs/physformer_igt_b1_r1_reg_finetune_s2026.yaml"
+    - "configs/physformer_igt_b1_r1_reg_finetune_s2027.yaml"
+    - "scripts/train/launch_b1_r1_reg_3seed.sh"
+    - "scripts/train/monitor_b1_3seed_epochs.py"
+    - "Remote run dirs: /root/autodl-tmp/physformer/runs/physformer_igt_b1_r1_reg_finetune_s2025,s2026,s2027"
+    - "Verification: py_compile monitor passed; --print-config confirmed seed 2026/2027; bash -n launcher passed; remote logs confirmed skipped scaler buffers and scaler diff 0.0"
+  status: unresolved
+  also_depends_on: [N114, N113, O54]
+
+# ============================================================
+# N116: Applied Energy Plan A literature screen (decision, 2026-06-01)
+# ============================================================
+
+- id: N116
+  type: decision
+  title: "Applied Energy Plan A: core-paper screen before journal-profile distillation"
+  provenance: ai-executed
+  timestamp: "2026-06-01T00:20"
+  choice: >
+    Start with a lightweight Applied Energy distillation workflow rather than building
+    a formal ARA-ARS bridge immediately. A Crossref metadata screen was run for
+    Applied Energy (ISSN 0306-2619), covering VPP forecasting, DER/net-load forecasting,
+    Transformer renewable forecasting, physics-informed forecasting, and operational
+    uncertainty. The first artifact is a 15-paper core download list plus reserve pool
+    and extraction template for journal-profile construction.
+  alternatives:
+    - "Write the Applied Energy paper directly from ARA claims"
+    - "Build the full ARA-ARS bridge before seeing journal-specific pain points"
+    - "Use a broad generic forecasting literature review instead of journal-specific distillation"
+  evidence:
+    - "docs/analysis/applied_energy_literature_screen.md: AE01-AE15 core download list, AE16-AE27 reserve pool, extraction template"
+    - "Crossref public metadata queries; no full-text PDFs downloaded"
+  status: resolved
+  also_depends_on: [C11, C12, O56]

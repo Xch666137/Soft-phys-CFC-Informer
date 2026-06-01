@@ -1,0 +1,19 @@
+{
+  "mae": 0.002007783856242895,
+  "mse": 8.041430191951804e-06,
+  "rmse": 0.002835741499438882,
+  "net_ramp_violation": 0.005227633025024558,
+  "theory_mae": 0.0023949462920427322,
+  "theory_rmse": 0.003237247234210372,
+  "residual_std_real_mw": 0.002172426087781787,
+  "residual_mean_real_mw": -0.0006783990538679063,
+  "net_ramp_limit": 0.010404652118355777,
+  "soc_min": 0.0,
+  "soc_max": 0.050748832523822784,
+  "soc_bound_violation": 0.0,
+  "component_load_mae": 0.001886810059659183,
+  "component_pv_mae": 0.0021408977918326855,
+  "component_wind_mae": 0.0003131096891593188,
+  "component_battery_power_mae": 0.0015542223118245602,
+  "component_battery_soc_mae": 0.006937308236956596
+}

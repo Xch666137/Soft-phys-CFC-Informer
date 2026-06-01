@@ -1,0 +1,5 @@
+_base_: physformer_igt_b1_r2_fewshot_adapt.yaml
+data:
+  adaptation_train_fraction: 0.20
+checkpoint:
+  name: physformer_igt_b1_r2_fewshot_adapt_f20_s2025

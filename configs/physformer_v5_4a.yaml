@@ -1,0 +1,8 @@
+# V5.4a: DBC only (old cw/tw) — DBC ablation baseline
+_base_: base/v5_base.yaml
+training:
+  restart_t0: 8
+hardware:
+  num_workers: 3
+checkpoint:
+  name: physformer_v5_4a

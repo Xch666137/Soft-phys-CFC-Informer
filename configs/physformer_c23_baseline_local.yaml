@@ -1,0 +1,10 @@
+# C23 baseline for local RX 6800 training
+_base_: physformer_c23_baseline.yaml
+data:
+  root_path: C:/Users/Xch/.codex/worktrees/7c57/Physformer
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+hardware:
+  num_workers: 2
+training:
+  batch_size: 64
+  use_amp: false

@@ -1,0 +1,62 @@
+session:
+  id: "2026-06-01_001"
+  date: "2026-06-01"
+  started: "2026-06-01T00:00"
+  last_turn: "2026-06-01T00:20"
+  turn_count: 2
+  summary: "Applied Energy Plan A started: Crossref metadata search produced a 15-paper core download list plus reserve pool and extraction template for journal-profile distillation."
+
+events_logged:
+  - turn: 1
+    type: observation
+    id: O56
+    routing: staged
+    provenance: ai-suggested
+    summary: "Applied Energy core-paper distillation workflow proposed as first lightweight ARS/ARA integration trial"
+  - turn: 2
+    type: decision
+    id: N116
+    routing: direct
+    provenance: ai-executed
+    summary: "Applied Energy core-paper screen executed; docs/analysis/applied_energy_literature_screen.md created with AE01-AE15 core list and AE16-AE27 reserve pool"
+  - turn: 2
+    type: observation
+    id: O56
+    routing: crystallized
+    provenance: ai-suggested
+    summary: "O56 crystallized via artifact-commitment after user asked to start next step and the literature screen artifact was created"
+
+ai_actions:
+  - turn: 1
+    action: "Loaded ARA bootstrap context and brainstorm instructions; proposed a structured Applied Energy distillation workflow without code or experiment changes."
+    provenance: ai-executed
+    files_changed: ["ara/staging/observations.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 2
+    action: "Queried Crossref public metadata for Applied Energy candidates; screened results into a core download list, reserve pool, and extraction template."
+    provenance: ai-executed
+    files_changed: ["docs/analysis/applied_energy_literature_screen.md", "ara/staging/observations.yaml", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+
+claims_touched:
+  - id: C11
+    action: used_as_positioning_constraint
+    turn: 1
+  - id: C12
+    action: used_as_framing_constraint
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "Start with Plan A: distill 10-15 Applied Energy core papers into a journal_profile, then run ARS reviewer mode against an ARA source pack."
+  - turn: 2
+    excerpt: "Core list created: AE01-AE15 cover VPP forecasting, VPP uncertainty/operation, net-load forecasting, Transformer renewable forecasting, physics-informed forecasting, and operational uncertainty."
+
+open_threads:
+  - "User downloads PDFs for AE01-AE15, optionally AE16-AE27 if gaps remain"
+  - "Build Applied Energy journal_profile.md"
+  - "Build ARA-derived paper_source_pack.md"
+  - "Run ARS desk-reject risk audit after the profile and source pack exist"
+
+ai_suggestions_pending:
+  - "Use three paper buckets: VPP/DER forecasting, deep-learning forecasting, and operational/physics-informed energy forecasting"
+  - "Use C11/C12 as hard framing constraints: do not sell the work as fixed physics priors always helping"
+  - "After PDFs are available, extract problem frame, baselines, metrics, ablation norms, robustness norms, and reviewer objections for each AE paper"

@@ -1,0 +1,6 @@
+# V5.3: Faster Phase 2 restart (T0=8)
+_base_: base/v5_base.yaml
+training:
+  restart_t0: 8
+checkpoint:
+  name: physformer_v5_3

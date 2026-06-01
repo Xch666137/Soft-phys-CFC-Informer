@@ -1,0 +1,146 @@
+session:
+  id: "2026-05-26_001"
+  date: "2026-05-26"
+  started: "2026-05-26T00:00"
+  last_turn: "2026-05-26T14:30"
+  turn_count: 3
+  summary: "P2 replacement-mechanism search completed. E1 detach×e3 cross-3-seed: detach×e3 ≈ baseline (2.065e-3), NOT detach (1.973e-3) → M1 capacity-cancellation SUPPORTED as C09 mechanism. C10 crystallized. D1 cov-cross FALSIFIED, D2 residual-fraction FALSIFIED, D3 sharpness INCONCLUSIVE. All 10 N-nodes (N87-N95+N86 context) written. 2 new staged observations (O43/O44). Shell + remote daemon feedback recorded."
+
+events_logged:
+  - turn: 1
+    type: decision
+    id: N87
+    routing: direct
+    provenance: user
+    summary: "P2 design approved: 3-track parallel (E1 remote + D1/D2/D3 local)"
+  - turn: 2
+    type: experiment
+    id: N88
+    routing: direct
+    provenance: ai-executed
+    summary: "E1 detach×e3 cross-3-seed: all E19 early-stop, MAE 2.065e-3 >> detach 1.973e-3"
+  - turn: 2
+    type: experiment
+    id: N89
+    routing: direct
+    provenance: ai-executed
+    summary: "D1 M1 cov-cross: |cov| ratio 0.87 → M1 cov-cross variant FALSIFIED"
+  - turn: 2
+    type: experiment
+    id: N90
+    routing: direct
+    provenance: ai-executed
+    summary: "D2 M2 residual fraction: all arms ~98.75% → M2 FALSIFIED"
+  - turn: 2
+    type: experiment
+    id: N91
+    routing: direct
+    provenance: ai-executed
+    summary: "D3 M3 sharpness: FP32 floor, detach std smallest but indistinguishable → INCONCLUSIVE"
+  - turn: 2
+    type: dead_end
+    id: N92
+    routing: direct
+    provenance: ai-executed
+    summary: "M1 cov-cross variant dead_end: aggregate cov reduction insufficient"
+  - turn: 2
+    type: dead_end
+    id: N93
+    routing: direct
+    provenance: ai-executed
+    summary: "M2 residual fraction dead_end: no differential signal"
+  - turn: 2
+    type: experiment
+    id: N94
+    routing: direct
+    provenance: ai-executed
+    summary: "M3 fence-sit: sharpness measurement limited by FP32 precision"
+  - turn: 3
+    type: decision
+    id: N95
+    routing: direct
+    provenance: ai-suggested
+    summary: "M1 capacity-cancellation SUPPORTED as C09 mechanism: detach blocks encoder-depth→cancellation channel"
+  - turn: 3
+    type: observation
+    id: O43
+    routing: staged
+    provenance: ai-executed
+    summary: "P2 mechanism search complete summary: M1-capacity supported, M1-cov-cross/M2 refuted, M3 fence"
+  - turn: 3
+    type: observation
+    id: O44
+    routing: staged
+    provenance: ai-executed
+    summary: "Shell discipline + remote daemon anti-pattern lessons from P2 execution"
+
+ai_actions:
+  - turn: 1
+    action: "Brainstorm P2: proposed 3 candidate mechanisms, 3 experiment scopes, user selected P2"
+    provenance: ai-executed
+    files_changed: ["docs/plans/2026-05-25-detach-mechanism-search.md"]
+  - turn: 2
+    action: "Created E1 config (physformer_c23_detach_e3.yaml), D1/D2/D3 scripts (m{1,2,3}_*.py)"
+    provenance: ai-executed
+    files_changed: ["configs/physformer_c23_detach_e3.yaml", "scripts/m1_cov_cross_t1.py", "scripts/m2_residual_fraction.py", "scripts/m3_sharpness_perturbation.py"]
+  - turn: 2
+    action: "Pushed E1 to remote AutoDL-vGPU-32GB, launched 3-parallel s2025/s2026/s2027 (s2026/s2027 needed retry with full conda python path)"
+    provenance: ai-executed
+    files_changed: ["remote: runs/physformer_c23_detach_e3_vgpu_s*"]
+  - turn: 2
+    action: "Ran D1/D2/D3 locally: D3 failed twice (data path), D1/D2 failed (shape mismatch theory_net vs residual_net), all fixed. D3 dry-run confirmed 16.3s/forward. D3 full sweep 4.5h on 9 ckpts"
+    provenance: ai-executed
+    files_changed: ["scripts/m{1,2,3}_*.py (bug fixes)", "logs/d{1,2,3}_*.log"]
+  - turn: 2
+    action: "Killed stale remote tail -F (PID 4870), stale local bash processes (8 PIDs), stale remote daemon processes"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 2
+    action: "Set up silent Monitor (bxbe1kdye) with /tmp/e1_check.sh one-shot + local while+sleep polling"
+    provenance: ai-executed
+    files_changed: ["remote: /tmp/e1_check.sh"]
+  - turn: 3
+    action: "E1 complete: all 3 seeds E19 early-stop, ran test + export-forecast, pulled 679MB tarball, extracted to runs/"
+    provenance: ai-executed
+    files_changed: ["runs/physformer_c23_detach_e3_vgpu_s{2025,2026,2027}/"]
+  - turn: 3
+    action: "Reran D1/D2 on 12-run set (incl. detach_e3), computed cross-seed aggregate, adjudicated M1 vs M4"
+    provenance: ai-executed
+    files_changed: ["scripts/m1_cov_cross_t1_results.json", "scripts/m2_residual_fraction_results.json"]
+  - turn: 3
+    action: "Recorded shell discipline feedback (MEMORY.md + two new .md)"
+    provenance: ai-executed
+    files_changed: ["memory/feedback_shell_discipline.md", "memory/feedback_remote_daemon.md", "memory/MEMORY.md"]
+
+claims_touched:
+  - id: C07
+    action: advanced
+    turn: 2
+  - id: C08
+    action: advanced
+    turn: 3
+  - id: C09
+    action: confirmed
+    turn: 3
+  - id: C10
+    action: created
+    turn: 3
+
+key_context:
+  - turn: 1
+    excerpt: "用户确认 P2 方案: 远程 detach×e3 跨 3 seed + 本地 D1/D2/D3 并行诊断"
+  - turn: 2
+    excerpt: "M1 cov-cross FALSIFIED, M2 residual fraction FALSIFIED, M3 sharpness INCONCLUSIVE — 3 of 4 candidates eliminated before E1 completed"
+  - turn: 3
+    excerpt: "E1 detach×e3 MAE 2.065e-3 >> detach 1.973e-3 (gap 2.5σ), detach×e3 ≈ baseline → M1 CAPACITY SUPPORTED. C09 mechanism found."
+
+open_threads:
+  - "M3 sharpness: measurement limited by FP32 precision. Hessian-vector products or lanczos could confirm flat-minimum hypothesis"
+  - "M4 encoder-disentanglement: forward replay for hidden-state PCA deferred (E1 already adjudicated M1 vs M4)"
+  - "OOD/cross-portfolio robustness of detach (per PAPER.md next steps)"
+  - "e3 cancellation-on-depth standalone sweep (e_layers ∈ {2,3,4}, separate from detach)"
+  - "Clean up remote /tmp/e1_check.sh and state files (not harmful if left)"
+
+ai_suggestions_pending:
+  - "Hessian-vector-product or Lanczos-based sharpness as follow-up to D3 fence-sit result"
+  - "OOD robustness test (UCSD microgrid) as validation of C10 mechanism"

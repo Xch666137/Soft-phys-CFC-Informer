@@ -1,0 +1,126 @@
+session:
+  id: "2026-05-18_001"
+  date: "2026-05-18"
+  started: "2026-05-18T10:00"
+  last_turn: "2026-05-18T10:30"
+  turn_count: 1
+  summary: "P0+P1 completed: V-1 target_std=0.0045 confirmed (21 exps), V-2 Val/Test unified, V-3 d512 overfitting falsified (12 P1 exps), C-1 LR-Phase aligned (pct_start=0.16), D-4 collapse diagnostic script. O22→H08 crystallized."
+
+events_logged:
+  - turn: 1
+    type: insight
+    id: "N60"
+    routing: direct
+    provenance: ai-executed
+    summary: "V-1: target_std=0.0045 MW confirmed across 21 experiments — Val/Test MSE differ by target_std², just unit conversion"
+
+  - turn: 1
+    type: insight
+    id: "N61"
+    routing: direct
+    provenance: ai-executed
+    summary: "V-3: d512 overfitting FALSIFIED — Val/Test scale consistent, real mechanism is MSE-vs-MAE divergence"
+
+  - turn: 1
+    type: decision
+    id: "N59"
+    routing: direct
+    provenance: ai-executed
+    summary: "P0+P1 code deliverables: V-2 unified Val/Test reporting, C-1 LR-Phase pct_start=0.16"
+
+  - turn: 1
+    type: observation
+    id: "O25"
+    routing: staged
+    provenance: ai-executed
+    summary: "V-2 Val/Test unified reporting + C-1 LR-Phase alignment code changes applied"
+
+  - turn: 1
+    type: observation
+    id: "O26"
+    routing: staged
+    provenance: ai-executed
+    summary: "V-3 d512 MSE-MAE divergence: best Val MSE 0.3779 + worst Test MAE 0.002158, NOT overfitting"
+
+  - turn: 1
+    type: observation
+    id: "O27"
+    routing: staged
+    provenance: ai-executed
+    summary: "D-4 V5.4 gradient VANISHING confirmed (both Net+Theory die simultaneously), not gradient competition"
+
+  - turn: 1
+    type: observation
+    id: "O28"
+    routing: staged
+    provenance: ai-executed
+    summary: "C-1 pct_start=0.16 LR-Phase alignment — improvement needs validation experiment"
+
+  - turn: 1
+    type: heuristic
+    id: "H08"
+    routing: crystallized
+    provenance: ai-suggested
+    summary: "O22→H08: Val MSE (norm) vs Test MSE (MW²) differ by target_std² — always compare in same units"
+
+  - turn: 1
+    type: constraint
+    id: "O24"
+    routing: crystallized
+    provenance: ai-executed
+    summary: "P0+P1 completion: all P0 items done, P1 substantially done (artifact-commitment)"
+
+ai_actions:
+  - turn: 1
+    action: "Wrote scripts/check_val_test_scale.py — validates Val/Test MSE scale relationship across 21 experiments"
+    provenance: ai-executed
+    files_changed: ["scripts/check_val_test_scale.py"]
+  - turn: 1
+    action: "Modified physformer_exp.py — V-2 (Val MSE MW² + _units), C-1 (pct_start=0.16)"
+    provenance: ai-executed
+    files_changed: ["physformer/train/physformer_exp.py"]
+  - turn: 1
+    action: "Wrote scripts/diagnose_collapse.py — 3-hypothesis collapse root cause diagnostic"
+    provenance: ai-executed
+    files_changed: ["scripts/diagnose_collapse.py"]
+  - turn: 1
+    action: "Wrote and ran scripts/v3_verify_d512.py — falsified d512 overfitting interpretation (12 P1 exps)"
+    provenance: ai-executed
+    files_changed: ["scripts/v3_verify_d512.py"]
+  - turn: 1
+    action: "Pulled p1_batch1-4 results from AutoDL-vGPU-32GB (metrics.json + train.log for 12 experiments)"
+    provenance: ai-executed
+    files_changed: ["results/physformer_p1a_*/", "results/p1_batch*/"]
+  - turn: 1
+    action: "Updated ARA: PAPER.md phase, exploration_tree N29-N31/N45-N47 resolved, O22→H08 crystallized, N59-N61 appended"
+    provenance: ai-executed
+    files_changed: ["ara/PAPER.md", "ara/trace/exploration_tree.yaml", "ara/logic/solution/heuristics.md", "ara/staging/observations.yaml"]
+
+claims_touched:
+  - id: C07
+    action: strengthened
+    turn: 1
+  - id: C08
+    action: unchanged
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "用户要求执行 P0+P1 (V-1 尺度校验, V-2 统一报告, V-3 重审 d512, C-1 LR-Phase, D-4 崩溃诊断)，然后拉回 p1_batch 数据完成 V-3"
+
+open_threads:
+  - "P2 items: C-2 Adam soft transition, C-3 cw decay curve, D-5 gradient competition intervention, C-4 cw grid search"
+  - "e3+detach joint experiment (O23, N57)"
+  - "α gradient scaling grid completion 0-1 eight points + multi-seed"
+  - "e3 multi-seed confirmation"
+  - "Battery SOC consistency loss + residual constraints (N50)"
+  - "Lagged temperature states (N40/N51)"
+  - "BP implementation fixes (P1-4-6)"
+  - "p1_batch crash experiments (d512, α≤0.5, no_temp_s2026) need collapse diagnostic run"
+
+ai_suggestions_pending:
+  - "O26 d512 MSE-MAE divergence could become a claim (C09) if user affirms"
+  - "O27 gradient vanishing vs gradient competition typology could become a heuristic"
+  - "O28 C-1 LR-Phase alignment needs experimental validation"
+  - "C-2 Adam soft transition — Phase 2 should preserve exp_avg/exp_avg_sq rather than hard reset"
+  - "C-3 cw decay curve 0.03→0.02→0.01 — test three-stage curriculum"

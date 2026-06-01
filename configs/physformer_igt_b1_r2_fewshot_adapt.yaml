@@ -1,0 +1,21 @@
+# B1-R2: deployment-style target-portfolio few-shot adaptation.
+#
+# The default uses all portfolios whose manifest split is "test" as target
+# groups, takes the first 10% of each target time series as labeled adaptation
+# data, reserves 20% of that labeled prefix for validation, and evaluates on
+# the remaining target horizon. Duplicate/override adaptation_train_fraction
+# to 0.05 and 0.20 for the full gate.
+#
+_base_: physformer_igt_b1_r1_low_lr_finetune.yaml
+data:
+  adaptation_source_splits: [test]
+  adaptation_target_portfolios: null
+  adaptation_target_regions: null
+  adaptation_train_fraction: 0.10
+  adaptation_val_fraction: 0.20
+training:
+  batch_size: 64
+  pretrained_path: results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth
+  load_pretrained_scaler_buffers: false
+checkpoint:
+  name: physformer_igt_b1_r2_fewshot_adapt_f10_s2025

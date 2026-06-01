@@ -1,0 +1,160 @@
+{
+  "reviewer": "codex",
+  "file": "results/dual-draft/v5_ablation_analysis.md",
+  "issues": [
+    {
+      "location": "实验设计",
+      "line_start": 5,
+      "line_end": 14,
+      "severity": "high",
+      "category": "methodology",
+      "description": "2×2 消融只有端点配置，缺少重复种子、参数梯度和交互效应分析。",
+      "original_snippet": "2×2 消融：`restart_t0` (8 vs 20) × `battery_component_weight` (1.0 vs 5.0)",
+      "suggested_fix": "补充多 seed、restart_t0 与 battery_component_weight 的中间值或响应面分析，并报告主效应与交互项。",
+      "rationale": "当前设计只能说明四个配置的单次观测结果，不能稳健归因到 R20、B5 或二者交互。"
+    },
+    {
+      "location": "训练阶段 early stopping 描述",
+      "line_start": 20,
+      "line_end": 27,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "“全部 epoch ~39 early stopping”与最佳 epoch 和 patience=20 不自洽。",
+      "original_snippet": "全部 4 个实验在 epoch ~39 触发 early stopping，最佳 Val MSE:",
+      "suggested_fix": "逐实验报告 actual stop epoch、best epoch、patience counter、是否达到 max epochs，并核对日志。",
+      "rationale": "例如 V5.5 最佳 epoch=33，patience=20 时不应在 epoch~39 停止；该矛盾影响收敛判断。"
+    },
+    {
+      "location": "训练排名表",
+      "line_start": 22,
+      "line_end": 27,
+      "severity": "high",
+      "category": "recommendation",
+      "description": "训练排名混用了最佳 Val MSE 与最终 Val MSE。",
+      "original_snippet": "| V5.5 (R20,B5) | 0.4258 | 33 | 0.4265 | 2nd |",
+      "suggested_fix": "明确排名依据。若按最佳 Val MSE，排序应为 V5.5a、V5.4、V5.5b、V5.5；若按最终 Val MSE，应重新命名列和结论。",
+      "rationale": "后续“V5.5b 训练末位”和推荐逻辑依赖该排名，当前表述会误导结论。"
+    },
+    {
+      "location": "测试指标计数",
+      "line_start": 33,
+      "line_end": 42,
+      "severity": "high",
+      "category": "recommendation",
+      "description": "表格只有 6 个测试指标，但文本称 2/7 和 6/7。",
+      "original_snippet": "V5.5a 训练冠军但测试 2/7 指标最优；V5.5b 训练末位但测试 6/7 指标最优。",
+      "suggested_fix": "补齐第 7 个指标或改为 V5.5a 1/6、V5.5b 5/6，并避免简单投票式推荐，需指定主指标。",
+      "rationale": "指标数量错误直接影响“测试最优”的证据强度。"
+    },
+    {
+      "location": "统计显著性",
+      "line_start": 35,
+      "line_end": 42,
+      "severity": "high",
+      "category": "statistical_validity",
+      "description": "测试差异很小但未报告方差、置信区间或显著性检验。",
+      "original_snippet": "| MAE (MW) | 0.00207 | 0.00226 | 0.00198 | 0.00200 | V5.5a |",
+      "suggested_fix": "对多 seed 或时间块 bootstrap 报告均值、标准差、95% CI、效应量和配对检验。",
+      "rationale": "V5.5a 与 V5.5b 的 MAE 差异仅 0.00002 MW，可能完全落在随机波动内。"
+    },
+    {
+      "location": "MSE 单位",
+      "line_start": 36,
+      "line_end": 36,
+      "severity": "low",
+      "category": "methodology",
+      "description": "MSE 单位显示损坏，影响可复现性。",
+      "original_snippet": "| MSE (×10??) | 7.999 | 8.955 | 7.628 | **7.281** | V5.5b |",
+      "suggested_fix": "修正为明确单位，例如 `MSE (×10^-6 MW^2)`，并确认与 RMSE 数值一致。",
+      "rationale": "功率系统论文中单位和量纲必须明确。"
+    },
+    {
+      "location": "Train/Test 背离表述",
+      "line_start": 42,
+      "line_end": 42,
+      "severity": "medium",
+      "category": "overfitting",
+      "description": "文档实际比较的是验证集与测试集，不是训练集与测试集。",
+      "original_snippet": "**Train/Test 背离**: V5.5a 训练冠军但测试 2/7 指标最优",
+      "suggested_fix": "改称 Val/Test 背离，另行报告 train loss、val loss、test loss 和泛化间隙。",
+      "rationale": "没有训练损失曲线时，不能把验证/测试排序差异解释为训练过拟合。"
+    },
+    {
+      "location": "梯度动态表",
+      "line_start": 48,
+      "line_end": 53,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "GradNorm 接近零时 GradCos/GradAngle 可能退化，不能直接解读为 90° 或梯度停滞。",
+      "original_snippet": "V5.4 的 GradCos 恒定 0.000，GradNorm ~1e-9 — 梯度完全停滞。",
+      "suggested_fix": "说明 cosine 的 epsilon 处理，报告原始梯度范数、loss 分项、LR、是否存在 detach/clip/AMP，并避免把退化 cosine 当作方向证据。",
+      "rationale": "当梯度范数接近零时，角度计算数值不可靠，可能是度量实现伪象。"
+    },
+    {
+      "location": "梯度动态符号与统计",
+      "line_start": 49,
+      "line_end": 51,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "负号疑似损坏且只给极值范围，缺少时间窗口和统计摘要。",
+      "original_snippet": "| V5.5a | ?0.985~+0.941 (震荡) | 20°~172° | ~1e-3 | ~1e-2 |",
+      "suggested_fix": "修复负号，报告 epoch/batch 级均值、中位数、IQR、曲线图和计算样本数。",
+      "rationale": "单纯用最大最小值描述“震荡”无法判断训练是否稳定或是否改善对齐。"
+    },
+    {
+      "location": "组件 MAE 诊断",
+      "line_start": 57,
+      "line_end": 65,
+      "severity": "medium",
+      "category": "physics_interpretation",
+      "description": "组件 MAE 未按组件尺度归一化，也未检查物理约束一致性。",
+      "original_snippet": "V5.4 在 load 和 battery 组件上的误差显著高于其他三组 (7-13×)。",
+      "suggested_fix": "补充 per-unit/相对误差、分位数、误差分布、功率平衡残差、SOC 边界、充放电互斥和 ramp 事件分析。",
+      "rationale": "不同物理量尺度不同，仅用 MAE 难以判断结构性缺陷或物理一致性。"
+    },
+    {
+      "location": "过拟合因果解释",
+      "line_start": 69,
+      "line_end": 69,
+      "severity": "medium",
+      "category": "overfitting",
+      "description": "将 R8 频繁重启归因为过拟合证据不足。",
+      "original_snippet": "R8 频繁重启可能导致**过拟合**——训练集上的优势未能泛化。",
+      "suggested_fix": "用 train/val 曲线、checkpoint 泛化曲线、多 seed 和不同 LR scheduler 对照验证；表述改为假设而非结论。",
+      "rationale": "频繁重启也可能产生正则化或优化扰动，当前数据不能支持因果判断。"
+    },
+    {
+      "location": "R20 泛化优势结论",
+      "line_start": 72,
+      "line_end": 72,
+      "severity": "high",
+      "category": "recommendation",
+      "description": "“R20 的泛化优势”忽略了 R20+B5 的测试结果变差，交互效应未被处理。",
+      "original_snippet": "单独使用 restart_t0=20（V5.5b）虽然训练慢，但测试中全面碾压——更长的重启周期提供了隐式正则化。",
+      "suggested_fix": "改为“R20 在 B1 条件下表现最好”，并量化 R20×B5 交互；不要泛化为 R20 普遍优势。",
+      "rationale": "V5.5(R20,B5) 多项测试指标劣于 R8/B5 和 R8/B1，说明 restart_t0 的效果依赖 battery weight。"
+    },
+    {
+      "location": "最终配置选择",
+      "line_start": 76,
+      "line_end": 76,
+      "severity": "high",
+      "category": "recommendation",
+      "description": "推荐配置没有决策准则，且存在用测试集选模型的风险。",
+      "original_snippet": "推荐的 thesis 配置是 V5.5a（训练最优）还是 V5.5b（测试最优）？",
+      "suggested_fix": "先定义主目标，如 RMSE、ramp violation、物理一致性或电池组件精度；用验证集/交叉验证选择配置，最终测试集只做一次报告。",
+      "rationale": "论文结论应基于预先定义的指标层级，否则容易 test-set overfitting。"
+    },
+    {
+      "location": "遗漏分析",
+      "line_start": 74,
+      "line_end": 79,
+      "severity": "medium",
+      "category": "missing_analysis",
+      "description": "缺少场景分层和极端工况分析。",
+      "original_snippet": "- 组件误差分布是否揭示了物理层的结构性缺陷？",
+      "suggested_fix": "按高负荷、高 PV、高风电、SOC 边界、快速爬坡、日夜/季节等场景分层报告误差。",
+      "rationale": "电力系统模型的工程价值取决于关键工况下的鲁棒性，聚合均值可能掩盖失效模式。"
+    }
+  ]
+}

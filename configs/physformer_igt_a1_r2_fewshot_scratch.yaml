@@ -1,0 +1,9 @@
+# B1-R2 comparison arm: A1 architecture trained from scratch on the same
+# target-portfolio few-shot split.
+#
+_base_: physformer_igt_b1_r2_fewshot_adapt.yaml
+training:
+  pretrained_path: null
+  l2sp_weight: 0.0
+checkpoint:
+  name: physformer_igt_a1_r2_fewshot_scratch_f10_s2025

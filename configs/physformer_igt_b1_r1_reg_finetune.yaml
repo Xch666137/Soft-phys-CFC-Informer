@@ -1,0 +1,10 @@
+# B1-R1 regularized rescue arm: low-LR finetune with a tiny component MAE anchor.
+#
+_base_: physformer_igt_b1_r1_low_lr_finetune.yaml
+training:
+  component_loss_weight: 0.005
+  phase_1_cw: 0.005
+  phase_2_cw: 0.005
+  phase_2a_cw: 0.005
+checkpoint:
+  name: physformer_igt_b1_r1_reg_finetune_s2025

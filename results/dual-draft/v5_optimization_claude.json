@@ -1,0 +1,106 @@
+{
+  "reviewer": "claude",
+  "file": "V5 optimization plan",
+  "analysis_type": "architecture_optimization",
+  "context": {
+    "v5_changes": "A+C+D: Component-consistent residual (5D per-component), TemporalDecoder time conditioning, Curriculum training (3 phases)",
+    "v5_vs_v4_regression": "MAE +7.5% (0.002120 vs 0.001976), MSE +11.9% (8.224e-6 vs 7.350e-6)",
+    "v5_component_improvement": "PV -22.7%, Wind -11.8%, Battery Power -12.5%",
+    "v5_residual_improvement": "Mean closest to zero (-0.000848 MW), std similar to V4_2",
+    "curriculum_issue": "Phase 3 (epoch 41-42) train loss dropped 0.11->0.03 but Val MSE did not improve"
+  },
+  "issues": [
+    {
+      "location": "losses.py:PhysLoss.forward:219-224",
+      "line_start": 219,
+      "line_end": 224,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "Component loss 权重过高导致 aggregate 退化",
+      "original_snippet": "total_loss = total_loss + self.component_loss_weight * (component_load_mae + component_pv_mae + component_wind_mae + battery_power_mae)",
+      "suggested_fix": "Phase 1 cw 从 0.1 降到 0.03，Phase 2 cw 从 0.05 降到 0.01。或者改为仅对 load 分量施加 component loss（因为 load 是瓶颈，PV/Wind 已经很好）",
+      "rationale": "V5 的 aggregate 退化是因为 component loss 将模型容量从 net accuracy 转移到了 component consistency。降低权重可以缓解 trade-off"
+    },
+    {
+      "location": "exp_physformer.py:251-261",
+      "line_start": 251,
+      "line_end": 261,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "Phase 1 过长（15 epochs），Phase 3 无效",
+      "original_snippet": "phase_1_end = 15; phase_2_end = 40; Phase 3 = pure net_mse",
+      "suggested_fix": "Phase 1 缩短到 5-8 epochs，Phase 2 扩展到 25-30 epochs，移除 Phase 3（或仅保留 5 epochs）。总训练 epochs 从 42 减少到 35",
+      "rationale": "Phase 1 的强 component supervision 过早锁定了模型的优化方向。Phase 3 的纯 net_mse 没有带来验证集收益，说明模型在 Phase 2 已经收敛"
+    },
+    {
+      "location": "losses.py:PhysLoss.forward:226-227",
+      "line_start": 226,
+      "line_end": 227,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "Residual regularization 可能过度限制了修正能力",
+      "original_snippet": "total_loss = total_loss + self.res_reg_weight * terms['res_reg']",
+      "suggested_fix": "res_reg_weight 从 0.01 降到 0.005，或者改为仅对 load residual 施加正则化（因为 load 的修正需求最大）",
+      "rationale": "V5 的 residual std (0.002686) 与 V4_2 (0.002695) 几乎相同，说明 residual 修正幅度受限。res_reg 可能限制了模型修正复杂样本的能力"
+    },
+    {
+      "location": "conditioning.py:UnifiedResidualHead:99",
+      "line_start": 99,
+      "line_end": 99,
+      "severity": "medium",
+      "category": "architecture",
+      "description": "Residual head 初始化过小可能导致学习缓慢",
+      "original_snippet": "nn.init.normal_(self.net[-1].weight, std=0.01 / (d_model ** 0.5))",
+      "suggested_fix": "将初始化 std 从 0.01 增加到 0.05 或 0.1，让 residual 在早期有更大的修正空间",
+      "rationale": "过小的初始化意味着 residual 在训练初期几乎为零，模型需要更多 epochs 才能学会有效的修正"
+    },
+    {
+      "location": "losses.py:PhysLoss.forward:218-224",
+      "line_start": 218,
+      "line_end": 224,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "Component loss 使用 MAE 而非 MSE，可能对大误差不敏感",
+      "original_snippet": "component_load_mae + component_pv_mae + component_wind_mae + battery_power_mae",
+      "suggested_fix": "考虑将 component loss 改为 MSE 或 Huber loss，对大误差给予更强惩罚",
+      "rationale": "MAE 对所有误差一视同仁，但大误差（如 load 的 14.7kW）应该给予更强惩罚"
+    },
+    {
+      "location": "configs/physformer_v3.yaml:49",
+      "line_start": 49,
+      "line_end": 49,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "Early stopping 使用 net_mse 而非 composite metric",
+      "original_snippet": "early_stop_metric: net_mse",
+      "suggested_fix": "考虑使用 composite metric = net_mse + alpha * (1 - component_improvement) 作为 early stopping 标准，同时优化 aggregate 和 component",
+      "rationale": "当前仅优化 net_mse 会忽略 component 改善。composite metric 可以平衡两个目标"
+    },
+    {
+      "location": "physformer.py:268-271",
+      "line_start": 268,
+      "line_end": 271,
+      "severity": "low",
+      "category": "architecture",
+      "description": "Component residual 直接加到 theory 上，没有门控机制",
+      "original_snippet": "component_residual = self.unified_head(conditioned, component_norm); pred_net = self._build_component_net(component_norm, component_residual)",
+      "suggested_fix": "添加轻量门控：residual = residual * sigmoid(gate(conditioned))，让模型学习何时修正、何时信任 theory",
+      "rationale": "V4.1 的 sigmoid gate 被证明有害，但那是因为 gate 作用在 net residual 上。在 component residual 上使用门控可能更有效，因为每个分量的修正需求不同"
+    }
+  ],
+  "recommendations": {
+    "immediate_fixes": [
+      "降低 Phase 1 component loss 权重：cw 从 0.1 降到 0.03",
+      "缩短 Phase 1：从 15 epochs 减到 5-8 epochs",
+      "移除 Phase 3：它没有带来收益",
+      "增加 residual head 初始化：std 从 0.01 增加到 0.05"
+    ],
+    "medium_term_experiments": [
+      "Component loss 改为 MSE 或 Huber loss",
+      "仅对 load 分量施加 component loss（因为 load 是瓶颈）",
+      "Composite metric 用于 early stopping",
+      "Component residual 门控机制"
+    ],
+    "expected_outcome": "通过降低 component loss 权重和缩短 Phase 1，预期 aggregate MAE 可以回到 V4 水平（~0.00198），同时保留 component 改善（PV/Wind/Battery 仍然优于 V4）"
+  }
+}

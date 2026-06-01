@@ -1,0 +1,42 @@
+session:
+  id: "2026-05-29_001"
+  date: "2026-05-29"
+  started: "2026-05-29T00:00"
+  last_turn: "2026-05-29T01:00"
+  turn_count: 1
+  summary: "Phase B design: Self-Supervised Masked Component Pretraining + Finetune for cross-portfolio generalization. Design doc committed, ARA updated with N106-N107 and O51."
+
+events_logged:
+  - turn: 1
+    type: decision
+    id: N106
+    routing: direct
+    provenance: user+ai-suggested
+    summary: "Phase B: Masked Component Pretraining (MCP) adopted. Randomly mask 1-2 component histories, predict them from context. BERT→finetune paradigm for VPP."
+  - turn: 1
+    type: observation
+    id: O51
+    routing: staged
+    provenance: ai-suggested
+    summary: "MCP hypothesis: data-driven coupling discovery (via masking) will transfer better than fixed priors (A2-A5). Gate: B1 MAE < A1 0.001811."
+
+ai_actions:
+  - turn: 1
+    action: "Designed complete Phase B framework: MCP masking strategy (zero-out GRU input, 1-2 random components), pretraining objective (MAE+λ_net=0.3), finetuning protocol (A1-standard). Wrote design doc (docs/plans/2026-05-29-pretraining-finetune-phase-b.md, ~350 lines). Updated ARA: N106 decision, N107 experiment placeholder, O51 observation, PAPER.md phase status."
+    provenance: ai-executed
+    files_changed: ["docs/plans/2026-05-29-pretraining-finetune-phase-b.md", "ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml", "ara/PAPER.md"]
+
+claims_touched: []
+
+key_context:
+  - turn: 1
+    excerpt: "用户指出 A1 已是纯组件 token 架构，固定先验路线（A2-A5）全失败。认同 Self-Supervised Pretraining + Finetune 方向——通过无监督预训练学习跨 portfolio 通用的组件耦合表示，再微调到具体预测任务。NLP BERT→finetune 范式的 VPP 类比。"
+
+open_threads:
+  - "B1 实现：pretrain_exp.py + PretrainLoss + pretraining_mode data loading"
+  - "B1 实验：单次预训练 + 3-seed 微调，Gate: Test MAE < A1 0.001811"
+  - "若 B1 pass：消融 masking ratio、λ_net、freeze策略"
+  - "若 B1 fail：A1 from-scratch 即为上限，论文叙事收缩到 '组件token分离是最优且唯一的有效架构引导'"
+
+ai_suggestions_pending:
+  - "B1 实验就绪，待用户确认后实施"

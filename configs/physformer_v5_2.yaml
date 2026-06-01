@@ -1,0 +1,4 @@
+# V5.2: Component-consistent residual (theory = load - pv - wind + battery)
+_base_: base/v5_base.yaml
+checkpoint:
+  name: physformer_v5_2

@@ -1,0 +1,72 @@
+{
+  "target": "PhysFormer V5.1 architecture — aggregate MAE vs theory MAE tradeoff analysis",
+  "reviewer": "codex",
+  "timestamp": "2026-05-08T02:20:00+08:00",
+  "issues": [
+    {
+      "id": "X1",
+      "title": "Theory stream is not directly optimized for Theory MAE",
+      "category": "training_dynamics",
+      "severity": "high",
+      "description": "Theory MAE is computed as a diagnostic, but the loss optimizes final net MSE plus weak component supervision and residual regularization. The physical layer can therefore improve component proxies while the final residual path learns to bypass or undo theory.",
+      "evidence": "PhysLoss starts from net_mse and adds component_load/pv/wind/battery_power_mae and res_reg. theory_mae_real is tracked in compute_terms but not added to total_loss.",
+      "suggestion": "Add an explicit theory_net loss or use a staged/balanced multi-objective loss so aggregate gradients cannot erase theory calibration."
+    },
+    {
+      "id": "X2",
+      "title": "Residual head is under-identified",
+      "category": "architecture",
+      "severity": "high",
+      "description": "UnifiedResidualHead predicts 5 component residuals, but the aggregate target only supervises their signed sum. Many component residual decompositions can produce the same pred_net, so Aggregate MAE can improve while component meaning and Theory MAE degrade.",
+      "evidence": "pred_net is reconstructed as load - pv - wind + battery using component_theory + residual. The battery SOC residual is predicted but does not affect pred_net.",
+      "suggestion": "Use constrained component residuals with direct component residual supervision, or separate a small net-only residual from physically meaningful component corrections."
+    },
+    {
+      "id": "X3",
+      "title": "PhysicsFiLM lacks a trust mechanism",
+      "category": "missing_mechanism",
+      "severity": "high",
+      "description": "Physics features always modulate the data latent through FiLM, but there is no learned reliability gate or uncertainty estimate. Stronger physics can corrupt the data path when biased; weaker physics helps aggregate prediction but worsens theory.",
+      "evidence": "PhysicsFiLM applies gamma/beta modulation from physics_features with fixed film_scale and LayerNorm. The model never learns an explicit theory-vs-data mixing weight.",
+      "suggestion": "Add a learned reliability gate: pred = gate * theory + (1 - gate) * data + constrained residual."
+    },
+    {
+      "id": "X4",
+      "title": "Physical layer has biased low-fidelity branches",
+      "category": "physics_fidelity",
+      "severity": "medium",
+      "description": "Load, PV, wind, and battery are modeled with simple gray-box formulas. When those formulas are biased, forcing better theory fit conflicts with the residual freedom needed for aggregate accuracy.",
+      "evidence": "Load uses thermal/calendar/autoregressive terms; PV uses irradiance and one temperature coefficient; wind uses a smooth cubic curve; battery dispatch is learned without explicit control or market intent.",
+      "suggestion": "Upgrade to semi-parametric state-space physical branches with regime and portfolio adaptation while keeping hard physical constraints."
+    },
+    {
+      "id": "X5",
+      "title": "Final curriculum phase drops physics pressure",
+      "category": "training_dynamics",
+      "severity": "medium",
+      "description": "Phase 3 sets component and residual regularization weights to zero, leaving net_mse as the main signal. Later fine-tuning can therefore improve Aggregate MAE at the expense of theory quality.",
+      "evidence": "PhysLoss.set_phase sets component_loss_weight = 0.0 and res_reg_weight = 0.0 for phase 3.",
+      "suggestion": "Keep a small theory/component loss in the final phase, or freeze the calibrated physical layer before aggregate fine-tuning."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "approach": "Reliability-gated hybrid prediction",
+      "description": "Add a data_net head and learned per-horizon gate using weather latent, component theory, battery features, and theory uncertainty. Predict with gate * theory_net + (1 - gate) * data_net + constrained residual.",
+      "expected_impact": "Highest. It directly removes the forced tradeoff by letting accurate theory help and biased theory be bypassed without corrupting the data latent."
+    },
+    {
+      "priority": 2,
+      "approach": "Identifiable residual architecture",
+      "description": "Predict residuals in real physical units with sign, range, and energy constraints. Add component residual supervision where y_aux exists, and reserve a small separate net residual for unobserved effects.",
+      "expected_impact": "High. It prevents arbitrary cancellation across load, PV, wind, and battery channels, making aggregate gains more likely to preserve physical meaning."
+    },
+    {
+      "priority": 3,
+      "approach": "Semi-parametric physical layer",
+      "description": "Replace the fixed gray-box formulas with constrained state-space branches for load memory, PV availability, wind availability, and battery dispatch policy, with portfolio/regime adaptation.",
+      "expected_impact": "Medium to high. It raises the ceiling for Theory MAE and reduces the residual burden needed to achieve good Aggregate MAE."
+    }
+  ]
+}

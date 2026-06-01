@@ -1,0 +1,8 @@
+# B1-R0 control: reproduce old direct-test loading by importing scaler buffers
+# from the pretrained checkpoint.
+#
+_base_: physformer_igt_b1_r0_pretrained_direct_test.yaml
+training:
+  load_pretrained_scaler_buffers: true
+checkpoint:
+  name: physformer_igt_b1_r0_pretrained_direct_test_oldload

@@ -1,0 +1,41 @@
+# PhysFormer-iGT Ablation A5: Component-wise Horizon Decoder
+# A4 token layout (16 tokens) + per-step CrossAttention decoder with weather conditioning
+#
+# This is the FIRST architectural decoder change in the A1-A5 chain.
+# A2-A4 changed token content; A5 changes how tokens are decoded into predictions.
+# Hypothesis: per-step queries with step-level weather alignment unlock the value
+# of the richer token representation that A4 provides but A1-A4 can't use.
+#
+_base_: base/v5_base.yaml
+model:
+  name: PhysFormer-iGT
+  use_horizon_decoder: true
+training:
+  train_epochs: 50
+  patience: 12
+  early_stop_start_epoch: 12
+  # Net MSE only — no component, theory, or SOC loss
+  component_loss_weight: 0.0
+  theory_loss_weight: 0.0
+  soc_weight: 0.0
+  res_reg_weight: 0.0
+  # Single phase, no curriculum (all epochs in one uniform regime)
+  phase_1_epochs: 50
+  phase_2_epochs: 50
+  phase_2a_epochs: 50
+  phase_1_cw: 0.0
+  phase_2_cw: 0.0
+  phase_2a_cw: 0.0
+  phase_1_rr: 0.0
+  phase_2_rr: 0.0
+  phase_1_tw: 0.0
+  phase_2_tw: 0.0
+  batch_size: 256
+  seed: 2026
+  val_interval: 1
+  grad_angle_interval: 999
+hardware:
+  num_workers: 4
+  persistent_workers: true
+checkpoint:
+  name: physformer_igt_a5_s2026

@@ -1,0 +1,134 @@
+session:
+  id: "2026-05-25_001"
+  date: "2026-05-25"
+  started: "2026-05-24T01:19"  # T1 Batch 1 launch was the start of this multi-day workstream
+  last_turn: "2026-05-25T08:00"
+  turn_count: 1  # single research-manager invocation captures the multi-batch workstream
+  summary: "T1 Phase B complete (3 seed x 3 arm = 9 runs, ~25h wall-clock total). Aggregate outcome: detach dominates aggregate MAE/MSE/RMSE/ramp across all seeds + smallest std (hardened to C09). e3 (deeper encoder) dominates ALL 5 component MAEs but loses net (new cancellation-on-encoder-depth phenomenon, staged O39). C08 cross-seed variance decomposition (scripts/c08_t1_3seed.py): O37 'bias-clearance regime escape' mechanism REFUTED -- only 1/4 regime-escape signals replicate (agg MSE shift), the 3 mechanism signals (bias clearance / diag-var reduce / weaker cancel) flip direction across s2025/s2026/s2027. O11 vs O34 CONFLICT RESOLVED: T1 net_ramp_violation shows detach lowest in all 3 seeds (O34 wins, O11 battery-as-slack falsified, C07 ramp framing dropped). autodl-push skill exclude updated (runs/) -- found via Batch 1 launch resume-from-ckpt pollution bug; crystallized to H09. User decision: research-manager BEFORE new mechanism search to avoid stale-context churn."
+
+events_logged:
+  - turn: 1
+    type: experiment
+    id: "N77"
+    routing: direct
+    provenance: ai-executed
+    summary: "T1 Batch 1 (seed 2025) c23_{baseline,e3,detach} on vGPU-32GB. ckpt-pollution incident at launch: autodl-push tar included local runs/ -> remote training_state.pth pre-existing -> trainer auto-resumed from epoch 8/13. Killed, fixed skill exclude (N79), renamed old s2025 dirs _old3s, re-launched. Natural early-stop E19 all 3 arms, ~5h20m total."
+  - turn: 1
+    type: dead_end
+    id: "N78"
+    routing: direct
+    provenance: ai-suggested
+    summary: "autodl-push skill exclude list missing 'runs' (only had results/logs/checkpoints/wandb). Pushing code from a worktree with local run dirs would re-create them on remote, triggering trainer auto-resume from old ckpt. Caught after one false launch and ~10 min of GPU time. Fix: added 'runs' to ~/.claude/skills/autodl-push/config.yaml exclude. Lesson: any tool that mirrors a project directory needs to either explicitly enumerate runs/outputs in its exclude or use a default-deny model."
+  - turn: 1
+    type: decision
+    id: "N79"
+    routing: direct
+    provenance: user
+    summary: "On finding old remote s2025 dirs (May 23 3-stage results), choose to rename in-place to *_s2025_old3s (preserve evidence trail) rather than overwrite or use new run-name suffix. Rationale: keeps remote audit trail symmetric with the local _old3s suffix used on the May 23 pull side; new training uses clean dir."
+  - turn: 1
+    type: experiment
+    id: "N80"
+    routing: direct
+    provenance: ai-executed
+    summary: "T1 Batch 2 (seed 2026) c23 3-arm. E19 early stop all arms, ~5h25m. Test: detach MAE 0.001946 < e3 0.002130 < baseline 0.002221 (detach clean sweep aggregate). Best Val MSE detach 0.381432 (E5 best, never refreshed)."
+  - turn: 1
+    type: experiment
+    id: "N81"
+    routing: direct
+    provenance: ai-executed
+    summary: "T1 Batch 3 (seed 2027) c23 3-arm. baseline/e3 early-stop E19, detach E20. Test: detach MAE 0.001958 < baseline 0.002019 < e3 0.002040. ssh stream dropped twice during the day (B2 E11, B3 E14); training itself never affected -- Monitor relaunched both times from absolute-path tail."
+  - turn: 1
+    type: experiment
+    id: "N82"
+    routing: direct
+    provenance: ai-executed
+    summary: "T1 9-run aggregate (3 seeds x 3 arms). Cross-seed mean +/- std. AGGREGATE: detach 1.973e-3 +/- 3.7e-5 < baseline 2.069e-3 +/- 1.3e-4 < e3 2.101e-3 +/- 5.3e-5; same direction on MSE/RMSE/ramp. detach smallest std on all 4 aggregate metrics. COMPONENT (per-asset): e3 best on all 5 (load/pv/wind/batt_pwr/batt_soc); detach worst on 5 of 5. THEORY: baseline best theory_mae. Provides cross-seed grounding for next-stage interpretation."
+  - turn: 1
+    type: experiment
+    id: "N83"
+    routing: direct
+    provenance: ai-executed
+    summary: "T1 3-seed C08 variance decomposition. Wrote scripts/c08_t1_3seed.py reusing analyze_run() from c08_vgpu_3way.py; aggregates per-seed bias/cov/cancellation across 3 seeds with detach-vs-baseline regime-diagnosis deltas. Result: of 4 May-23 'regime-escape' signals (bias clearance, diag var reduce, weaker cancellation, agg MSE better), ONLY agg MSE replicates across all seeds (1/4). The 3 mechanism signals flip direction: bias clearance per-seed (+7.5%, +260.8%, -68.1%); diag var (+9.3%, +126.1%, -50.1%); cov-cross (-11.6%, -181.8%, +60.6%). Output: scripts/c08_t1_3seed_results.json. Single-seed s2025 of May 23 is a mechanism OUTLIER not representative."
+  - turn: 1
+    type: dead_end
+    id: "N84"
+    routing: direct
+    provenance: ai-suggested
+    summary: "O37 'bias-clearance regime escape via detach' mechanism REFUTED across seeds. The mechanism describes one of three seed-specific paths to the same agg-MSE outcome; it is not a stable property of selective detach + true 3-stage. Lesson: single-seed mechanistic interpretations in 9-DoF settings can be coincidental; require 3-seed corroboration before crystallizing mechanism claims. Outcome-level claim (detach aggregate dominance) survives independently."
+  - turn: 1
+    type: decision
+    id: "N85"
+    routing: direct
+    provenance: ai-executed
+    summary: "O11 vs O34 CONFLICT (from session 2026-05-23) RESOLVED in favor of O34. T1 net_ramp_violation cross-seed: detach 2.989e-3 +/- 5.0e-4 < baseline 3.728e-3 +/- 1.1e-3 < e3 3.971e-3 +/- 4.1e-4. detach lowest in EVERY seed. O11 battery-as-slack hypothesis falsified -- detach does NOT systematically increase ramp violations under true 3-stage. C07 evidence basis should drop the ramp trade-off framing (was P1-A 2-stage artifact)."
+  - turn: 1
+    type: decision
+    id: "N86"
+    routing: direct
+    provenance: user
+    summary: "Process ordering decision: run /research-manager BEFORE searching for replacement mechanism. Rationale (ai-suggested, user-affirmed): (a) T1 outcome data is stable -- finding a new mechanism would not change facts in the ledger; (b) ARA staging is stale (O37/C11 candidate from May 23 optimistic version); (c) new mechanism exploration without correct context risks referencing dead claims; (d) closure signals (O37 empirical refutation, O11 conflict resolution) are present -- crystallize first; (e) /brainstorm for the new-mechanism design will load ARA -- ARA must be correct first."
+
+ai_actions:
+  - turn: 1
+    action: "Ran 9 nohup trainings via /root/miniconda3/bin/conda absolute path (non-interactive ssh has no conda in PATH). 3 batches sequential, 3-parallel within batch."
+    provenance: ai-executed
+    files_changed: []
+  - turn: 1
+    action: "Edit ~/.claude/skills/autodl-push/config.yaml: added 'runs' to exclude list."
+    provenance: ai-executed
+    files_changed: ["~/.claude/skills/autodl-push/config.yaml"]
+  - turn: 1
+    action: "Renamed remote runs/physformer_c23_*_vgpu_s2025 to *_s2025_old3s before B1 re-launch."
+    provenance: ai-executed (user decision)
+    files_changed: []
+  - turn: 1
+    action: "Ran test + export-forecast on all 9 best ckpts (trainer does NOT auto-eval after early stop, established 2026-05-23 N72)."
+    provenance: ai-executed
+    files_changed: ["runs/physformer_c23_{baseline,e3,detach}_vgpu_s{2025,2026,2027}/{metrics.json,pred.npy,true.npy,extras/*,exports/portfolio_forecasts.csv}"]
+  - turn: 1
+    action: "tar+scp pulled 3 run-batches locally (~820 MB tarball each, ~2.4 GB total)."
+    provenance: ai-executed
+    files_changed: ["runs/physformer_c23_*_vgpu_s{2025,2026,2027}/"]
+  - turn: 1
+    action: "Wrote scripts/c08_t1_3seed.py (~150 lines) reusing c08_vgpu_3way.analyze_run() + extract_y_aux(); produces 3-seed regime-diagnosis with per-seed deltas + signal replication count."
+    provenance: ai-executed
+    files_changed: ["scripts/c08_t1_3seed.py", "scripts/c08_t1_3seed_results.json"]
+  - turn: 1
+    action: "Ran 4 Monitor instances over the day (B1 v3 abs-paths, B2 v1, B2 v2 after ssh drop, B3 v1, B3 v2 after ssh drop). Two earlier B1 monitors had bugs (tail header noise, cd&&precedence dropping e3/detach tails)."
+    provenance: ai-executed
+    files_changed: []
+
+claims_touched:
+  - id: C07
+    action: weakened-partial
+    turn: 1
+    # ramp-violation trade-off framing dropped; gradient-isolation non-monotonic core unchanged
+  - id: C08
+    action: refined
+    turn: 1
+    # bias-clearance regime addition (N74 May 23) NOT cross-seed-robust; isolation-regime hypothesis still valid as a framework
+  - id: C09
+    action: created
+    turn: 1
+    # NEW: detach aggregate dominance across seeds + smallest std
+
+key_context:
+  - turn: 1
+    excerpt: "User question post-T1: 方差分析是否跑过？ Answer: across-seed mean+/-std yes (in the aggregate table earlier); C08 covariance/bias decomposition not yet -- needs scripts/c08_vgpu_3way.py extended to 9 runs. User: '跑'. Result: O37 NOT replicated -- only 1/4 signals match. User: '明显是应该换机制了，但是在我们找别的mechanism之前，你觉得是先找mechanism还是先做research-manager？'. My answer: research-manager first (avoid stale-context churn). User: '走吧，先 research-manager'."
+
+open_threads:
+  - "Replacement mechanism for detach -> aggregate dominance: bias-clearance refuted, what's left? Candidates: representation-level inspection (encoder feature statistics under detach vs baseline), residual-head load analysis (how much of net output comes from theory vs residual under each arm), per-batch loss-landscape geometry (curvature). To be designed in /brainstorm."
+  - "O39 (e3 component dominance + net loss = encoder-depth cancellation phenomenon) needs hardening: re-derive variance decomposition specifically for e3 to see if cancellation ratio is HIGHER for e3 than baseline (would confirm capacity-regime mechanism on encoder-depth axis)."
+  - "O38 (Phase 2b dominated heuristic) still single-seed since T1 used 2-stage. Direct 2-stage vs 3-stage comparison on the same seed budget required to crystallize as H10 (would need separate experiment, not in T1)."
+  - "C07 evidence-basis edit: drop ramp trade-off claim, add T1 9-run support for gradient-isolation non-monotonic optimum (since detach is best, no_temp not in T1, e3 is encoder-depth not isolation axis)."
+  - "C12 candidate (e3 deeper encoder -> component-vs-aggregate trade-off): possible new claim if O39 hardens. Note encoder depth was tested only at e_layers=3 vs default; cleaner test needs a 2-3-4 gradient."
+  - "Push commit 6dca986 to origin/codex/thesis-mainline (carried from May 23, still pending)."
+  - "T2 e3+detach JOINT arm: never tested across 4 seeds. If e3 wins component + detach wins aggregate, joint could either compound or interact. From May 23 carry-over thread."
+  - "T3 ramp-regime adjudication via single-controlled 2-stage vs 3-stage detach run -- partially answered by N85 (T1 confirms O34 cross-seed), but the 2-stage vs 3-stage controlled comparison still missing."
+  - "T4 MSE-vs-MAE divergence formalization (O32 generalizing O26): T1 data adds 9 points; cross-seed MSE-MAE pattern available in scripts/c08_t1_3seed_results.json for analysis."
+  - "T6 OOD/cross-portfolio robustness -- O37 predicted detach more OOD-robust because it didn't rely on cov structure; O37 refutation REVISES this prediction (mechanism unclear -> prediction unclear). Worth running anyway to see if outcome dominance persists OOD."
+
+ai_suggestions_pending:
+  - "O39 candidate-claim C12: deeper encoder (e_layers=3) reduces every component MAE but loses aggregate MAE -- the cancellation phenomenon (previously documented on GRU-width and curriculum-weight axes via C08 / O32) now also appears on the encoder-depth axis."
+  - "O40 candidate-observation: theory_mae baseline lowest (2.475e-3 +/- 4.9e-5) < detach (2.491e-3 +/- 1.6e-4) < e3 (2.577e-3 +/- 7.9e-5). Consistent with detach's residual head taking on more of the bias-clearance role; but since O37 mechanism is refuted, the interpretation is open."
+  - "H09 candidate-heuristic: any push/sync tool that mirrors a project directory MUST exclude runs/results/checkpoints by default. Realised after Batch 1 launch incident (N78). Crystallization signal weak -- it's already fixed in the tool config; could promote on user affirmation or topic abandonment."

@@ -1,0 +1,115 @@
+{
+  "target": "PhysFormer V5.1 architecture — aggregate MAE vs theory MAE tradeoff analysis",
+  "reviewer": "claude",
+  "timestamp": "2026-05-08T02:15:00+08:00",
+  "issues": [
+    {
+      "id": "C1",
+      "line_start": 218,
+      "line_end": 280,
+      "file": "physformer/models/physformer.py",
+      "category": "architecture",
+      "severity": "high",
+      "title": "Shared encoder creates gradient conflict between theory and residual",
+      "description": "The encoder (stat_embedding + encoder) is shared between the theory pathway (phys_layer input) and the residual pathway (temporal_decoder → weather_fusion → unified_head). When component_loss pushes the encoder to produce features that help phys_layer produce better theory estimates, it simultaneously changes the residual pathway's input, potentially degrading aggregate accuracy. This is the ROOT CAUSE of the theory-vs-aggregate tradeoff observed in V4→V5→V5.1.",
+      "evidence": "V4 (cw=0.05): aggregate=1.98kW, theory=3.81kW. V5 (cw=0.1→0.05): aggregate=2.12kW (+7%), theory=3.07kW (-19%). V5.1 (cw=0.03→0.01): aggregate=2.02kW (+2%), theory=4.40kW (+43%). Stronger cw improves theory but degrades aggregate — classic gradient conflict.",
+      "suggestion": "Decouple the encoder pathways: use separate projection heads after the shared encoder — one for physics conditioning, one for residual prediction. Alternatively, use stop-gradient on the physics branch input so component_loss doesn't interfere with the residual pathway."
+    },
+    {
+      "id": "C2",
+      "line_start": 66,
+      "line_end": 158,
+      "file": "physformer/utils/losses.py",
+      "category": "training_dynamics",
+      "severity": "high",
+      "title": "Component loss supervises theory in normalized aux space, not real space",
+      "description": "Component loss (lines 107-112) computes MAE between theory_comp_norm and y_aux in normalized space. But theory_mae_real (line 81) is computed in real MW space. The normalization weights each component equally (by aux_std), but in real space, load (std ~15kW) dominates over wind (std ~0.8kW). This means component loss gives equal gradient signal to all components, while aggregate MAE is dominated by load error. The loss landscape doesn't align with the evaluation metric.",
+      "evidence": "V5.1 component_load_mae=0.00210 (real), component_wind_mae=0.00041 (real). Load error is 5x wind error. But in normalized space, they may be similar magnitude. The model optimizes the wrong thing.",
+      "suggestion": "Compute component loss in real MW space (like theory_mae_real), or weight components by their contribution to net injection (load: +1, pv: -1, wind: -1, battery: +1)."
+    },
+    {
+      "id": "C3",
+      "line_start": 264,
+      "line_end": 272,
+      "file": "physformer/models/physformer.py",
+      "category": "architecture",
+      "severity": "high",
+      "title": "FiLM conditioning is one-directional: physics modulates data, not vice versa",
+      "description": "PhysicsFiLM (line 265) modulates the data-driven latent with physics features, but the data-driven pathway never feeds back to improve the physics estimates. The theory_net is computed purely from the physical layer's forward pass — it doesn't benefit from the encoder's learned representations. This means theory quality is bounded by the physical model's expressiveness (simple linear thermal model for load, cubic wind curve), with no way to learn corrections from data.",
+      "evidence": "Theories: load_theory uses 6 scalar parameters + 2 small MLPs. PV uses 3 parameters. Wind uses 5 parameters. These are too simple to capture real-world complexity (e.g., load has strong weekly patterns, PV has cloud intermittency). The residual must compensate for ALL theory errors.",
+      "suggestion": "Add a data-driven correction branch that takes encoder features and outputs per-component theory adjustments BEFORE the residual head. This separates 'learn the physics better' from 'learn the residual'."
+    },
+    {
+      "id": "C4",
+      "line_start": 161,
+      "line_end": 206,
+      "file": "physformer/utils/losses.py",
+      "category": "training_dynamics",
+      "severity": "medium",
+      "title": "Curriculum phases don't address the fundamental tradeoff",
+      "description": "The 2-phase curriculum (Phase 1: strong cw for theory, Phase 2: weak cw for residual) treats the symptom, not the cause. In Phase 1, the encoder learns physics-friendly representations that may hurt residual learning. In Phase 2, the residual tries to recover but the encoder is already biased. The Phase 1→2 transition causes a Val MSE spike (observed: 0.390→0.399 at epoch 8→9), confirming the representation shift.",
+      "evidence": "V5.1 Phase 1 (epoch 1-8): Val MSE converges to 0.390. Phase 2 (epoch 9+): Val MSE rises to 0.40-0.42 and never recovers. The encoder's Phase 1 bias persists.",
+      "suggestion": "Instead of curriculum phases, use a multi-task architecture with separate heads and shared backbone, where the backbone is regularized but not dominated by either task."
+    },
+    {
+      "id": "C5",
+      "line_start": 76,
+      "line_end": 101,
+      "file": "physformer/models/conditioning.py",
+      "category": "architecture",
+      "severity": "medium",
+      "title": "Residual head takes component_norm as input — circular dependency",
+      "description": "UnifiedResidualHead (line 102-105) takes component_norm (from phys_layer) as input alongside the conditioned latent. This means the residual head's output is directly influenced by theory quality. If theory is bad, the residual head receives poor conditioning, creating a chicken-and-egg problem: you need good theory to learn good residuals, but you need good residuals to justify improving theory.",
+      "evidence": "In V5.1, theory_mae degraded to 4.40kW (vs V5's 3.07kW). The residual head was receiving worse component_norm inputs, which may have contributed to the aggregate regression.",
+      "suggestion": "Decouple residual head input: use the raw physics features (weather, time, battery state) instead of the theory outputs. Or use a separate 'physics embedding' that doesn't depend on theory quality."
+    },
+    {
+      "id": "C6",
+      "line_start": 207,
+      "line_end": 245,
+      "file": "physformer/utils/losses.py",
+      "category": "architecture",
+      "severity": "medium",
+      "title": "No direct loss on theory_net vs target",
+      "description": "The loss function computes theory_mae_real (line 81) but only as a DIAGNOSTIC — it's never included in total_loss (line 212). Theory is only supervised indirectly through component loss on individual components. But the components have different scales and noise levels, and their errors may cancel out in net injection. A direct theory_net MSE loss would give theory a clear signal to improve net prediction quality.",
+      "evidence": "V5.1 theory_mae=4.40kW is worse than V4's 3.81kW, despite component loss being active. The indirect supervision through components isn't sufficient.",
+      "suggestion": "Add a direct theory loss: total_loss += theory_weight * MSE(theory_net_real, true_net_real). This gives theory a direct signal to improve net injection accuracy, independent of component decomposition."
+    },
+    {
+      "id": "C7",
+      "line_start": 1,
+      "line_end": 280,
+      "file": "physformer/models/physformer.py",
+      "category": "architecture",
+      "severity": "high",
+      "title": "Fundamental architectural limitation: theory and residual share the same optimization target",
+      "description": "The final prediction is pred_net = theory_net + residual. Both theory and residual are optimized to minimize the same target (net injection). But they're computed through different pathways (physics vs neural network) with different expressiveness. The neural network can ALWAYS fit the residual better than the physics model can fit the theory. This creates an inherent asymmetry: component loss pushes theory to improve, but the residual can always 'absorb' any theory improvement, making the net effect on aggregate MAE unpredictable.",
+      "evidence": "Across all versions: when theory improves (V5: 3.07kW), residual shrinks (std=0.005 vs V4 unknown). When theory degrades (V5.1: 4.40kW), residual grows to compensate. The system reaches equilibrium where aggregate MAE is dominated by residual capacity, not theory quality.",
+      "suggestion": "Architecture redesign: separate the optimization of theory and residual into two stages with different objectives. Stage 1: train physics layer to minimize theory_mae_real directly (freeze residual). Stage 2: freeze physics, train residual to minimize aggregate_mae. This eliminates the gradient conflict entirely."
+    }
+  ],
+  "summary": "The current architecture CANNOT simultaneously improve Aggregate MAE and Theory MAE because: (1) shared encoder creates gradient conflict between component loss and net MSE, (2) theory is only supervised indirectly through component loss in normalized space, (3) FiLM is one-directional (physics→data, not data→physics), (4) residual head depends on theory quality (circular dependency), (5) no direct theory loss against the target. The fundamental issue is that theory and residual compete for the same model capacity through shared gradient pathways.",
+  "recommendations": [
+    {
+      "priority": 1,
+      "approach": "Two-stage training with explicit theory loss",
+      "description": "Stage 1: Train physics layer with direct theory_net MSE loss (freeze residual head). Stage 2: Freeze physics, train residual with net MSE. This eliminates gradient conflict.",
+      "expected_impact": "Theory MAE: -30-50% (direct supervision). Aggregate MAE: -5-10% (no interference).",
+      "effort": "Medium — requires training pipeline changes, ~50 lines"
+    },
+    {
+      "priority": 2,
+      "approach": "Stop-gradient decoupling",
+      "description": "Add stop_gradient on the physics branch input to the residual head. Component loss backpropagates through physics but not through the encoder. Net MSE backpropagates through residual+encoder but not through physics.",
+      "expected_impact": "Eliminates gradient conflict. Theory improves from component loss. Aggregate improves from net MSE.",
+      "effort": "Low — 2-line change (one .detach() call)"
+    },
+    {
+      "priority": 3,
+      "approach": "Dual-stream encoder",
+      "description": "After shared encoder, add separate projection heads: physics_proj → phys_layer, residual_proj → temporal_decoder. Each has its own gradient path.",
+      "expected_impact": "Full decoupling. Both pathways optimize independently.",
+      "effort": "Medium — architecture change, ~30 lines"
+    }
+  ]
+}

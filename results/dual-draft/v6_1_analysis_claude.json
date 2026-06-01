@@ -1,0 +1,105 @@
+{
+  "reviewer": "claude",
+  "file": "results/dual-draft/v6_1_analysis_target.md",
+  "issues": [
+    {
+      "line_start": 19,
+      "line_end": 26,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "v6_1_analysis_target.md:19",
+      "description": "Single seed (2024) — all conclusions are statistically unverified. no_temp vs baseline MAE difference is only 0.000018 MW (0.9%), which could fall entirely within run-to-run variance.",
+      "original_snippet": "seed=2024",
+      "suggested_fix": "Run 3+ seeds per config and report mean ± std. If resources are limited, at minimum run baseline and the best variant (no_temp) with 2 additional seeds each to estimate variance.",
+      "rationale": "Without variance estimates, ranking among no_temp (0.001999), baseline (0.002017), and detach (0.002031) is not statistically meaningful. The 0.9% MAE gap between no_temp and baseline may be noise. This is a Reviewer 2 attack surface."
+    },
+    {
+      "line_start": 28,
+      "line_end": 42,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v6_1_analysis_target.md:28",
+      "description": "No single configuration dominates all metrics — baseline wins MSE/RMSE/Ramp, no_temp wins MAE, detach wins Theory MAE and components. The thesis needs a principled selection criterion, not just 'pick the best per metric'.",
+      "original_snippet": "baseline wins MSE 7.581, no_temp wins MAE 0.001999, detach wins Theory MAE 0.002342",
+      "suggested_fix": "Define a composite score (e.g., 0.5×MAE + 0.3×MSE + 0.2×Theory_MAE) or declare a primary metric a priori. For VPP dispatch applications, ramp violations are safety-critical and should be weighted heavily — baseline wins this by a large margin.",
+      "rationale": "Cherry-picking the best metric per configuration is p-hacking at the architectural level. The thesis must define success criteria before declaring a winner."
+    },
+    {
+      "line_start": 33,
+      "line_end": 33,
+      "severity": "high",
+      "category": "physics_fidelity",
+      "location": "v6_1_analysis_target.md:33",
+      "description": "detach ramp violation (0.0090%) is 2.4× baseline (0.0037%) — a safety-critical degradation. The near-zero residual mean (−0.000065) comes at the cost of worse extreme-event handling.",
+      "original_snippet": "Ramp Violation: baseline 0.0037%, detach 0.0090%",
+      "suggested_fix": "Investigate the time-series shape of detach predictions vs baseline during high-ramp periods. Selective detach may cause the residual head to under-correct during rapid net-load changes because gradient isolation prevents the encoder from learning ramp-aware representations.",
+      "rationale": "For VPP dispatch, ramp violations can cause real economic losses (imbalance charges). A 2.4× increase may be unacceptable regardless of theory improvement. This trade-off must be explicitly discussed in the thesis."
+    },
+    {
+      "line_start": 35,
+      "line_end": 35,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "v6_1_analysis_target.md:35",
+      "description": "detach residual mean (−0.000065 MW) is essentially zero — the residual head is perfectly unbiased. This is the strongest evidence that selective detach works as designed: the residual becomes a true zero-mean correction rather than a systematic compensator.",
+      "original_snippet": "Residual Mean: baseline −0.000949, detach −0.000065",
+      "suggested_fix": "Emphasize this in the thesis as the primary evidence for N30's mechanism. The near-zero residual mean means the theory branches are producing physically correct baseline predictions, and the residual head only corrects unbiased noise — exactly the intended 'physics-guided + data-driven correction' paradigm.",
+      "rationale": "The residual mean is a direct measure of whether the physics layer is producing unbiased estimates. detach achieves this perfectly. This is the cleanest ablation signal in the entire V6.1 experiment and should be the headline result for N30."
+    },
+    {
+      "line_start": 44,
+      "line_end": 55,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "v6_1_analysis_target.md:44",
+      "description": "no_temp and full show early-peak-then-degrade pattern (best Val MSE at ep10-12, then deteriorate), while detach peaks later (ep26) and degrades less. This suggests N29 causes the model to find a sharp local minimum that doesn't generalize, while N30 provides regularization.",
+      "original_snippet": "no_temp: ep12 0.410 → ep20 0.442; detach: ep26 0.412 → stable",
+      "suggested_fix": "Report the generalization gap (best Val MSE vs final Test MAE) as a metric. Consider whether the restart_t0=20 warm restart at epoch 20 and 40 interacts with this — no_temp's degradation accelerates after epoch 20 restart, suggesting periodic LR resets destabilize the temp-free GRU.",
+      "rationale": "This is counter-intuitive: removing temperature (simplifying the model) causes worse generalization. The mechanism may be that temperature in the GRU acts as an implicit regularizer by forcing the GRU to learn a joint representation of load and weather, rather than overfitting to load autocorrelation alone."
+    },
+    {
+      "line_start": 19,
+      "line_end": 26,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v6_1_analysis_target.md:19",
+      "description": "N29 and N30 are antagonistic when combined: full (N29+N30) is worse than either no_temp (N29 alone) or detach (N30 alone) on nearly all metrics. Both mechanisms target gradient isolation — removing temp reduces input overlap, selective detach blocks gradient flow — and stacking them creates a double bottleneck.",
+      "original_snippet": "full (N29+N30) vs no_temp (N29 only) vs detach (N30 only)",
+      "suggested_fix": "Frame this as a key finding: the physics-data boundary has a 'sweet spot' of gradient isolation. Too little (baseline) allows cross-contamination; too much (full) starves the shared encoder of learning signal. Either N29 or N30 alone hits the sweet spot; combining them overshoots.",
+      "rationale": "Negative results are publishable when they reveal constraints. The N29+N30 antagonism is a clean demonstration that gradient isolation has a non-monotonic effect — exactly the kind of mechanistic insight that strengthens a thesis."
+    },
+    {
+      "line_start": 36,
+      "line_end": 42,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:36",
+      "description": "All V6.1 variants improve every component MAE over baseline, yet all degrade aggregate MSE. This is the classic physics-accuracy Pareto tradeoff: component-consistent predictions don't necessarily sum to better aggregate forecasts because component errors can cancel in the aggregate.",
+      "original_snippet": "All component MAEs better in V6.1 variants, but MSE worse",
+      "suggested_fix": "Compute the correlation matrix of per-component residuals to check whether component errors are anti-correlated (canceling in aggregate) in baseline but not in V6.1 variants. If confirmed, this explains the paradox and provides a mechanistic narrative for the tradeoff.",
+      "rationale": "A reviewer will ask: 'If every component is more accurate, why is the aggregate worse?' The thesis must have an answer. Error cancellation among components is the most likely mechanism and should be verified."
+    },
+    {
+      "line_start": 73,
+      "line_end": 80,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:73",
+      "description": "The V6.1 ablation tests N29 vs N30, but the curriculum training itself (C05 claim) remains untested. All experiments used the same curriculum schedule — there's no fixed-weight baseline to confirm that curriculum training is superior to constant component_loss_weight.",
+      "original_snippet": "Research Questions — but no curriculum vs fixed-weight comparison",
+      "suggested_fix": "Either run a controlled curriculum-vs-fixed-weight experiment (recommended for thesis completeness), or explicitly scope C05 as 'not tested in this work, left for future study' to avoid overclaiming.",
+      "rationale": "If curriculum training doesn't actually help, the entire Phase 1/2 structure is unnecessary complexity. This is a foundational assumption that should be verified before the thesis is finalized."
+    },
+    {
+      "line_start": 13,
+      "line_end": 17,
+      "severity": "low",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:13",
+      "description": "The V6.1 ablation tests two mechanisms to reinforce the physics-data boundary, but doesn't test the complementary direction: should the residual head have MORE access to physics features (e.g., concatenating theory outputs without detach)? The current design only tests 'less connection', not 'different connection'.",
+      "original_snippet": "N29: Remove temperature from GRU input. N30: Activate selective gradient detach.",
+      "suggested_fix": "Consider an additional experiment: residual head receives theory outputs via a learnable gate (FiLM-style) rather than direct concatenation. This would test whether the problem is the connection TYPE rather than the connection STRENGTH.",
+      "rationale": "Both N29 and N30 reduce information flow. If the optimal point requires more nuanced information routing (not just less), neither mechanism captures it. This is a minor point for future work."
+    }
+  ]
+}

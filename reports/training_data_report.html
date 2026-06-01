@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhysFormer 训练数据报告 — VPP 半合成多组合基准</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Newsreader:ital,opsz,wght@0,16..72,300;0,16..72,400;0,16..72,500;0,16..72,600;1,16..72,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-deep: #0a0e14;
+  --bg-panel: #12171f;
+  --bg-card: #191f2a;
+  --bg-card-hover: #1e2532;
+  --border: #252d3a;
+  --border-bright: #334155;
+  --text-primary: #e2e8f0;
+  --text-secondary: #8899b4;
+  --text-muted: #55667a;
+  --accent-blue: #38bdf8;
+  --accent-amber: #f59e0b;
+  --accent-emerald: #34d399;
+  --accent-rose: #fb7185;
+  --accent-violet: #a78bfa;
+  --accent-cyan: #22d3ee;
+  --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Newsreader', Georgia, serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: var(--grain);
+  pointer-events: none; z-index: 1000;
+}
+
+/* ---- Grid background ---- */
+.grid-bg {
+  position: fixed; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(rgba(37,45,58,0.4) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37,45,58,0.4) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 20%, transparent 70%);
+}
+
+.container {
+  position: relative; z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* ---- Header ---- */
+.header {
+  padding: 72px 0 48px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 56px;
+}
+
+.header-overline {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: var(--accent-blue);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.header h1 {
+  font-family: 'Newsreader', serif;
+  font-size: 52px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.header h1 span { color: var(--accent-blue); }
+
+.header-subtitle {
+  font-size: 18px;
+  color: var(--text-secondary);
+  max-width: 640px;
+  line-height: 1.5;
+}
+
+.header-meta {
+  display: flex; gap: 40px; margin-top: 32px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px; color: var(--text-muted);
+}
+
+.header-meta-item { display: flex; flex-direction: column; gap: 4px; }
+.header-meta-item strong { color: var(--text-secondary); font-weight: 500; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+/* ---- Sections ---- */
+.section {
+  margin-bottom: 64px;
+}
+
+.section-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--accent-blue);
+  text-transform: uppercase;
+  margin-bottom: 24px;
+  display: flex; align-items: center; gap: 12px;
+}
+
+.section-title::after {
+  content: '';
+  flex: 1; height: 1px;
+  background: var(--border);
+}
+
+.section-heading {
+  font-family: 'Newsreader', serif;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 32px;
+}
+
+/* ---- Stat Grid ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  transition: background 0.2s, border-color 0.2s;
+  position: relative; overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0;
+  width: 3px; height: 100%;
+  background: var(--accent-blue);
+  opacity: 0; transition: opacity 0.2s;
+}
+
+.stat-card:hover { background: var(--bg-card-hover); border-color: var(--border-bright); }
+.stat-card:hover::before { opacity: 1; }
+
+.stat-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px; font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.stat-value {
+  font-family: 'DM Mono', monospace;
+  font-size: 32px; font-weight: 400;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-unit {
+  font-size: 13px; color: var(--text-muted);
+  margin-left: 4px; font-weight: 300;
+}
+
+.stat-desc {
+  font-size: 13px; color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* ---- Table ---- */
+.table-wrap {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+}
+
+.table-wrap thead th {
+  background: var(--bg-card);
+  padding: 14px 20px;
+  text-align: left;
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table-wrap tbody td {
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(37,45,58,0.5);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+.table-wrap tbody tr:last-child td { border-bottom: none; }
+.table-wrap tbody tr:hover td { background: rgba(56,189,248,0.03); color: var(--text-primary); }
+
+.num { font-feature-settings: "tnum"; text-align: right; }
+.code { color: var(--accent-cyan); }
+.path { color: var(--accent-amber); font-size: 11px; }
+.highlight { color: var(--accent-emerald); }
+.warn { color: var(--accent-rose); }
+
+/* ---- Pipeline Diagram ---- */
+.pipeline {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 40px 32px;
+  margin-bottom: 48px;
+  overflow-x: auto;
+}
+
+.pipeline-flow {
+  display: flex; align-items: flex-start; gap: 0;
+  min-width: 900px;
+}
+
+.pipe-node {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  flex: 0 0 auto;
+  min-width: 140px;
+  text-align: center;
+  position: relative;
+}
+
+.pipe-node-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; font-weight: 500;
+  color: var(--accent-blue);
+  margin-bottom: 6px;
+}
+
+.pipe-node-desc {
+  font-size: 13px; color: var(--text-secondary);
+}
+
+.pipe-arrow {
+  display: flex; align-items: center;
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-family: 'DM Mono', monospace;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+/* ---- Feature Map ---- */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.feature-card-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.feature-name {
+  font-family: 'DM Mono', monospace;
+  font-size: 13px; font-weight: 500;
+  color: var(--text-primary);
+}
+
+.feature-role {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px; font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.role-target { background: rgba(251,113,133,0.15); color: var(--accent-rose); }
+.role-weather { background: rgba(56,189,248,0.12); color: var(--accent-blue); }
+.role-state { background: rgba(167,139,250,0.12); color: var(--accent-violet); }
+.role-aux { background: rgba(52,211,153,0.12); color: var(--accent-emerald); }
+.role-meta { background: rgba(136,153,180,0.1); color: var(--text-muted); }
+.role-time { background: rgba(245,158,11,0.12); color: var(--accent-amber); }
+
+.feature-stats {
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px; font-family: 'DM Mono', monospace;
+}
+
+.feature-stat-label {
+  font-size: 9px; color: var(--text-muted);
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+
+.feature-stat-value {
+  font-size: 12px; color: var(--text-secondary);
+  font-feature-settings: "tnum";
+}
+
+/* ---- Split Chart ---- */
+.split-viz {
+  display: flex; gap: 2px; height: 8px;
+  border-radius: 4px; overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.split-bar-train { background: var(--accent-blue); flex: 4; }
+.split-bar-val   { background: var(--accent-amber); flex: 1; }
+.split-bar-test  { background: var(--accent-emerald); flex: 1; }
+
+.split-legend {
+  display: flex; gap: 24px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; color: var(--text-muted);
+}
+
+.split-legend-item { display: flex; align-items: center; gap: 8px; }
+.split-legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+/* ---- Portfolio Cards ---- */
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.portfolio-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  transition: border-color 0.2s;
+}
+
+.portfolio-card:hover { border-color: var(--border-bright); }
+
+.portfolio-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px;
+}
+
+.portfolio-name {
+  font-family: 'DM Mono', monospace;
+  font-size: 14px; font-weight: 500;
+  color: var(--text-primary);
+}
+
+.portfolio-badge {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px; font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 3px 10px; border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.badge-train { background: rgba(56,189,248,0.12); color: var(--accent-blue); }
+.badge-val   { background: rgba(245,158,11,0.12); color: var(--accent-amber); }
+.badge-test  { background: rgba(52,211,153,0.12); color: var(--accent-emerald); }
+
+.portfolio-label {
+  font-size: 14px; color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.portfolio-meta {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
+
+.portfolio-meta-label { color: var(--text-muted); }
+.portfolio-meta-value { color: var(--text-secondary); font-feature-settings: "tnum"; }
+
+.portfolio-households {
+  margin-top: 12px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px; color: var(--text-muted);
+  line-height: 1.8;
+}
+
+/* ---- Warning / Note ---- */
+.note {
+  background: rgba(245,158,11,0.06);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  font-size: 14px; color: var(--accent-amber);
+}
+
+.note-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px; font-weight: 500;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+/* ---- Footer ---- */
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 32px 0;
+  margin-top: 64px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; color: var(--text-muted);
+  display: flex; justify-content: space-between;
+}
+
+/* ---- Misc ---- */
+.mono { font-family: 'DM Mono', monospace; }
+.accent { color: var(--accent-blue); }
+.divider { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+.inline-code {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.85em;
+  background: rgba(56,189,248,0.1);
+  padding: 2px 6px; border-radius: 3px;
+  color: var(--accent-blue);
+}
+
+.two-col {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+@media (max-width: 768px) {
+  .two-col { grid-template-columns: 1fr; }
+  .header h1 { font-size: 36px; }
+  .container { padding: 0 20px; }
+  .header-meta { flex-direction: column; gap: 16px; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .feature-grid { grid-template-columns: 1fr; }
+  .portfolio-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+
+<div class="container">
+
+<!-- ====== HEADER ====== -->
+<header class="header">
+  <div class="header-overline">Training Data Report · May 2026</div>
+  <h1>PhysFormer <span>训练数据</span><br>完整档案</h1>
+  <p class="header-subtitle">
+    NextGen 多组合半合成 VPP 基准数据集。基于真实户用负荷与 ERA5 气象重建数据，
+    构建 6 个户用不相交的虚拟电厂组合，用于严格测试模型在组合层面的泛化能力。
+  </p>
+  <div class="header-meta">
+    <div class="header-meta-item">
+      <strong>数据集</strong>
+      NextGen Multi-Portfolio Semi-Synthetic VPP Benchmark
+    </div>
+    <div class="header-meta-item">
+      <strong>审计年份</strong>
+      2018 (UTC)
+    </div>
+    <div class="header-meta-item">
+      <strong>区域</strong>
+      ACT Canberra, Australia
+    </div>
+    <div class="header-meta-item">
+      <strong>总行数</strong>
+      210,240
+    </div>
+  </div>
+</header>
+
+<!-- ====== OVERVIEW STATS ====== -->
+<section class="section">
+  <div class="section-title">概览<span></span></div>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-label">总样本数</div>
+      <div class="stat-value">210,240</div>
+      <div class="stat-desc">15-min 分辨率时间步</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">时间跨度</div>
+      <div class="stat-value">365<span class="stat-unit">天</span></div>
+      <div class="stat-desc">2017-12-31 → 2018-12-31</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">组合数量</div>
+      <div class="stat-value">6<span class="stat-unit">个</span></div>
+      <div class="stat-desc">4 训练 · 1 验证 · 1 测试</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">特征维度</div>
+      <div class="stat-value">6<span class="stat-unit">维</span></div>
+      <div class="stat-desc">1 target + 3 weather + 2 state</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">辅助目标</div>
+      <div class="stat-value">5<span class="stat-unit">维</span></div>
+      <div class="stat-desc">分量级监督信号</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">滑动窗口</div>
+      <div class="stat-value">~206k<span class="stat-unit">样本</span></div>
+      <div class="stat-desc">seq=672 + pred=96, stride=1</div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== SPLIT DISTRIBUTION ====== -->
+<section class="section">
+  <div class="section-title">数据划分<span></span></div>
+
+  <div class="two-col">
+    <div>
+      <div class="section-heading" style="font-size:22px;margin-bottom:24px;">组合级划分 (Portfolio-Manifest)</div>
+      <p style="color:var(--text-secondary);font-size:15px;margin-bottom:24px;">
+        户用在组合层面严格不相交 (strict household-disjoint)。每个组合由 5 户组成，
+        按负荷/DER/灵活性得分进行分层分配。训练/验证/测试组合的户用完全不重叠。
+      </p>
+      <div class="split-viz">
+        <div class="split-bar-train"></div>
+        <div class="split-bar-val"></div>
+        <div class="split-bar-test"></div>
+      </div>
+      <div class="split-legend">
+        <div class="split-legend-item"><span class="split-legend-dot" style="background:var(--accent-blue)"></span>训练 66.7% (140,160 行)</div>
+        <div class="split-legend-item"><span class="split-legend-dot" style="background:var(--accent-amber)"></span>验证 16.7% (35,040 行)</div>
+        <div class="split-legend-item"><span class="split-legend-dot" style="background:var(--accent-emerald)"></span>测试 16.7% (35,040 行)</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table>
+        <thead>
+          <tr><th>Split</th><th class="num">组合数</th><th class="num">户用数</th><th class="num">时间步</th><th class="num">窗口样本</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="code">train</td><td class="num">4</td><td class="num">20</td><td class="num">140,160</td><td class="num">~137,092</td></tr>
+          <tr><td class="code">val</td><td class="num">1</td><td class="num">5</td><td class="num">35,040</td><td class="num">~34,273</td></tr>
+          <tr><td class="code">test</td><td class="num">1</td><td class="num">5</td><td class="num">35,040</td><td class="num">~34,273</td></tr>
+          <tr style="border-top:1px solid var(--border);"><td class="highlight" style="font-weight:500;">合计</td><td class="num highlight">6</td><td class="num highlight">30</td><td class="num highlight">210,240</td><td class="num highlight">~205,638</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:24px;">
+    <div class="note-title">滑动窗口计算</div>
+    窗口样本数 = 时间步 − seq_len(672) − pred_len(96) + 1。训练集设 <span class="inline-code">drop_last=True</span>，
+    实际 batch 数为 ⌊窗口数 / batch_size⌋。验证/测试集使用全部可用序列，不做 drop_last。
+  </div>
+</section>
+
+<!-- ====== PORTFOLIO DETAILS ====== -->
+<section class="section">
+  <div class="section-title">组合详情<span></span></div>
+  <div class="section-heading">6 组合 · 30 户用 · 分层分配</div>
+
+  <div class="portfolio-grid">
+
+    <div class="portfolio-card">
+      <div class="portfolio-header">
+        <span class="portfolio-name">train_portfolio_01</span>
+        <span class="portfolio-badge badge-train">Training</span>
+      </div>
+      <div class="portfolio-label">DER-heavy — 高光伏/储能渗透</div>
+      <div class="portfolio-meta">
+        <span class="portfolio-meta-label">Load Score</span><span class="portfolio-meta-value">-0.095</span>
+        <span class="portfolio-meta-label">DER Score</span><span class="portfolio-meta-value">+0.359</span>
+        <span class="portfolio-meta-label">Flex Score</span><span class="portfolio-meta-value">-0.249</span>
+        <span class="portfolio-meta-label">Avg Load</span><span class="portfolio-meta-value">5.97 kW</span>
+        <span class="portfolio-meta-label">Avg Solar</span><span class="portfolio-meta-value">4.74 kW</span>
+        <span class="portfolio-meta-label">Wind Ratio</span><span class="portfolio-meta-value">0.15</span>
+      </div>
+      <div class="portfolio-households">11-id_154 · 14-id_292 · 16-id_353 · 28-id_360 · 9-id_374</div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-header">
+        <span class="portfolio-name">train_portfolio_02</span>
+        <span class="portfolio-badge badge-train">Training</span>
+      </div>
+      <div class="portfolio-label">DER-heavy — 高光伏/储能渗透</div>
+      <div class="portfolio-meta">
+        <span class="portfolio-meta-label">Load Score</span><span class="portfolio-meta-value">-0.526</span>
+        <span class="portfolio-meta-label">DER Score</span><span class="portfolio-meta-value">+0.305</span>
+        <span class="portfolio-meta-label">Flex Score</span><span class="portfolio-meta-value">+0.026</span>
+        <span class="portfolio-meta-label">Avg Load</span><span class="portfolio-meta-value">4.81 kW</span>
+        <span class="portfolio-meta-label">Avg Solar</span><span class="portfolio-meta-value">4.80 kW</span>
+        <span class="portfolio-meta-label">Wind Ratio</span><span class="portfolio-meta-value">0.15</span>
+      </div>
+      <div class="portfolio-households">17-id_382 · 24-id_271 · 30-id_415 · 6-id_294 · 7-id_322</div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-header">
+        <span class="portfolio-name">train_portfolio_03</span>
+        <span class="portfolio-badge badge-train">Training</span>
+      </div>
+      <div class="portfolio-label">Mixed — 均衡负荷与 DER</div>
+      <div class="portfolio-meta">
+        <span class="portfolio-meta-label">Load Score</span><span class="portfolio-meta-value">-0.377</span>
+        <span class="portfolio-meta-label">DER Score</span><span class="portfolio-meta-value">-0.095</span>
+        <span class="portfolio-meta-label">Flex Score</span><span class="portfolio-meta-value">-0.014</span>
+        <span class="portfolio-meta-label">Avg Load</span><span class="portfolio-meta-value">4.52 kW</span>
+        <span class="portfolio-meta-label">Avg Solar</span><span class="portfolio-meta-value">5.00 kW</span>
+        <span class="portfolio-meta-label">Wind Ratio</span><span class="portfolio-meta-value">0.15</span>
+      </div>
+      <div class="portfolio-households">13-id_270 · 21-id_206 · 26-id_336 · 29-id_369 · 8-id_333</div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-header">
+        <span class="portfolio-name">train_portfolio_04</span>
+        <span class="portfolio-badge badge-train">Training</span>
+      </div>
+      <div class="portfolio-label">Mixed — 均衡负荷与 DER</div>
+      <div class="portfolio-meta">
+        <span class="portfolio-meta-label">Load Score</span><span class="portfolio-meta-value">-0.566</span>
+        <span class="portfolio-meta-label">DER Score</span><span class="portfolio-meta-value">-0.917</span>
+        <span class="portfolio-meta-label">Flex Score</span><span class="portfolio-meta-value">-0.661</span>
+        <span class="portfolio-meta-label">Avg Load</span><span class="portfolio-meta-value">4.60 kW</span>
+        <span class="portfolio-meta-label">Avg Solar</span><span class="portfolio-meta-value">3.79 kW</span>
+        <span class="portfolio-meta-label">Wind Ratio</span><span class="portfolio-meta-value">0.15</span>
+      </div>
+      <div class="portfolio-households">1-id_173 · 18-id_103 · 23-id_234 · 25-id_298 · 4-id_208</div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-header">
+        <span class="portfolio-name">val_portfolio_01</span>
+        <span class="portfolio-badge badge-val">Validation</span>
+      </div>
+      <div class="portfolio-label">Flex-heavy — 高灵活性资源 (最大挑战)</div>
+      <div class="portfolio-meta">
+        <span class="portfolio-meta-label">Load Score</span><span class="portfolio-meta-value">+1.017</span>
+        <span class="portfolio-meta-label">DER Score</span><span class="portfolio-meta-value">+0.105</span>
+        <span class="portfolio-meta-label">Flex Score</span><span class="portfolio-meta-value highlight">+0.958</span>
+        <span class="portfolio-meta-label">Avg Load</span><span class="portfolio-meta-value">7.56 kW</span>
+        <span class="portfolio-meta-label">Avg Solar</span><span class="portfolio-meta-value">5.75 kW</span>
+        <span class="portfolio-meta-label">Wind Ratio</span><span class="portfolio-meta-value">0.15</span>
+      </div>
+      <div class="portfolio-households">10-id_131 · 12-id_259 · 15-id_310 · 19-id_150 · 3-id_204</div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-header">
+        <span class="portfolio-name">test_portfolio_01</span>
+        <span class="portfolio-badge badge-test">Test</span>
+      </div>
+      <div class="portfolio-label">Load-heavy — 高负荷、低 DER</div>
+      <div class="portfolio-meta">
+        <span class="portfolio-meta-label">Load Score</span><span class="portfolio-meta-value highlight">+0.910</span>
+        <span class="portfolio-meta-label">DER Score</span><span class="portfolio-meta-value">-0.234</span>
+        <span class="portfolio-meta-label">Flex Score</span><span class="portfolio-meta-value">-0.116</span>
+        <span class="portfolio-meta-label">Avg Load</span><span class="portfolio-meta-value">5.51 kW</span>
+        <span class="portfolio-meta-label">Avg Solar</span><span class="portfolio-meta-value">4.86 kW</span>
+        <span class="portfolio-meta-label">Wind Ratio</span><span class="portfolio-meta-value">0.15</span>
+      </div>
+      <div class="portfolio-households">0-id_114 · 2-id_190 · 22-id_221 · 27-id_348 · 5-id_216</div>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <div class="note-title">组合泛化挑战</div>
+    验证组合 (flex-heavy) 和测试组合 (load-heavy) 的训练分布外特性不同：
+    验证集负荷最高 (+1.02σ) 且灵活性最强 (+0.96σ)，
+    测试集以负荷为主 (+0.91σ) 但 DER 和灵活性均低于训练均值。
+    模型需要在训练中未见过的组合类型上实现泛化。
+  </div>
+</section>
+
+<!-- ====== FEATURE COLUMNS ====== -->
+<section class="section">
+  <div class="section-title">特征列详解<span></span></div>
+  <div class="section-heading">13 列 → 6 维特征 + 5 维辅助目标 + 2 维元数据</div>
+
+  <div class="feature-grid">
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">p_vpp_mw</span>
+        <span class="feature-role role-target">预测目标</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">VPP 聚合净注入功率 (MW)。负荷(+) + 光伏(-) + 风电(-) + 电池(±) 的代数和。</p>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Train Mean</span><br><span class="feature-stat-value">-0.0002</span></div>
+        <div><span class="feature-stat-label">Train Std</span><br><span class="feature-stat-value">0.0057</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[-0.024, +0.019]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">temperature</span>
+        <span class="feature-role role-weather">已知未来协变量</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">ERA5 2m 气温 (°C)。所有组合共享同一气象驱动。</p>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Mean</span><br><span class="feature-stat-value">12.94</span></div>
+        <div><span class="feature-stat-label">Std</span><br><span class="feature-stat-value">7.57</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[-5.6, +35.5]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">irradiance</span>
+        <span class="feature-role role-weather">已知未来协变量</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">ERA5 地表太阳辐射 (W/m²)。零膨胀分布 (夜间为 0)。</p>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Mean</span><br><span class="feature-stat-value">203.44</span></div>
+        <div><span class="feature-stat-label">Std</span><br><span class="feature-stat-value">285.89</span></div>
+        <div><span class="feature-stat-label">Median</span><br><span class="feature-stat-value">7.90</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">wind_speed</span>
+        <span class="feature-role role-weather">已知未来协变量</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">ERA5 10m 风速 (m/s)。通过 isotonic regression 映射为风电出力。</p>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Mean</span><br><span class="feature-stat-value">2.93</span></div>
+        <div><span class="feature-stat-label">Std</span><br><span class="feature-stat-value">1.67</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[0.01, 10.75]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">p_battery_mw</span>
+        <span class="feature-role role-state">历史状态</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">聚合电池功率 (MW)。正 = 充电，负 = 放电。与 SOC 变化相关度 ρ=0.924。</p>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Train Mean</span><br><span class="feature-stat-value">+0.0001</span></div>
+        <div><span class="feature-stat-label">Train Std</span><br><span class="feature-stat-value">0.0033</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[-0.021, +0.018]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">e_battery_soc_mwh</span>
+        <span class="feature-role role-state">历史状态</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">聚合电池荷电状态 (MWh)。用于物理约束损失计算。</p>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Train Mean</span><br><span class="feature-stat-value">0.0222</span></div>
+        <div><span class="feature-stat-label">Train Std</span><br><span class="feature-stat-value">0.0117</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[0.006, 0.052]</span></div>
+      </div>
+    </div>
+
+    <!-- Aux targets -->
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">p_load_mw</span>
+        <span class="feature-role role-aux">辅助目标</span>
+      </div>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Train Mean</span><br><span class="feature-stat-value">0.0050</span></div>
+        <div><span class="feature-stat-label">Train Std</span><br><span class="feature-stat-value">0.0030</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[0.001, 0.022]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">p_pv_mw</span>
+        <span class="feature-role role-aux">辅助目标</span>
+      </div>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Train Mean</span><br><span class="feature-stat-value">0.0046</span></div>
+        <div><span class="feature-stat-label">Train Std</span><br><span class="feature-stat-value">0.0066</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[0, 0.025]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">p_wind_mw</span>
+        <span class="feature-role role-aux">辅助目标</span>
+      </div>
+      <div class="feature-stats">
+        <div><span class="feature-stat-label">Train Mean</span><br><span class="feature-stat-value">0.0007</span></div>
+        <div><span class="feature-stat-label">Train Std</span><br><span class="feature-stat-value">0.0007</span></div>
+        <div><span class="feature-stat-label">Range</span><br><span class="feature-stat-value">[0, 0.006]</span></div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">date</span>
+        <span class="feature-role role-meta">元数据</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);">UTC 时间戳, 15-min 分辨率。用于生成 10 维时间特征。</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <span class="feature-name">portfolio_id / region_id / split</span>
+        <span class="feature-role role-meta">元数据</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);">组合标识、区域标识 (act_canberra)、数据集划分标记。</p>
+    </div>
+
+    <div class="feature-card" style="border-style: dashed;">
+      <div class="feature-card-header">
+        <span class="feature-name">time_features (10 dims)</span>
+        <span class="feature-role role-time">运行时生成</span>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+        sin/cos(month) · sin/cos(day) · sin/cos(weekday) · sin/cos(hour) · weekend · Chinese holiday
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ====== DATA PIPELINE ====== -->
+<section class="section">
+  <div class="section-title">数据流水线<span></span></div>
+  <div class="section-heading">从原始 NextGen 到训练 DataLoader</div>
+
+  <div class="pipeline">
+    <div class="pipeline-flow">
+      <div class="pipe-node">
+        <div class="pipe-node-title">NextGen 户用 CSV</div>
+        <div class="pipe-node-desc">100 户 × ~1min<br>load / solar / battery</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">ERA5 气象</div>
+        <div class="pipe-node-desc">CDS API 下载<br>temperature / wind / irradiance</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">Rye 风电模板</div>
+        <div class="pipe-node-desc">Isotonic Regression<br>风速 → 容量因子</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">半合成 VPP 聚合</div>
+        <div class="pipe-node-desc">15-min 重采样<br>agg_load + solar − wind + battery</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">多组合构建</div>
+        <div class="pipe-node-desc">分层分配<br>户用不相交 6 组合</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">portfolio_dataset<br>_for_training.csv</div>
+        <div class="pipe-node-desc">48 MB · 210,240 行<br>13 列含 split 标签</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">PhysFormerDataset</div>
+        <div class="pipe-node-desc">StandardScaler<br>滑动窗口 672+96<br>噪声注入 σ=0.03</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node">
+        <div class="pipe-node-title">DataLoader</div>
+        <div class="pipe-node-desc">batch=64/128<br>shuffle (train)<br>pin_memory</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table>
+        <thead><tr><th>参数</th><th>值</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="code">seq_len</td><td class="num">672</td><td>7 天输入窗口 (15-min × 96/天)</td></tr>
+          <tr><td class="code">pred_len</td><td class="num">96</td><td>1 天预测窗口</td></tr>
+          <tr><td class="code">batch_size</td><td class="num">64 / 128</td><td>默认 / Benchmark</td></tr>
+          <tr><td class="code">num_workers</td><td class="num">2–12</td><td>按实验配置变化</td></tr>
+          <tr><td class="code">noise_level</td><td class="num">0.03</td><td>气象特征 3% 高斯噪声</td></tr>
+          <tr><td class="code">scaler</td><td>StandardScaler</td><td>仅在训练集上拟合</td></tr>
+          <tr><td class="code">drop_last</td><td>True (train)</td><td>丢弃不完整 batch</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table>
+        <thead><tr><th>数据文件</th><th>大小</th><th>行数</th></tr></thead>
+        <tbody>
+          <tr><td class="path">portfolio_dataset_for_training.csv</td><td class="num">48 MB</td><td class="num">210,240</td></tr>
+          <tr><td class="path">portfolio_dataset_for_time_generalization.csv</td><td class="num">32 MB</td><td class="num">140,160</td></tr>
+          <tr><td class="path">portfolio_dataset_roundtrip.csv</td><td class="num">27 MB</td><td class="num">210,240</td></tr>
+          <tr><td class="path">multi_portfolio_timeseries.csv</td><td class="num">53 MB</td><td class="num">—</td></tr>
+          <tr><td class="path">nextgen_vpp_household_15min.csv</td><td class="num">112 MB</td><td class="num">—</td></tr>
+          <tr><td class="path">nextgen_vpp_aggregate_15min.csv</td><td class="num">6.9 MB</td><td class="num">—</td></tr>
+          <tr><td class="path">portfolio_membership.csv</td><td class="num">1.1 KB</td><td class="num">30</td></tr>
+          <tr><td class="path">portfolio_summary.csv</td><td class="num">2.0 KB</td><td class="num">6</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ====== MODEL INPUT TENSOR ====== -->
+<section class="section">
+  <div class="section-title">模型输入张量<span></span></div>
+  <div class="section-heading">enc_in=6, 滑动窗口 (B, 672, 6) → 预测 (B, 96, 1)</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>通道</th><th class="num">索引</th><th>来源列</th><th>角色</th><th>形状</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="code">target</td><td class="num">0</td><td class="code">p_vpp_mw</td><td>历史目标值 (teacher forcing 输入)</td>
+          <td class="mono">(B, 672, 1)</td>
+        </tr>
+        <tr>
+          <td class="code">weather_t</td><td class="num">1</td><td class="code">temperature</td><td>已知未来协变量 (气温)</td>
+          <td class="mono">(B, 672, 1)</td>
+        </tr>
+        <tr>
+          <td class="code">weather_i</td><td class="num">2</td><td class="code">irradiance</td><td>已知未来协变量 (辐照)</td>
+          <td class="mono">(B, 672, 1)</td>
+        </tr>
+        <tr>
+          <td class="code">weather_w</td><td class="num">3</td><td class="code">wind_speed</td><td>已知未来协变量 (风速)</td>
+          <td class="mono">(B, 672, 1)</td>
+        </tr>
+        <tr>
+          <td class="code">state_bat_p</td><td class="num">4</td><td class="code">p_battery_mw</td><td>历史状态 (电池功率)</td>
+          <td class="mono">(B, 672, 1)</td>
+        </tr>
+        <tr>
+          <td class="code">state_bat_e</td><td class="num">5</td><td class="code">e_battery_soc_mwh</td><td>历史状态 (电池 SOC)</td>
+          <td class="mono">(B, 672, 1)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <div class="note-title">未来协变量扩展</div>
+    对于预测窗口 (96 步)，气象协变量使用真实未来值 (forecast mode)；电池状态在预测窗口用 0 填充。
+    辅助目标 <span class="inline-code">p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh</span>
+    作为独立张量传入损失函数，支持分量级监督 (component supervision)。
+  </div>
+</section>
+
+<!-- ====== TARGET STATISTICS ====== -->
+<section class="section">
+  <div class="section-title">目标分布分析<span></span></div>
+  <div class="section-heading">p_vpp_mw 跨组合/跨划分的统计特性</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Split</th><th class="num">Mean</th><th class="num">Std</th><th class="num">Min</th><th class="num">P25</th><th class="num">P50</th><th class="num">P75</th><th class="num">Max</th><th>分布特征</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="code">train</td>
+          <td class="num">-0.0002</td><td class="num">0.0057</td><td class="num">-0.0241</td><td class="num">-0.0014</td><td class="num">0.0006</td><td class="num">0.0028</td><td class="num">0.0190</td>
+          <td>近似零均值，轻微正向偏斜</td>
+        </tr>
+        <tr>
+          <td class="code">val</td>
+          <td class="num accent">+0.0008</td><td class="num accent">0.0073</td><td class="num">-0.0263</td><td class="num">-0.0019</td><td class="num accent">0.0018</td><td class="num accent">0.0045</td><td class="num accent">0.0404</td>
+          <td class="warn">均值/方差/极值均显著高于训练集</td>
+        </tr>
+        <tr>
+          <td class="code">test</td>
+          <td class="num">-0.0000</td><td class="num">0.0066</td><td class="num">-0.0228</td><td class="num">-0.0019</td><td class="num">0.0009</td><td class="num">0.0036</td><td class="num">0.0274</td>
+          <td>方差大于训练集，范围介于 train/val 之间</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="color:var(--text-secondary);font-size:14px;">
+    气象特征 (temperature, irradiance, wind_speed) 在所有 split 中分布完全相同 —
+    这是因为所有组合共享 ACT Canberra 气象，且各组合时间覆盖一致 (全年 2018)。
+    因此模型的泛化挑战完全来自户用组合差异，而非气象分布偏移。
+  </p>
+</section>
+
+<!-- ====== BATCH & TRAINING ====== -->
+<section class="section">
+  <div class="section-title">训练批次与迭代<span></span></div>
+  <div class="section-heading">DataLoader 配置与训练规模</div>
+
+  <div class="two-col">
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table>
+        <thead><tr><th colspan="2">默认配置 (batch_size=64)</th></tr></thead>
+        <tbody>
+          <tr><td>训练窗口样本</td><td class="num">~137,092</td></tr>
+          <tr><td>每 Epoch Batch 数</td><td class="num">2,142</td></tr>
+          <tr><td>验证窗口样本</td><td class="num">~34,273</td></tr>
+          <tr><td>测试窗口样本</td><td class="num">~34,273</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table>
+        <thead><tr><th colspan="2">Benchmark 配置 (batch_size=128)</th></tr></thead>
+        <tbody>
+          <tr><td>训练窗口样本</td><td class="num">~137,092</td></tr>
+          <tr><td>每 Epoch Batch 数</td><td class="num">1,071</td></tr>
+          <tr><td>验证窗口样本</td><td class="num">~34,273</td></tr>
+          <tr><td>测试窗口样本</td><td class="num">~34,273</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-top:16px;">
+    <table>
+      <thead><tr><th>模型</th><th class="num">Batch Size</th><th class="num">Num Workers</th><th>备注</th></tr></thead>
+      <tbody>
+        <tr><td class="code">PhysFormer</td><td class="num">128</td><td class="num">12</td><td>Benchmark 主实验</td></tr>
+        <tr><td class="code">DLinear</td><td class="num">512</td><td class="num">12</td><td>大 batch 利用线性效率</td></tr>
+        <tr><td class="code">TIDE</td><td class="num">160</td><td class="num">12</td><td></td></tr>
+        <tr><td class="code">iTransformer</td><td class="num">128</td><td class="num">12</td><td></td></tr>
+        <tr><td class="code">Informer</td><td class="num">128</td><td class="num">12</td><td></td></tr>
+        <tr><td class="code">TFT</td><td class="num">128</td><td class="num">12</td><td></td></tr>
+        <tr><td class="code">TimeXer</td><td class="num">128</td><td class="num">12</td><td></td></tr>
+        <tr><td class="code">Persistence</td><td class="num">128</td><td class="num">12</td><td>Baseline (无训练)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ====== DATA AUGMENTATION ====== -->
+<section class="section">
+  <div class="section-title">数据增强与预处理<span></span></div>
+
+  <div class="two-col">
+    <div>
+      <div class="section-heading" style="font-size:20px;margin-bottom:20px;">标准化</div>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">
+        使用 <span class="inline-code">sklearn.preprocessing.StandardScaler</span>，
+        仅在训练集上拟合。所有 6 个特征通道共用一个 scaler。
+        辅助目标 (5 维) 使用独立的 StandardScaler。
+      </p>
+      <p style="color:var(--text-secondary);font-size:14px;">
+        每个组合的 per-portfolio 统计量 (mean/std) 在标准化后计算，
+        传入模型用于条件归一化 (conditional normalization)。
+      </p>
+    </div>
+    <div>
+      <div class="section-heading" style="font-size:20px;margin-bottom:20px;">噪声注入</div>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">
+        仅在训练模式下对气象协变量 (temperature, irradiance, wind_speed)
+        添加高斯噪声 <span class="inline-code">ε ~ N(0, 0.03²)</span>，
+        历史目标值和电池状态不加噪。
+      </p>
+      <p style="color:var(--text-secondary);font-size:14px;">
+        目的：提升模型对气象预报误差的鲁棒性，
+        防止过度依赖确定性气象输入。
+      </p>
+    </div>
+  </div>
+
+  <div style="margin-top:32px;">
+    <div class="section-heading" style="font-size:20px;margin-bottom:20px;">时间特征工程</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th class="num">#</th><th>特征</th><th>公式</th><th>周期</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>sin(month)</td><td class="mono">sin(2π · month / 12)</td><td>年</td></tr>
+          <tr><td class="num">2</td><td>cos(month)</td><td class="mono">cos(2π · month / 12)</td><td>年</td></tr>
+          <tr><td class="num">3</td><td>sin(day)</td><td class="mono">sin(2π · day / 31)</td><td>月</td></tr>
+          <tr><td class="num">4</td><td>cos(day)</td><td class="mono">cos(2π · day / 31)</td><td>月</td></tr>
+          <tr><td class="num">5</td><td>sin(weekday)</td><td class="mono">sin(2π · weekday / 7)</td><td>周</td></tr>
+          <tr><td class="num">6</td><td>cos(weekday)</td><td class="mono">cos(2π · weekday / 7)</td><td>周</td></tr>
+          <tr><td class="num">7</td><td>sin(hour)</td><td class="mono">sin(2π · hour / 24)</td><td>日</td></tr>
+          <tr><td class="num">8</td><td>cos(hour)</td><td class="mono">cos(2π · hour / 24)</td><td>日</td></tr>
+          <tr><td class="num">9</td><td>weekend</td><td class="mono">1[weekday ≥ 5]</td><td>周</td></tr>
+          <tr><td class="num">10</td><td>chinese_holiday</td><td class="mono">1[date ∈ CHINESE_HOLIDAYS]</td><td>年</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ====== DATA SOURCE PROVENANCE ====== -->
+<section class="section">
+  <div class="section-title">数据来源与溯源<span></span></div>
+  <div class="section-heading">半合成 VPP 数据的构建链路</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>数据源</th><th>类型</th><th>产出字段</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="code">NextGen 户用迹线</td><td>实测</td>
+          <td class="code">load_kw, solar_kw, battery_power_kw, battery_soc_kwh</td>
+          <td>100 户澳大利亚家庭，~1min 分辨率，含光伏/储能</td>
+        </tr>
+        <tr>
+          <td class="code">ERA5 再分析 (CDS)</td><td>再分析</td>
+          <td class="code">air_temperature_2m, wind_speed_10m, surface_solar_radiation</td>
+          <td>ACT Canberra 区域，逐小时，前向填充至 15-min</td>
+        </tr>
+        <tr>
+          <td class="code">Rye 风电场迹线</td><td>实测模板</td>
+          <td class="code">synthetic_wind_cf, synthetic_wind_kw</td>
+          <td>Isotonic regression 建立风速→容量因子映射</td>
+        </tr>
+        <tr>
+          <td class="code">中国节假日集合</td><td>人工整理</td>
+          <td class="code">chinese_holiday</td>
+          <td>2021–2025 春节/国庆/清明等，用于时间特征</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <div class="note-title">关键假设</div>
+    <ul style="margin:8px 0 0 20px;line-height:1.8;">
+      <li><strong>共享气象</strong>: 所有组合使用相同的 ACT Canberra 气象驱动 — 泛化挑战来自户用组合差异，非气象</li>
+      <li><strong>户用严格不相交</strong>: 每个户用只出现在一个 split 的一个组合中 — 杜绝数据泄漏</li>
+      <li><strong>云量未启用</strong>: ERA5 cloud_cover 数据已下载但 v1 训练未使用 (future work)</li>
+      <li><strong>电池符号约定</strong>: 正=充电，与 SOC 变化的相关度 ρ=0.924 (强验证)</li>
+      <li><strong>风电容量</strong>: 额定风电容量代理值 225.5 kW，每小时独立 isotonic regression 拟合</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ====== FOOTER ====== -->
+<footer class="footer">
+  <span>PhysFormer Project · Training Data Report · Generated 2026-05-17</span>
+  <span>Branch: codex/thesis-mainline · Phase: V6.1</span>
+</footer>
+
+</div>
+
+</body>
+</html>

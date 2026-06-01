@@ -1,0 +1,12 @@
+# V5.5: Config bug fix + battery collapse fix + theory weight activation (parallel num_workers=2)
+_base_: base/v5_base.yaml
+training:
+  restart_t0: 20
+  phase_2_cw: 0.02
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+  battery_component_weight: 5.0
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_v5_5

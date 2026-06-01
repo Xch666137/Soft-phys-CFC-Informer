@@ -1,0 +1,82 @@
+{
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "high",
+      "description": "理论改善与聚合退化的根本矛盾：Theory MAE 从 0.00440→0.00248 但 Aggregate MAE 从 0.002019→0.002102。Root cause: theory loss 直接优化 theory_net → y_target，但 pred_net = theory_net + residual。当 theory loss 迫使 theory_net 逼近 y_target 时，residual 被 net_mse 驱向零。然而 theory_net 有系统性偏差（物理模型先天不足），迫使 residual 去补偿，但 res_reg 又在惩罚 residual。形成'左右夹击'：theory 被推近 target，residual 被惩罚+压制，pred_net 精度下降。",
+      "recommendation": "移除 res_reg 对 battery 分量 residual 的惩罚（只保留 load/pv/wind 的 reg），或改为对 residual 的整体 norm 做约束而非 per-dim L1。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "architecture",
+      "severity": "high",
+      "description": "电池分量崩溃的证据链：V5.1 BAT MAE=0.00196（正常）→ V5.2/5.3 BAT MAE=0.02135（10倍退化）。关键在于 V5.2 和 V5.3 的电池 MAE 完全一致（0.021346 vs 0.021346），证明崩溃与 detach 无关。崩溃发生于 V5.2——V5.2 引入了 theory loss。根因：theory loss 的加入改变了 Phase 1 的优化方向，phys_layer 的电池分支被 theory loss 推向'准确但不可靠'的方向——theory_net 看似精调了，但电池分量的 component_theory 精度却崩溃了。",
+      "recommendation": "分离 theory loss 的作用域：只对 load/pv/wind 做 theory 监督，电池分支独立用 component loss 监督。当前 theory loss 对 battery 的梯度实际上将 battery 推向了'聚合净出力拟合好但分量差'的过拟合方向。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "physics_fidelity",
+      "severity": "high",
+      "description": "电池分量崩溃的机制：Theory loss 衡量 theory_net = load - pv - wind + battery 与 y_target 的 MSE。Optimizer 发现调整 battery（1 个自由度）比调整 load/pv/wind（3 个自由度）的'性价比'高得多——微调 battery 就能大幅降低 theory_mse。电池分量的参数被 theory loss 过度优化，牺牲了 component_battery 本身的物理一致性。theory loss 意外制造了一个'理论优化的暴君'——它通过牺牲电池来实现聚合精度的表面改善。",
+      "recommendation": "方案A: theory loss 改为 per-component 监督（分别匹配 load/pv/wind/battery，而非只监督净出力）。方案B: 保持当前 theory loss 但增大 component loss 权重（cw=0.05 而非 0.01）以保护电池分量。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "medium",
+      "description": "梯度正交（90°）的正确解读。theory_mse 和 net_mse 在 phys_layer 电池分支上的梯度全程正交。这不是'冲突'，也不是'协同'，而是互不干扰。意味着 theory loss 和 net_mse 在参数空间中优化独立方向。正交是架构结构性的：phys_layer 参数通过两套不同的计算图（theory 路径和 physics_features→residual 路径）接收梯度，自然形成正交。",
+      "recommendation": "梯度正交本身不是问题。真正的问题是 theory loss 的梯度在 epoch 1 短暂对齐后迅速正交化（epoch 2 即 91°），说明模型在 1 个 epoch 内就完成了 theory 和 data 的功能分离。之后 theory loss 无法'帮助'net_mse。如果目标是改善 Aggregate，应增大 net_mse 的相对权重或减小 theory loss 权重。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "medium",
+      "description": "Optimizer reset 的有限效力。V5.3 epoch 9 optimizer reset 后 Val MSE 突破到 0.3943（Phase 2 首次超越 Phase 1 best）。但 improvement 仅维持 1 个 epoch——epoch 10 反弹到 0.4123。根因：optimizer reset 给了模型'一次动能'跨越 loss landscape 的势垒，但 reset 的 LR=1e-4 在下一个 epoch 即衰减到 8.36e-05。模型需要持续的高 LR 探索来稳固更好的 basin。",
+      "recommendation": "Phase 2 做 short plateau：前 3-5 个 epoch 保持 LR ≥ 5e-5 不衰减，或使用常数 LR 进行 Phase 2 的前半段。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "implementation",
+      "severity": "low",
+      "description": "V5.3 的 restart_t0=8 未生效。从 LR 日志可见 cosine 重启在 epoch 5/20/35（周期 15），非预期的 8。SequentialLR 与 CosineAnnealingWarmRestarts 的交互导致 T_0 未生效。",
+      "recommendation": "直接移除 SequentialLR wrapper，使用 CosineAnnealingWarmRestarts + LinearLR 分别调用，确保 T_0=8 生效。"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "approach": "增大 component_loss_weight (cw) 以保护电池分量不被 theory loss 过度优化",
+      "rationale": "当前 cw=0.01 太弱，无法对抗 theory loss (tw=0.1-0.2) 对电池的误导。theory loss 通过牺牲电池来降低总 theory_mse，component loss 是唯一的防线。将 cw 提升到 0.05-0.1 让分量监督获得足够信号强度。",
+      "expected_impact": "Batt MAE 回到 V5.1 水平 (~0.002)，Theory MAE 保持改善",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 2,
+      "approach": "Phase 2 LR plateau：optimizer reset 后前 5 epoch 保持 LR ≥ 5e-5",
+      "rationale": "V5.3 epoch 9 突破证明 optimizer reset 有效但太短。给模型 5 epoch 高 LR 探索期来稳固新的 basin。",
+      "expected_impact": "Phase 2 Val MSE 稳定突破 Phase 1 best",
+      "implementation_complexity": "medium"
+    },
+    {
+      "priority": 3,
+      "approach": "Battery residual 不参与 res_reg（res_reg 只应用于 load/pv/wind 的 residual）",
+      "rationale": "电池有 SOC 物理约束，不需要额外 res_reg。电池 residual 可能是合理的物理修正。",
+      "expected_impact": "电池残差精度提升",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 4,
+      "approach": "修复 scheduler：去掉 SequentialLR wrapper，确保 T_0=8 生效",
+      "rationale": "当前 T_0=15 未对齐 Phase 2 切换（epoch 8）。修复后 LR 重启与 phase 切换同步。",
+      "expected_impact": "LR 重启与 phase 切换同步",
+      "implementation_complexity": "low"
+    }
+  ]
+}

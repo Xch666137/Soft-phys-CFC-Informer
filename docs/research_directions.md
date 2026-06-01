@@ -1,6 +1,6 @@
 # PhysFormer 研究方向与实验路线图
 
-> 最后更新：2026-05-06 | 当前阶段：V4.2 完成，V5 规划中
+> 最后更新：2026-05-06 | 当前阶段：V5 完成，调优中
 
 ## 已完成实验总结
 
@@ -10,6 +10,17 @@
 | V4 (Phase 1) | calendar + component loss + load proxy | 1.976 kW | 3.811 kW | 0.381 | **最佳综合**：Theory -21.8% while MAE only -2.3% |
 | V4.1 | V4 + sigmoid gate + time_proj + 归一化 loss | 2.002 kW | 4.966 kW | 0.379 | **回归**：gate 削弱 residual → theory 退化 |
 | V4.2 | V4 - gate - time_proj + 归一化 loss + schedule fix | 2.048 kW | 2.981 kW | 0.378 | **理论最优但最终退化**：component loss 过强 |
+| V5 | Component-consistent residual + TemporalDecoder + Curriculum | 2.120 kW | 3.074 kW | 0.404 | **Component 最优但 aggregate 退化**：需调优 |
+
+### V5 分量级指标（V5 独有）
+
+| 分量 | V4 | V4.1 | V4.2 | V5 | 最优 |
+|------|------|------|------|------|------|
+| Load MAE | 14.707 kW | 2.044 kW | 2.093 kW | 2.069 kW | V4.1 |
+| PV MAE | 3.998 kW | 3.795 kW | 2.449 kW | 1.892 kW | **V5** |
+| Wind MAE | 0.825 kW | 0.459 kW | 0.355 kW | 0.313 kW | **V5** |
+| Battery Power MAE | 21.345 kW | 1.532 kW | 1.686 kW | 1.340 kW | **V5** |
+| Battery SOC MAE | 20.111 kW | 4.579 kW | 6.190 kW | 4.422 kW | V4.1 |
 
 ### 关键发现
 
@@ -17,10 +28,12 @@
 2. **Sigmoid gate 有害**——减少 residual 自由度迫使 theory_net 退化（共享编码器梯度耦合）
 3. **Load 是瓶径**——theory MAE=14.7kW vs Wind=0.83kW (18x 差距)
 4. **Component loss 存在 theory-vs-final tradeoff**——太强则 theory 改善但 final 退化
+5. **V5 Component-consistent residual 有效**——PV/Wind/Battery 分量指标均达最优，但 aggregate 退化说明 component loss 权重过高
+6. **Curriculum Phase 3 无效**——纯 net_mse fine-tuning 未带来验证集收益，模型在 Phase 2 已收敛
 
 ---
 
-## V5 方向（已确定，实施中）
+## V5 方向（已完成，调优中）
 
 ### A+C: Component-Consistent Residual + TemporalDecoder 时间条件化
 
@@ -36,6 +49,34 @@
 - Phase 2 (epoch 16-40): component_loss_weight 线性衰减, residual 全自由度
 - Phase 3 (epoch 41-70): 纯 net_mse fine-tune
 - 改动范围：`losses.py` (~20 行), `exp_physformer.py` (~30 行), `config.py` (~10 行)
+
+### V5 结果与问题
+
+**成功点：**
+- Component-consistent residual 有效：PV -22.7%, Wind -11.8%, Battery Power -12.5%
+- Residual 统计量改善：mean 最接近零 (-0.000848 MW)
+- SOC 约束完美满足
+
+**问题：**
+- Aggregate 退化：MAE +7.5%, MSE +11.9%（相对于 V4）
+- Curriculum Phase 3 无效：纯 net_mse fine-tuning 未带来验证集收益
+- Component loss 权重过高导致模型容量从 net accuracy 转移到 component consistency
+
+### V5 调优方案
+
+**优先级 1（立即执行）：**
+1. 降低 Phase 1 component loss 权重：cw 从 0.1 降到 0.03
+2. 缩短 Phase 1：从 15 epochs 减到 5-8 epochs
+3. 移除 Phase 3：它没有带来收益
+4. 增加 residual head 初始化：std 从 0.01 增加到 0.05
+
+**优先级 2（中期实验）：**
+1. Component loss 改为 MSE 或 Huber loss
+2. 仅对 load 分量施加 component loss（因为 load 是瓶颈）
+3. Composite metric 用于 early stopping
+4. Component residual 门控机制
+
+**预期效果：** 通过降低 component loss 权重和缩短 Phase 1，预期 aggregate MAE 可以回到 V4 水平（~0.00198），同时保留 component 改善（PV/Wind/Battery 仍然优于 V4）
 
 ---
 
@@ -105,15 +146,19 @@
 ```
 V5 (A+C+D) 完成
   │
+  ├─ Aggregate 退化？
+  │   └─ YES → 调优方案 V5.5：降低 component loss 权重 + 缩短 Phase 1
+  │   └─ NO  → V5 作为 baseline，进入方向 E/F
+  │
+  ├─ V5.5 调优后 aggregate 回到 V4 水平？
+  │   └─ YES → V5.5 作为最终版本，保留 component 改善
+  │   └─ NO  → 考虑仅对 load 分量施加 component loss
+  │
   ├─ Load residual 显著 > PV/Wind residual？
   │   └─ YES → 启动方向 B (Load Dual-Stream)
   │   └─ NO  → 当前架构已足够，进入方向 E/F
   │
-  ├─ Theory-vs-final tradeoff 解决？
-  │   └─ YES → curriculum 有效，保留
-  │   └─ NO  → 调整 phase 参数或回滚 curriculum
-  │
-  └─ Per-component residual 分布合理？
-      └─ YES → V5 作为下一版 baseline
-      └─ NO  → 需要 residual 约束/正则化调整
+  └─ Component loss 改为 MSE/Huber？
+      └─ YES → 对大误差给予更强惩罚
+      └─ NO  → 保持 MAE，关注 aggregate 指标
 ```

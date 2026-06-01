@@ -1,0 +1,6 @@
+_base_: base/v5_base.yaml
+data:
+  root_path: ./
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+checkpoint:
+  name: rx6800_v5_smoke

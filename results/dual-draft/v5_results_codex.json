@@ -1,0 +1,71 @@
+{
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "high",
+      "issue": "Theory MAE improves while Aggregate MAE degrades because the theory objective is optimizing residual consistency, not necessarily predictive accuracy.",
+      "analysis": "The physics loss is successfully reducing the residual, but the model appears to pay for that by moving error into individual components, especially battery power and SOC. This suggests the theory loss is acting as a constraint satisfaction objective rather than a calibrated auxiliary loss for the forecasting task."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "architecture",
+      "severity": "high",
+      "issue": "Battery component crash is not caused by detach strategy.",
+      "analysis": "The identical battery power MAE with full detach and no detach strongly suggests the failure is structural: the battery branch is being used as a slack variable, is poorly supervised relative to other components, has a scaling or normalization issue, or is constrained through a pathway that makes detach irrelevant."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "optimization",
+      "severity": "medium",
+      "issue": "The 90 degree gradient angle means the theory loss is not fighting the net MSE, but it is also not helping it on the measured parameter block.",
+      "analysis": "Orthogonal gradients imply first-order independence between the two objectives on that tensor. The exact persistent 90 degree value is suspicious and should be checked with gradient norms; it may indicate structural graph separation, masking, zero gradients, or loss paths that touch disjoint subspaces."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "optimization",
+      "severity": "medium",
+      "issue": "Phase 2 optimizer reset found a better basin transiently but could not stabilize it.",
+      "analysis": "Momentum and LR reset temporarily improved validation MSE, but the continued objective geometry pulled the model away. This points to loss weighting, optimizer schedule, or architectural coupling problems rather than a simple momentum contamination issue."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "physics_fidelity",
+      "severity": "medium",
+      "issue": "The physics objective may be under-identified.",
+      "analysis": "A lower residual does not guarantee physically correct decomposition. If battery power/SOC can absorb balance errors without strong component-level constraints, the model can improve theory MAE while producing unrealistic battery predictions."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "approach": "Run a battery-isolation ablation to verify battery is the slack variable",
+      "details": "Train with the same theory loss but freeze, remove, or heavily supervise the battery branch. If aggregate MAE recovers while theory MAE worsens, the battery is acting as the residual sink."
+    },
+    {
+      "priority": 2,
+      "approach": "Add explicit battery SOC transition supervision",
+      "details": "Add SOC transition loss, charge/discharge bounds, efficiency-aware update, and capacity-normalized SOC dynamics."
+    },
+    {
+      "priority": 3,
+      "approach": "Log gradient norms in addition to gradient angles",
+      "details": "Persistent 90 degree angles are only interpretable if both gradients have non-trivial norms."
+    },
+    {
+      "priority": 4,
+      "approach": "Reduce theory loss weight (tw=0.02-0.05) and strengthen component supervision",
+      "details": "Current tw=0.2/0.1 appears strong enough to improve theory but not aligned enough to improve the main metric."
+    },
+    {
+      "priority": 5,
+      "approach": "Use component-wise validation gates",
+      "details": "Require no battery collapse and no aggregate MAE regression beyond a small tolerance versus V5.1."
+    }
+  ]
+}

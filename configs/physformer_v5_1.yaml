@@ -1,0 +1,4 @@
+# V5.1: Phase-aware residual with component supervision (baseline)
+_base_: base/v5_base.yaml
+checkpoint:
+  name: physformer_v5_1

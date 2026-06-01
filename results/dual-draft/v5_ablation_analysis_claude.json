@@ -1,0 +1,105 @@
+{
+  "reviewer": "claude",
+  "file": "results/dual-draft/v5_ablation_analysis.md",
+  "issues": [
+    {
+      "location": "Train/Test 背离",
+      "line_start": 72,
+      "line_end": 74,
+      "severity": "high",
+      "category": "overfitting",
+      "description": "Train/Test 背离的证据强度不足：仅单次 seed=2024 运行，无法排除随机性。V5.5a 和 V5.5b 的 MAE 差距仅 0.00002 MW (1%)，在单次运行下可能不显著",
+      "original_snippet": "V5.5a 训练冠军但测试 2/7 指标最优；V5.5b 训练末位但测试 6/7 指标最优",
+      "suggested_fix": "明确标注此为单 seed 结果，建议用 3+ seed 重复确认，或在结论中使用 'preliminary' 限定词。同时计算 V5.5a vs V5.5b 各指标的实际差距百分比",
+      "rationale": "单次运行的 train/test 背离可能是随机波动而非系统性过拟合。需要多次运行才能做出可靠判断"
+    },
+    {
+      "location": "Val MSE 最佳 epoch 差异",
+      "line_start": 27,
+      "line_end": 30,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "V5.4 最佳 epoch=9 而 V5.5 最佳 epoch=33 的差异未被解释。R8 组在 epoch 8 触发 cosine 重启（与 Phase 1→2 切换同步），这可能导致 Val MSE 的 '假性改善'——重启时 LR 回升暂时跳出局部极小",
+      "original_snippet": "V5.4 最佳 epoch=9, V5.5 最佳 epoch=33",
+      "suggested_fix": "分析 restart_t0=8 的 cosine 重启是否与 Phase 1→2 切换产生了人为的 Val MSE 低谷。如果确认，则需要排除重启后前 2 个 epoch 的 Val 值作为 '虚假最优'",
+      "rationale": "如果最佳 Val MSE 是由 LR 重启偶然触发的 transitory improvement 而非真正的收敛改善，那么 V5.4 的 0.3879 和 V5.5a 的 0.3830 可能被高估"
+    },
+    {
+      "location": "V5.4 梯度死寂",
+      "line_start": 82,
+      "line_end": 84,
+      "severity": "high",
+      "category": "training_dynamics",
+      "description": "V5.4 的 GradNorm ~1e-9 且 GradCos 恒定为 0，这是梯度消失 (vanishing gradients) 而非 '收敛'。对比 V5.5a（同样 R8，但 B5）GradNorm 正常为 ~1e-3，说明 B1 组合在 R8 下确实训练失败",
+      "original_snippet": "V5.4 的 GradCos 恒定 0.000，GradNorm ~1e-9 — 梯度完全停滞",
+      "suggested_fix": "将 '梯度停滞' 升级为 '梯度消失/训练失败'。这比单纯的过拟合更严重——V5.4 的物理层可能完全没有学到有效表征。解释为何 B5 能阻止梯度消失（更强的 battery 监督信号为物理层提供了持续的梯度源）",
+      "rationale": "区分 '梯度消失' 和 '收敛' 对理解 R8 的失败机制至关重要。前者是训练缺陷，后者是过拟合"
+    },
+    {
+      "location": "组件 MAE 解读",
+      "line_start": 88,
+      "line_end": 94,
+      "severity": "medium",
+      "category": "physics_interpretation",
+      "description": "V5.4 的 Load MAE (0.0148) 和 Battery MAE (0.0213) 比 V5.5a 高 7-13 倍。这不仅是泛化问题——说明 B1+R8 组合下物理层的 load 和 battery 分支根本没有正确学习",
+      "original_snippet": "V5.4 在 load 和 battery 组件上的误差显著高于其他三组 (7-13×)",
+      "suggested_fix": "添加物理诊断：V5.4 的 load 和 battery 分支是否输出恒为零或接近常量？检查 component_theory_real 的输出分布。如果是，说明梯度消失导致物理层退化为 trival predictor",
+      "rationale": "组件级诊断可以区分 '泛化差' 和 '根本没学到'——两者对应不同的解决方案"
+    },
+    {
+      "location": "Ramp Violation 差异",
+      "line_start": 56,
+      "line_end": 56,
+      "severity": "medium",
+      "category": "overfitting",
+      "description": "V5.5 的 Ramp Violation (0.0060%) 是 V5.5b (0.0025%) 的 2.4 倍。R20+B5 组合不仅泛化最差，ramp 违规也最严重——两个'safety'机制叠加反而产生了不安全的预测",
+      "original_snippet": "V5.5: Ramp Violation = 0.0060%, V5.5b: 0.0025%",
+      "suggested_fix": "强调 R20+B5 组合的消极交互：更长的重启 + 更强的电池监督 → 模型在 Phase 2 可能过度信任物理层 → 残差分支补偿不足 → 预测不平滑。建议查看 V5.5 的 pred.npy 时序是否存在高频振荡",
+      "rationale": "如果 '安全机制组合导致不安全输出' 成立，这对论文的 claim（physics guidance improves stability）构成潜在反例"
+    },
+    {
+      "location": "缺少 Phase 3 数据",
+      "line_start": 20,
+      "line_end": 22,
+      "severity": "medium",
+      "category": "missing_analysis",
+      "description": "所有实验在 epoch 39 early stopped，但 phase_2_epochs=50，意味着没有进入 Phase 3（纯 net MSE）。Phase 3 是论文设计的最终评估阶段，丢失了关键的纯 net fine-tune 数据",
+      "original_snippet": "phase_1_epochs=8, phase_2_epochs=50, patience=20",
+      "suggested_fix": "建议增加 patience 到 30 或降低 early_stop_start_epoch，确保至少进入 Phase 3 前几个 epoch。或直接设置 phase_2_epochs=30，让模型有 20 个 epoch 在 Phase 3 训练",
+      "rationale": "如果 Phase 3 从未执行，则消融只覆盖了成分监督阶段，论文的核心声明（'Phase 3 net-only fine-tune is sufficient'）未在消融中验证"
+    },
+    {
+      "location": "Train/Test 背离的因果链",
+      "line_start": 96,
+      "line_end": 98,
+      "severity": "high",
+      "category": "overfitting",
+      "description": "分析归因于 'R8 频繁重启导致过拟合' 但缺少直接证据。R20 的隐式正则化假说可以通过以下方式验证：(1) 比较 R8 vs R20 组的 weight norm、(2) 比较 train loss 和 val loss 的 gap 随 epoch 的变化",
+      "original_snippet": "R8 频繁重启可能导致过拟合——训练集上的优势未能泛化",
+      "suggested_fix": "分析 train.log 中每 epoch 的 Train Loss vs Val Loss gap。如果 V5.5a 的 gap 持续扩大而 V5.5b 保持稳定，则为过拟合提供了直接证据。否则应重新考虑 '泛化差异' 的归因",
+      "rationale": "没有 train/val gap 的数据，'过拟合' 只是推测。Train Loss 数据在 train.log 中完全可以提取"
+    },
+    {
+      "location": "推荐配置的二选一困境",
+      "line_start": 100,
+      "line_end": 102,
+      "severity": "high",
+      "category": "recommendation",
+      "description": "文档将推荐配置设为二选一（训练最优 vs 测试最优），但可能存在第三个选项：restart_t0=8 + batt_w=5.0 的 V5.5a（训练最优）+ 降低 patience 以在 Phase 3 fine-tune = 取两者之长",
+      "original_snippet": "推荐的 thesis 配置是 V5.5a（训练最优）还是 V5.5b（测试最优）？",
+      "suggested_fix": "提出第三种方案：V5.5a 的配置 + early stopping 在 Val MSE 最低点（epoch 12-15）而非等到 patience 耗尽。理由是 V5.5a 的最佳 Val MSE (0.3830) 远低于 V5.5b 的任何 epoch。在最佳 checkpoint 处停止可能同时获得训练时的物理对齐优势和泛化的最低误差",
+      "rationale": "当前的 early stopping 在 epoch 39 才触发，此时 V5.5a 已从 0.383 退化到 0.411。在最佳 checkpoint 处测试可能完全改变结论"
+    },
+    {
+      "location": "残差统计的解释",
+      "line_start": 60,
+      "line_end": 60,
+      "severity": "low",
+      "category": "physics_interpretation",
+      "description": "Residual mean 的正负号提供了重要信息：V5.4 的 residual mean = +0.00234 (系统高估 net)，V5.5a = -0.00144 (系统低估 net)。V5.5b 的 |residual mean| = 0.00052 最小——接近零偏置",
+      "original_snippet": "Residual Std (MW) 分别: 0.00266, 0.00394, 0.00343, 0.00260",
+      "suggested_fix": "同时关注 residual mean（偏置）和 std（噪声）。V5.5b 的残差分布 (mean=-0.0005, std=0.0026) 最接近零均值高斯——这是物理 + 数据驱动残差设计的理想行为",
+      "rationale": "零偏置残差是 component-consistent residual 设计的核心主张。V5.5b 在这一点上表现最佳，值得在 thesis 中强调"
+    }
+  ]
+}

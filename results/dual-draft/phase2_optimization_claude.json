@@ -1,0 +1,82 @@
+{
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "high",
+      "description": "Phase 2 的 loss landscape 突变 + LR 衰减形成死锁。Phase 1 强物理监督塑造了特定 basin，Phase 2 突然改变 loss 权重（cw 0.03→0.01, rr 0.05→0.01）导致梯度方向突变。但此时 LR 已衰减到 ~8e-5，模型无法跨越 Phase 1 basin 和 Phase 2 optimal basin 之间的能量壁垒。",
+      "recommendation": "Phase 2 开始时重置 optimizer state（momentum），并做短 warmup（3-5 epoch）让 LR 从较高值开始，给模型足够能量翻越 loss landscape 的山脊。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "gradient_conflict",
+      "severity": "high",
+      "description": "共享 encoder 同时接收 theory_mse 和 net_mse 的梯度。Phase 1 中二者对齐（强物理监督引导 encoder）。Phase 2 中 net_mse 主导，但拉 encoder 走向不同方向，破坏 Phase 1 建立的物理表示。这是 Phase 2 Val MSE 立刻反弹（V5: epoch 9 从 0.4127 跳到 0.4312）的直接原因。",
+      "recommendation": "Phase 2 中对 load/pv/wind 的 theory 分量做 selective detach，阻止 net_mse 梯度重写外生物理分量。电池分量（endogenous）保持梯度流。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "architecture",
+      "severity": "high",
+      "description": "res_reg 惩罚 residual 的绝对值，但 Phase 2 的目标恰恰是让 residual 学习 Phase 1 遗留的系统性偏差。res_reg 直接抑制了 Phase 2 最需要的能力。V5 Phase 2 的 res_reg_weight=0.01 虽小但持续存在，形成慢性阻力。",
+      "recommendation": "Phase 2 中将 res_reg_weight 设为 0 或极小值（0.001），释放 residual 的学习空间。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "curriculum",
+      "severity": "medium",
+      "description": "Phase 1 到 Phase 2 的切换是从 Phase 1 最后一个 checkpoint 继续，而非从最佳 checkpoint 继续。V5 中 Phase 1 最佳是 epoch 8（0.4127），但 Phase 2 从 epoch 9 的 checkpoint（Val MSE 更差）开始。额外的 Phase 1 训练可能进一步压制 residual 学习。",
+      "recommendation": "Phase 2 从 Phase 1 的最佳 checkpoint（而非最后一个）开始。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "medium",
+      "description": "CosineAnnealingWarmRestarts(T0=15) 的周期与 phase 切换（epoch 8）不对齐。Phase 2 开始时 LR 处于 cosine 衰减的中段，不是最低点也不是最高点，导致 Phase 2 的 LR 轨迹不可预测。",
+      "recommendation": "将 scheduler 的 T0 与 phase_1_epochs 对齐，使 Phase 2 开始时恰好是 LR 的一个重启点。"
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "implementation",
+      "severity": "medium",
+      "description": "V5.2 的 full detach 制造了额外的优化死区。physics_features.detach() 不仅切断了 load/pv/wind 的冲突梯度，也切断了电池分支的梯度。电池是 VPP 中最可学的分量（有 SOC 物理约束），截断后 phys_layer 无法从 loss 中获得电池优化信号，导致 Batt Power MAE 暴增 10 倍。",
+      "recommendation": "改为 selective detach：只 detach load/pv/wind（外生分量，与 residual 有符号冲突），保留电池梯度（endogenous，有物理约束保护）。"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "approach": "Selective detach + res_reg 归零：Phase 2 中只 detach load/pv/wind，保留电池梯度；同时将 res_reg_weight 设为 0",
+      "rationale": "selective detach 解决梯度冲突（外生分量不被 net_mse 重写），res_reg 归零释放 residual 学习空间。二者协同：detach 保护物理表示，res_reg 释放 residual 能力。",
+      "expected_impact": "Theory MAE 保持 Phase 1 水平，Aggregate MAE 通过 residual 修正改善，电池分量不崩溃",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 2,
+      "approach": "Phase 2 optimizer reset + LR warmup：切换 phase 时重置 optimizer state，LR 从 warmup_start_factor * base_lr 开始，3-5 epoch warmup",
+      "rationale": "解决 loss landscape 突变 + LR 太小的死锁。optimizer reset 清除 Phase 1 的 momentum 惯性，warmup 给模型足够能量到达 Phase 2 的更优 basin。V5 restart 短暂突破 0.4038 证明模型有潜力，但需要更充分的 warmup。",
+      "expected_impact": "Phase 2 Val MSE 能突破 Phase 1 best，且不会像 restart 那样迅速回落",
+      "implementation_complexity": "medium"
+    },
+    {
+      "priority": 3,
+      "approach": "Scheduler-phase 对齐：将 CosineAnnealingWarmRestarts 的 T0 设为 phase_1_epochs，使 Phase 2 开始于 LR 重启点",
+      "rationale": "消除 scheduler 周期与 phase 切换的不对齐。Phase 2 从 LR 峰值开始，配合 warmup 形成平滑过渡。",
+      "expected_impact": "Phase 2 的 LR 轨迹可预测，避免处于 cosine 衰减中段的尴尬位置",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 4,
+      "approach": "从 Phase 1 最佳 checkpoint 启动 Phase 2，而非最后一个 checkpoint",
+      "rationale": "Phase 1 最佳 checkpoint 的物理表示最优化，从此出发比从 Phase 1 末尾（可能已过拟合或压制 residual）出发更好。V5 中 Phase 1 最佳是 epoch 8，但 Phase 2 从 epoch 9 继续。",
+      "expected_impact": "Phase 2 起点更好，减少'从次优点出发'的风险",
+      "implementation_complexity": "medium"
+    }
+  ]
+}

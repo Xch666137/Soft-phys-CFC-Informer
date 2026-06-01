@@ -1,0 +1,1424 @@
+# Staging Buffer — Observations awaiting crystallization
+#
+# Observations are staged here until a closure signal fires
+# (topic abandonment, verbal affirmation, empirical resolution, or artifact commitment).
+# The Research Manager (/research-manager) writes to this file at end of turn.
+
+  - id: O53
+    timestamp: "2026-05-31T15:40"
+    provenance: ai-executed
+    content: >
+      B1 finetune dead end: pure net_mse finetuning on pretrained weights systematically
+      degrades performance. Two independent runs converge on the same conclusion:
+
+      (1) Original B1 finetune (2026-05-30, 16846 server): config_to_args bug caused
+      pretrained_path to never be loaded — training was effectively from-scratch net_mse.
+      3 seeds: best Test MAE = 0.001839-0.001863 (all above Gate 0.001811). Pretrained
+      direct test MAE = 0.001820 (0.5% closer to Gate, beats all finetune results).
+
+      (2) Fixed B1 finetune (2026-05-31, VGPU-32GB): pretrained weights correctly loaded
+      (confirmed in log). Epoch 1 Train Loss 0.1163 (9× better than buggy 1.0306).
+      BUT all 3 seeds show monotonic Val MSE degradation:
+        E1: 7.956-7.999e-06 → E2: +4% → E3: +7.5%
+      Train Loss decreasing (0.116→0.109) while Val worsening — overfitting.
+      Training killed at user request after Epoch 3.
+
+      Root cause interpretation: the multi-task pretraining objective (component_mae +
+      theory_mae + λ=0.3 net_mse) acts as an effective regularizer. Removing auxiliary
+      losses during finetuning removes this regularization, causing the model to overfit
+      to net_mse. The pretrained checkpoint is ALREADY the optimal net predictor —
+      finetuning only makes it worse.
+
+      This parallels Phase A's C12 finding: all post-A1 complexity additions degrade
+      performance. Here, even a training-paradigm change (pretrain→finetune) cannot
+      improve upon the multi-task optimum. Multi-task physics loss is not a stepping
+      stone — it IS the destination for this dataset.
+
+      Bug details (N110): physformer/config.py config_to_args uses explicit manual
+      key-by-key mapping for 40+ training keys but missed pretrained_path and
+      pretrain_lambda_net. This is the second config_to_args propagation bug
+      (cf. N65, 2026-05-22: missing curriculum keys phase_2a_epochs etc.).
+      Two-part config mapping (explicit + auto TRAINING_KEYS) is a fragility pattern.
+    context: >
+      User asked to fix bug and re-run B1 finetune with pretrained weights on VGPU-32GB.
+      Fix: 2 lines added to physformer/config.py:208-209. Training launched 3-seed on
+      VGPU RTX 4080 SUPER. Monitored via Cron. Degradation confirmed across all seeds.
+      User decided to kill training and record as dead end.
+      Pretrained baseline test comparison done on VGPU with pretrained_checkpoint.pth
+      copied as checkpoint.pth in temp run dir.
+    potential_type: dead_end
+    bound_to: [N110, N111, N112, N113, N107, C11, C12]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+observations:
+  - id: O47
+    timestamp: "2026-05-27T23:00"
+    provenance: ai-executed
+    content: >
+      P1-1 (A1) 8-token inverted Transformer PoC with ZERO physics, ZERO graph bias, ZERO
+      component loss surpasses the full PhysFormer c23 baseline on all aggregate metrics
+      across 3 seeds. Three-seed mean MAE = 1.811e-3 ± 6e-6 MW vs c23 baseline MAE =
+      2.069e-3 ± 1.34e-4 MW (−12.5%, 3σ separation). Cross-seed σ(MAE) = 6e-06 is 20×
+      smaller than c23 baseline σ = 1.34e-4 — the inverted Transformer architecture is
+      dramatically more reproducible than the shared-encoder baseline. MSE mean =
+      6.766e-6 ± 4.9e-8 MW² (−16.6%). RMSE mean = 2.601e-3 ± 9e-6 MW (−8.6%).
+      Architecture: 5-component batched GRU (672→d_model) + 3-weather batched MLP
+      (96→d_model) → inverted self-attention (2 layers, 8 heads) → shared FFN decoder
+      → real-unit power balance → net MSE only. 1.3M params, 700+ S/s on RTX 4080 SUPER,
+      3.2 min/epoch at batch_size 256.
+    context: >
+      Implemented in physformer/models/physformer/igt_model.py (PhysFormeriGT class).
+      Integrated via factory.py routing, data_provider PhysFormerDataset routing,
+      and physformer_exp.py model build + gradient angle skip guard.
+      val_interval: 1 (validation every epoch, ~5s overhead).
+      Training completed on AutoDL vGPU-32GB (RTX 4080 SUPER, 32GB).
+      3 seeds: s2025 (50 epochs, best Val 1.249e-05), s2026 (50 epochs, best Val
+      1.255e-05), s2027 (early-stop epoch 42, best Val 1.218e-05).
+      Results pulled to results/physformer_igt_a1_s20{25,26,27}/metrics.json.
+    potential_type: claim
+    bound_to: [N96, C10, C09]
+    promoted: true
+    promoted_to: "logic/claims.md:C11"
+    crystallized_via: verbal-affirmation
+    stale: false
+
+  - id: O48
+    timestamp: "2026-05-27T23:00"
+    provenance: ai-executed
+    content: >
+      Batched GRU tokenization (5 components → single (B*5, T, 1) GRU call) plus
+      batch_size 256 increased training throughput from 75 S/s (serial GRU × 5, bs=128)
+      to 700+ S/s (9.3× speedup). GPU utilization improved from 17% to 25%. Total
+      epoch time reduced from ~30 min to ~3.2 min. The key insight: cuDNN GRU benefits
+      disproportionately from batched calls — the 5× reduction in kernel launch overhead
+      plus larger batch size into GRU yields super-linear speedup. This is a general
+      heuristic for multi-variate tokenization in inverted Transformer architectures.
+    context: >
+      Original implementation used 5 separate ComponentTokenEmbedder instances with
+      for-loop serial GRU calls. Refactored to BatchedComponentEmbedding which permutes
+      (B, T, C)→(B*C, T) before a single GRU call. Similarly refactored weather
+      embedding. torch.compile compatible (no ModuleList iteration): comp_embedding,
+      weather_embedding, component_projectors all compiled successfully after fix.
+    potential_type: heuristic
+    bound_to: [N101]
+    promoted: true
+    promoted_to: "logic/solution/heuristics.md:H11"
+    crystallized_via: verbal-affirmation
+    stale: false
+  - id: O49
+    timestamp: "2026-05-28T18:00"
+    provenance: ai-executed
+    content: >
+      A2-A4 Val/Test divergence pattern: all physics additions (single token A2,
+      component twins A3, graph bias A4) improve Val MSE over A1 but degrade Test
+      MAE. The pattern intensifies with stronger physics priors:
+        A2 (1 token): Val −1.9% @E10, Test +0.4%
+        A3 (5 twin+3 constraint): Val −5.2% @E10, Test +1.8%
+        A4 (graph bias): Val −11.0% @E10, Test +2.9%
+      The monotonic relationship suggests physics priors act as overfitting amplifiers
+      rather than useful inductive biases — stronger Val improvement predicts worse
+      Test degradation. This echoes O01 (V5.5 Val/Test reversal, 2026-05-12) but is
+      more systematic: across 3 architecture variants with 3 seeds each, the
+      Val-better → Test-worse pattern is universal.
+    context: >
+      A1 (pure iTransformer) MAE 0.001811 is current strongest. A2-A4 all GATE FAILED
+      on aggregate MAE. All experiments 3 seeds, val_interval=1. GPU: AutoDL vGPU-32GB.
+      Code consolidates in physformer/models/physformer/igt_model.py (single file,
+      architecture evolves via additive changes).
+    potential_type: claim
+    bound_to: [N102, N103, N104, N100]
+    promoted: true
+    promoted_to: "logic/claims.md:C12"
+    crystallized_via: verbal-affirmation
+    stale: false
+
+  - id: O50
+    timestamp: "2026-05-28T19:30"
+    provenance: ai-executed
+    content: >
+      A5 (Component-wise Horizon Decoder) extends the A1-A4 monotonic degradation chain:
+      all 5 ablations show Test MAE strictly worsening as architectural complexity increases.
+        A1 (8 tokens, simple FFN decoder):                 MAE 0.001811  ← OPTIMAL
+        A2 (+1 physics token):                             MAE 0.001819  +0.4%
+        A3 (+5 twin + 3 constraint tokens, 16 total):      MAE 0.001843  +1.8%
+        A4 (+graph bias annealing B_phys + B_learned):     MAE 0.001863  +2.9%
+        A5 (+per-step CrossAttention decoder + weather):   MAE 0.001947  +7.5%
+      A5 is the worst despite best-ever Val MSE (E10: ~0.43 vs A4: 1.24). The horizon
+      decoder's per-step CrossAttention (384 queries × 16 tokens) provides MORE capacity
+      to memorize training/val patterns, amplifying the Val→Test divergence. Step-level
+      weather conditioning makes the model sensitive to portfolio-specific weather patterns.
+      A1's shared FFN (Linear 256→96) acts as an implicit regularizer — compressing 96-step
+      prediction into a single token representation prevents overfitting. Combined with A1-A4:
+      the iTransformer's value lies in component-token separation (eliminating C10 cancellation
+      channel), NOT in richer decoders, physics priors, or graph constraints. All complexity
+      additions are systematic overfitting amplifiers on this dataset.
+    context: >
+      HorizonDecoder implemented in igt_model.py (~95 lines): CompEmb + HorizonPos +
+      CalendarProj → batched CrossAttention(384q × 16kv) → MLP(attended | twin_token |
+      weather). 3 seeds trained on AutoDL vGPU-32GB, all early stopped E23 (best E6-E8).
+      Counter 12/12, patience=12 from E12. Monitor setup took 3 iterations (grep -P fix
+      + rate limiting). Config: physformer_igt_a5.yaml, use_horizon_decoder: true.
+      Model params: ~1.8M (vs A1 ~1.3M). Training throughput: 630-690 S/s, ~200s/epoch.
+    potential_type: claim
+    bound_to: [N105, N104, N103, N102, N100, O49]
+    promoted: true
+    promoted_to: "logic/claims.md:C12"
+    crystallized_via: verbal-affirmation
+    stale: false
+
+  - id: O51
+    timestamp: "2026-05-29T00:30"
+    provenance: ai-suggested
+    content: >
+      Phase B hypothesis: Self-Supervised Masked Component Pretraining (MCP) can break the
+      cross-portfolio generalization ceiling that Phase A established. Core logic:
+      (1) A2-A5 failed because FIXED priors (physics tokens, graph bias, weather conditioning)
+      impose uniform coupling forms across heterogeneous portfolios. (2) MCP replaces fixed
+      priors with DATA-DRIVEN coupling discovery: randomly masking component histories forces
+      the model to infer cross-component relationships from context, learning portfolio-agnostic
+      coupling laws. (3) This is the BERT→finetune paradigm applied to VPP forecasting:
+      pretraining on a self-supervised task → supervised finetuning on the target task.
+      Unlike A2-A5, MCP adds no architecture and imposes no fixed coupling form — it only changes
+      the training signal. Masking strategy: zero out 1-2 of 4 component history channels,
+      predict masked components via component MAE + λ_net=0.3 net MSE anchor. Finetuning is
+      standard A1 net MSE. Gate: B1 Test MAE < A1 mean 0.001811 on ≥2/3 seeds.
+    context: >
+      After Phase A completion (A1-A5 monotonic degradation chain, A1=global optimum at
+      MAE 0.001811), user identified that self-supervised pretraining matches the DVPP
+      cross-portfolio challenge: different portfolios have genuinely different coupling
+      relationships, and the model needs to learn these from data rather than from fixed
+      equations. Full design documented in docs/plans/2026-05-29-pretraining-finetune-phase-b.md.
+      This is a new exploration path (Phase B) that branches from the Phase A conclusion.
+    potential_type: claim
+    bound_to: [N106, N107, N100, N105, C10]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O52
+    timestamp: "2026-05-30T03:00"
+    provenance: ai-suggested
+    content: >
+      Full research roadmap proposed after ARA bootstrap: keep A1 as the current
+      architectural optimum (C11/C12), execute B1 finetuning as the next hard gate,
+      branch only from the B1 outcome, and defer any return to fixed physics-prior
+      architecture unless new evidence falsifies C12. Proposed sequence: B1 finetune
+      3 seeds; if PASS, run B2 masking/lambda/checkpoint ablations; if MARGINAL, run
+      only sensitivity checks before deciding; if FAIL, close Phase B and write the
+      thesis around A1 plus the negative fixed-prior result. Later tracks are paper
+      narrative audit, robustness/OOD only if needed, and final reproducibility packing.
+    context: >
+      User requested a complete research roadmap. AI read ARA bootstrap files, Phase B
+      design doc, B1 configs, and local results. Local state confirms B1 pretraining
+      checkpoint exists and no B1 finetune result directories exist yet.
+    potential_type: constraint
+    bound_to: [N106, N107, C11, C12, O51]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O01
+    timestamp: "2026-05-12T19:00"
+    provenance: ai-executed
+    content: >
+      V5.5 2×2 消融实验发现 Val/Test 背离: V5.5a (R8,B5) 验证 Val MSE 最优 (0.383 @ epoch 12) 但测试 1/6 指标最优;
+      V5.5b (R20,B1) 验证末位 (Val MSE 0.391) 但测试 5/6 指标最优 (MSE 7.281e-6, RMSE 0.00270 MW, RampViol 0.0025%).
+      Train/Val gap 分析已排除经典过拟合 (所有 4 实验的 gap 均收敛). 背离更可能源于 R8 vs R20 的优化景观差异.
+      测试均从 best checkpoint 加载 (非最终 epoch), 排除了训练退化混淆.
+      需要多 seed (3+) 验证统计显著性.
+    context: >
+      AutoDL vGPU-32G 上并行跑完 4 个消融实验, early stopping @ epoch ~39, 测试完成,
+      数据拉回本地 results/v5_ablation/. Dual-draft (Claude+Codex) 审查确认了背离,
+      但指出单 seed 限制和测试集选模型风险. 已修正: Val/Test 命名 (非 Train/Test),
+      指标计数 (6 非 7), MSE 单位 (×10⁻⁶ MW²).
+    potential_type: claim
+    bound_to: [N22, N23, N24, N25]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O02
+    timestamp: "2026-05-12T19:00"
+    provenance: ai-executed
+    content: >
+      V5.4 (R8,B1) 出现梯度消失: GradCos 恒定为 0.000, GradNorm ~1e-9 (vs 正常 ~1e-3).
+      物理层 Load 分支 MAE=0.0148 MW, Battery 分支 MAE=0.0213 MW — 分别是 V5.5a 的 6.2× 和 13.2×.
+      这不是收敛而是训练失败: physics layer 的两个关键分支退化为 trivial predictor.
+      Codex 在 dual-draft 中指出: GradCos 在 GradNorm ~1e-9 时数值不可靠, 可能是度量伪象.
+    context: >
+      4 实验并行训练, V5.4 的 train.log 中所有 epoch 的 GradCos=0.000, GradNorm 从 epoch 1 即衰减至 ~1e-9.
+      其他 3 个实验的 GradNorm 均维持 ~1e-3. R8+B1 是唯一出现梯度消失的配置 — R8+B5 (V5.5a) 正常,
+      说明 B5 的强监督为物理层提供了关键梯度源, 但也暴露了物理层梯度流的单一依赖性.
+    potential_type: claim
+    bound_to: [N22]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O03
+    timestamp: "2026-05-12T19:00"
+    provenance: ai-executed
+    content: >
+      Phase 3 (纯 net MSE fine-tune, epoch >50) 从未执行 — 所有 4 实验在 epoch ~39 early stopped.
+      phase_2_epochs=50, patience=20 (从 epoch 20 计数) 导致 stop @ epoch ~39-40.
+      消融只覆盖了 component-supervised 训练阶段 (Phase 1+2), 论文核心声明
+      "Phase 3 net-only fine-tune is sufficient" 未在消融中验证.
+    context: >
+      Claude 在 dual-draft 中发现此问题 (Codex 未发现). 所有测试从 best checkpoint 加载,
+      但 best checkpoint 均在 Phase 2 内 (epoch 7-12). 如果模型能进入 Phase 3,
+      Val MSE 可能进一步下降.
+    potential_type: claim
+    bound_to: [N12, N14, N24]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O04
+    timestamp: "2026-05-12T19:00"
+    provenance: ai-executed
+    content: >
+      R20+B5 组合 (V5.5) 产生反直觉的消极交互: Ramp Violation (0.0060%) 是 V5.5b (0.0025%) 的 2.4×.
+      两个独立有益的机制 (更长重启 + 更强电池监督) 组合后反而降低安全性和准确性.
+    context: >
+      可能原因: Phase 2 中模型过度信任物理层 → residual head 补偿不足 → 预测不平滑.
+      需要查看 V5.5 的 pred.npy 时序波形确认是否存在高频振荡.
+    potential_type: claim
+    bound_to: [N23, N25]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O05
+    timestamp: "2026-05-12T19:00"
+    provenance: ai-executed
+    content: >
+      所有消融结论基于单次 seed=2024 运行, 统计显著性无法评估.
+      Claude 和 Codex 在 dual-draft 中均独立提出此问题 (Consensus issue).
+      V5.5a vs V5.5b 的 MAE 差异仅 0.00002 MW (1%), 在单次运行下可能完全落在随机波动内.
+      需要 3+ seed 或 bootstrap 确认差异的显著性.
+    context: >
+      Dual-draft consensus issue #1. Codex 额外指出: 缺少效应量和置信区间.
+      修正: 指标计数为 6 (非 7), 命名 Val/Test (非 Train/Test).
+    potential_type: constraint
+    bound_to: [N22, N23, N24, N25]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O06
+    timestamp: "2026-05-12T20:45"
+    provenance: user
+    content: >
+      用户确认 V6 方向: 将 Load 分支从物理模型 (HDD/CDD) 替换为行为/时序模型.
+      核心理由: Load 在 VPP 场景下由人类行为驱动 (日历、天气敏感性、时间模式),
+      热力学方程 (HDD/CDD) 对其没有物理意义. V3→V5 证据一致支持 Load 是误差瓶颈
+      (5-18× vs Wind), R8+B1 下 Load/Battery 梯度消失说明物理引导对 Load 无效.
+      '物理引导 + 数据驱动' 的正确语义是: 物理引导给 PV/Wind/Battery, 行为引导给 Load,
+      而非强制所有组件使用物理模型.
+    context: >
+      用户在评估 V5.5 消融结果和架构改进选项后, 选择了方向 A (Load behavioral module)
+      作为 V6 主攻方向. 明确要求不实施改动, 仅记录到 ARA 供新 session 使用.
+    potential_type: decision
+    bound_to: [N18]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N18"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O07
+    timestamp: "2026-05-14T22:30"
+    provenance: ai-executed
+    content: >
+      V6 Stage 1 实验 (GRU + HDD/CDD) 发现 d_gru=64 在所有 19 个指标上完胜 d_gru=96.
+      gru64: MAE=0.001952, Theory MAE=0.002483. 数据分析曾预测 d_gru=96 最优,
+      实验证明相反 — 数据驱动容量约束产生了更好的组件精度.
+    context: >
+      V6 S1 在 3080Ti 上并行训练 gru64 和 gru96. early stop @ epoch 39.
+      数据分析 (PCA/PLS/自相关) 推荐 d_gru=96, 但实验结论相反.
+    potential_type: claim
+    bound_to: [N26]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O08
+    timestamp: "2026-05-14T23:30"
+    provenance: ai-executed
+    content: >
+      V6 Stage 2 (Temp MLP + GRU) 发现 d_gru 排序从 Stage 1 反转:
+      gru64 在所有 5 个分量 MAE 上完胜 gru96 (Battery -51.6%, Wind -57.6%),
+      但 gru96 在聚合指标上略胜 (MSE=7.281e-6, 恰好等于 V5.5b).
+      gru96 residual mean=3.1e-5 (近零) vs gru64 的 -9.5e-4,
+      表明 gru96 的 residual head 在完美补偿退化的 theory.
+      根因: GRU 容量上限决定了物理-数据分工边界. 大容量 GRU 复制 Temp MLP 的温度响应功能.
+    context: >
+      3080Ti 并行训练 gru64 和 gru96. 数据分析已揭示温度-负荷非线性关系.
+      Stage 2 替换 HDD/CDD 为 Temp MLP 后, GRU 的角色发生了变化.
+    potential_type: claim
+    bound_to: [N27, N28]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O09
+    timestamp: "2026-05-14T23:45"
+    provenance: ai-suggested
+    content: >
+      建议 V6 S3 (Path A): 从 GRU 输入中移除温度, 仅保留 [net_load, calendar].
+      当前 GRU 输入 = [net_load, temp, calendar] 导致温度同时流入 Temp MLP 和 GRU,
+      大容量 GRU 可以"偷学"温度响应. 移除温度后, Temp MLP 是唯一的温度→负荷通路,
+      应消除 gru64/gru96 的分量反转, 使 gru96 在聚合和分量上均胜出.
+    context: >
+      基于 N28 (容量天花板原理) 的直接可测试推论. 改动量小 (~10行).
+    potential_type: claim
+    bound_to: [N28, N29]
+    promoted: true
+    promoted_to: "logic/solution/heuristics.md:H03"
+    crystallized_via: empirical-resolution
+    stale: false
+
+  - id: O10
+    timestamp: "2026-05-15T10:30"
+    provenance: ai-suggested
+    content: >
+      Codex dual-draft 发现: Temp MLP (3-layer 1→32→32→1) 作为 HDD/CDD 的替代过于弱物理。
+      负荷对温度的响应是非对称、有阈值、带滞后的; 无约束 MLP 可能学到非物理的温度-负荷曲线,
+      虽能拟合聚合误差但失去物理解释性。建议使用带约束的温度响应模块 (如 heating/cooling
+      balance points, monotonic piecewise basis, lagged temperature states)。
+    context: >
+      V6.1 消融双模型审查完成。Codex 独立指出 Temp MLP 物理性不足——这是 Claude 未发现的问题。
+      V6.1 结果显示 baseline (temp in GRU) 仍在 MSE/RMSE/Ramp 上领先,
+      可能暗示 Temp MLP 尚未充分发挥物理引导作用。
+    potential_type: heuristic
+    bound_to: [N33, N34, N35, N36]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O11
+    timestamp: "2026-05-15T10:30"
+    provenance: ai-suggested
+    # CONFLICT: see O34 (2026-05-23). Under TRUE 3-stage on NVIDIA, detach has
+    # the LOWEST net_ramp_violation (0.00328) vs baseline (0.00468) — battery-as-slack
+    # hypothesis no longer holds under the bug-fixed schedule. Original P1-A finding
+    # of "detach 2× ramp violation" applies only to the 2-stage 0.03→0.01 regime
+    # (pre-N65 fix). Adjudication pending.
+    content: >
+      Codex dual-draft 发现: selective detach 只保留 battery 梯度通路, 残差头可能把
+      load/PV/wind 的误差全部推到 battery 表征上, 让 battery 变成"松弛变量"吸收其他分支
+      的 mismatch。这可以解释 detach 的 ramp violation 恶化: battery 在爬坡时段承担了
+      不合理的补偿量。
+    context: >
+      V6.1 消融结果: detach 有最优物理一致性 (Theory MAE −10%, Residual Mean 近零)
+      但 Ramp Violation 2.4× baseline。Codex 的 battery-as-slack 假说提供了一个
+      可测试的根因解释。
+    potential_type: claim
+    bound_to: [N34, N36]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N85 (falsified)"
+    crystallized_via: empirical-resolution
+    stale: false
+    # T1 3-seed (2026-05-25 N85): detach is LOWEST net_ramp_violation in every seed
+    # (mean 2.989e-3 +/- 5.0e-4 vs baseline 3.728e-3, e3 3.971e-3). Battery-as-slack
+    # hypothesis falsified; CONFLICT with O34 resolved in favor of O34.
+
+  - id: O12
+    timestamp: "2026-05-15T14:00"
+    provenance: ai-executed
+    content: >
+      V6 S2 gru64 vs gru96 分量误差协方差分解完成。发现 gru96 的分量误差抵消率 79.8%
+      高于 gru64 的 66.7%——容量更大的 GRU 产生更强的分量间误差相关性, 通过
+      net = load − pv − wind + batt 的符号结构大量抵消。主导通道: Cov(e_PV, e_B),
+      gru96 = −39.42e-6 vs gru64 = −12.92e-6 (3.05×). 这与 C08 原始假设方向相反:
+      更大容量 → 更强耦合 → 更多抵消 → 聚合精度得以保持. C08 从 observation → supported.
+    context: >
+      用 scripts/c08_extract_and_analyze.py 从 V6 S2 test dataset 提取 y_aux 真值,
+      结合 physics_states.npz 的 component_theory_real 计算分量误差相关矩阵和方差分解.
+      完整分析在 docs/analysis/c08_variance_decomposition.md.
+      发现 C08 存在双机制: (1) 容量机制 (V6 S2 已验证) — 大容量 → 强相关 → 多抵消;
+      (2) 隔离机制 (V6.1 待验证) — 梯度隔离 → 弱相关 → 少抵消. V6.1 需要重新提取分量预测数据.
+    potential_type: claim
+    bound_to: [N27, N28, N36, C08]
+    promoted: true
+    promoted_to: "logic/claims.md:C08"
+    crystallized_via: empirical-resolution
+    stale: false
+
+  - id: O13
+    timestamp: "2026-05-15T15:00"
+    provenance: ai-suggested
+    content: >
+      建筑热惯性意味着室外温度对室内负荷的影响存在滞后。当前模型仅使用瞬时温度 T(t),
+      忽略了建筑围护结构的蓄热/放热延迟。实际负荷对温度的响应是多个时间尺度的积分:
+      即时 (当前小时)、短滞后 (1-3h, 轻型结构热质量)、中滞后 (6-12h, 重型结构)、
+      昼夜记忆 (24h). ASHRAE 变基准度日法使用 3 日平均温度正是基于此原理.
+
+      方案: 将单温度输入替换为滞后温度状态向量
+      T_lag(t) = [T(t), T(t−1h), T(t−3h), T(t−6h), T(t−12h), T(t−24h)]
+
+      可叠加在 BalancePoint 或 Temp MLP 上:
+      - BalancePoint + Lags: 每个滞后独立计算度日, 再加权融合
+        → "有效温度" = Σ w_i * T(t−lag_i), 物理可解释
+      - Temp MLP + Lags: MLP 输入从 1 维扩到 N_lags 维, 数据驱动融合
+
+      触发条件: V7 Balance-Point 完成后, 若 Load residual 仍与温度变化率或滞后相关.
+      实现量: ~20 行代码 + 配置 flag. 优先级: V7 之后.
+    potential_type: heuristic
+    bound_to: [N39, N40]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O14
+    timestamp: "2026-05-15T16:30"
+    provenance: ai-executed
+    content: >
+      V7 三并行消融已推送至 AutoDL-vGPU-32GB (RTX 4080 SUPER, 32GB) 并启动训练:
+      (1) V7 Balance-Point — 测试 LearnedBalancePoint (5参数) vs Temp MLP (1153参数);
+      (2) C05 fixed-w002 — 测试固定 λ=0.02 vs curriculum 0.03→0.02;
+      (3) C05 fixed-w005 — 测试固定 λ=0.05 vs curriculum.
+      三者共享 V6 S2 gru64 架构 (load_gru_hidden=64, gru_use_temp=True).
+      GPU 利用率 99%, 显存 5.3GB/32GB, 9 进程运行中.
+      监控: ScheduleWakeup 每 30min 检查, 完成后自动 test + pull 到 results/v7_parallel_ablation/.
+    potential_type: experiment_log
+    bound_to: [N39, N41, N42]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N39,N41,N42"
+    crystallized_via: empirical-resolution
+    stale: false
+
+  - id: O15
+    timestamp: "2026-05-16T01:00"
+    provenance: ai-executed
+    content: >
+      V7 3-parallel ablation 完成并拉回。三组均 early stop @ epoch 39 (patience=20,
+      start_epoch=20). 关键结果: (1) BalancePoint 5参数不敌 Temp MLP 1153参数
+      (Theory MAE +12.2%, 聚合 MAE 持平), 但 Residual Mean 近零 (-0.000120 vs
+      baseline -0.000949) — 残差头对理论质量鲁棒. (2) C05 curriculum > fixed-weight
+      被证实 (fixed-w002 MAE +6.5%, fixed-w005 MAE +2.0%). (3) 所有实验在 epoch 4-9
+      收敛, 之后 25 epoch 无效 — 编码器容量瓶颈假说. (4) Cosine restart (T_0=20)
+      与收敛速度严重错配. 详见 results/v7_parallel_ablation/.
+    context: >
+      2026-05-15 16:28 启动训练, 05-16 00:00 全部完成 (~7.5h). GPU vGPU-32GB,
+      3 并行, 每 epoch ~10.5 min (前期) → ~6.7 min (后期). 测试完成并拉回.
+      Dual-draft (Claude+Codex) post-mortem 产出 18 issues (2 共识, 4 Claude, 12 Codex).
+      P0/P1/P2 修改计划已制定 (N45-N48).
+    potential_type: claim
+    bound_to: [N39, N41, N42, N43, N44, N45, N46, N47, N48]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O16
+    timestamp: "2026-05-16T01:30"
+    provenance: ai-executed
+    content: >
+      Dual-draft V7 post-mortem 完成: Claude 6 + Codex 14 = 18 issues, 2 共识.
+      Codex 在物理忠实度 (softplus bias, balance-point ordering, base_offset mismatch,
+      battery SOC 硬约束) 和实现细节 (metric scale 未标注, baseline drift,
+      early stop 浪费) 上远细于 Claude. Claude 在高阶架构 (bias-variance 悖论,
+      编码器瓶颈, LR schedule 错配) 上更深. 互补盲区覆盖效果显著.
+    context: >
+      Dual-draft v2 aggregate, design_decision template. 目标文件:
+      results/dual-draft/v7_postmortem_target.md. Codex 12 Only-Codex issues
+      多为 Claude 完全未提及的物理/实现层面问题.
+    potential_type: heuristic
+    bound_to: [N43, N44, N45, N46, N47, N48]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O18
+    timestamp: "2026-05-17T02:00"
+    provenance: ai-executed
+    content: >
+      Batch 2 (seed=2026) no_temp variant exhibited N22-like gradient vanishing:
+      Load MAE=0.01431 (6.6× baseline 0.00217, 7.6× detach 0.00189),
+      Battery Power MAE=0.02135 (6.9× baseline, 13.7× detach).
+      Residual head fully compensated — aggregate MSE paradoxically best at 7.85e-6
+      (vs baseline 8.19e-6, detach 8.04e-6). Residual mean +0.00282 (positively biased).
+      Theory MAE=0.003491 (worst, +30% vs baseline). This is not a "bad" result
+      but a training failure: physics branches collapsed, data module took over.
+      input-side isolation (removing temperature from GRU) is fragile and seed-dependent;
+      gradient-side isolation (selective detach) is robust.
+    context: >
+      P1-A multi-seed validation: 3 configs × seed=2026 parallel on AutoDL vGPU-32GB.
+      no_temp config removes temperature from GRU input (N29), forcing Temp MLP to be
+      sole temperature→load pathway. In s2026, this caused the physics branches
+      (Load, Battery) to collapse to near-constant predictions. Detach config showed
+      no such issues, confirming gradient-side isolation is more reliable.
+    potential_type: claim
+    bound_to: [N54, N22, C07]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O19
+    timestamp: "2026-05-17T02:00"
+    provenance: ai-executed
+    content: >
+      C07 (gradient isolation non-monotonic optimum) cross-seed statistical robustness
+      confirmed: detach > baseline > no_temp ranking on MAE and Theory MAE stable across
+      seed=2024 (V6.1), seed=2025, seed=2026. detach 2-seed mean MAE=0.001998,
+      mean Theory MAE=0.002326. Gradient-side isolation (selective detach) is a reliable
+      mechanism; input-side isolation (no_temp) is unstable (collapse in 1/3 seeds).
+      Component improvements under detach: PV -50-58%, Wind -56%, Batt -55-69%.
+      Trade-off: Ramp Violation consistently 2× higher under detach — battery-as-slack
+      hypothesis (O11) remains plausible.
+    context: >
+      Batch 1 (s2025) + Batch 2 (s2026) completed with P0 modifications (OneCycleLR,
+      early_stop=5/patience=8). Cross-seed comparison compiled from metrics.json files.
+      Full results at results/p1_batch1/ and results/p1_batch2/.
+    potential_type: claim
+    bound_to: [N53, N54, N55, C07, C08]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O17
+    timestamp: "2026-05-16T01:30"
+    provenance: user
+    content: >
+      用户声明当前处于研究阶段, 论文撰写暂不考虑. 所有实验路径 (P0/P1/P2, N40 lagged temp,
+      N49 SWA+wd, N50 residual constraints, N51 lagged temp activation) 均为待实验路径,
+      纳入 ARA 追踪但优先级 P0 > P1 > P2. 实施顺序: P0 (立即) → P1-1 detach (本周) →
+      P1-2 encoder (P1-1 后) → P1-3-6 同步进行 → P2 (视时间).
+    potential_type: constraint
+    bound_to: [N45, N46, N47, N48, N49, N50, N51]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O20
+    timestamp: "2026-05-17T22:30"
+    provenance: ai-executed
+    content: >
+      Claude dual-draft 提出梯度竞争假说: 当共享编码器中数据通路的梯度幅度远超物理通路时
+      (通过增大 d_model、减弱梯度缩放 α、或减少输入维度)，Adam 的 adaptive LR 会系统性
+      压制物理分支参数更新。三种触发条件 (d512, α≤0.5, no_temp_s2026) 均导致组件崩溃到
+      同一数值 (~0.0145/~0.02135)，表明存在共同底层机制。崩溃不是渐进退化而是临界突变。
+      Codex 独立指出崩溃值可能对应实现边界 (常数输出/clamp 饱和/归一化反变换上限)，不单是
+      容量比失衡。两视角互补: Claude 提供机制解释，Codex 提供实现诊断。
+    context: >
+      Dual-draft Phase 1 完成，Claude 9 + Codex 17 = 26 条独立 issue，0 条共识。
+      梯度死亡在所有批次 (1-4) 中反复出现，是贯穿性发现。
+    potential_type: claim
+    bound_to: [N56, N57, N22, C07, C08]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O21
+    timestamp: "2026-05-17T22:30"
+    provenance: ai-executed
+    content: >
+      OneCycleLR pct_start=0.3 (LR 峰值 epoch 15) 与 Phase 1→2 转换 (epoch 8) 错配。
+      Phase 2 初始 7 个 epoch 仍在 LR 爬升阶段，此时 loss 景观已因 component→joint loss
+      切换 + detach 激活 + optimizer state reset 发生断崖变化。Codex 独立指出 OneCycleLR
+      高 LR 阶段可能触发物理分支饱和或残差头接管，尤其影响 α 部分梯度流实验的解读。
+      LR schedule 可能是所有跨批次发现的隐藏混淆变量。
+    context: >
+      P0 改动 (OneCycleLR + early_stop) 是一次全局变更，应用到所有 Batch 1-4 实验。
+      Claude 和 Codex 均独立指出 LR-Phase 交互是未分析维度。
+    potential_type: heuristic
+    bound_to: [N45, N56, N57]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O22
+    timestamp: "2026-05-17T22:30"
+    provenance: ai-executed
+    content: >
+      Val MSE (~0.38-0.42) 与 Test MSE (~7-9e-6) 量级相差约 5×10^4 倍。Codex 指出
+      若两者不在同一尺度 (如 Val MSE 是归一化前、Test MSE 是反归一化后)，"d512 Val 突破
+      但 Test 退化" 的论断不成立——它们可能根本不能直接比较。需要确认 Val MSE 和 Test MSE
+      的归一化状态。如果尺度不一致，所有基于 Val/Test 背离的结论 (N44, d512 过拟合解释)
+      需要重审。
+    context: >
+      从 Batch 4 train.log 提取的 Best Val MSE (d512=0.3779) 与 metrics.json 中的
+      Test MSE (d512=7.86e-6) 做对比时发现量级差异。Claude 未独立发现此问题。
+    potential_type: claim
+    bound_to: [N57, N44]
+    promoted: true
+    promoted_to: "logic/solution/heuristics.md:H08"
+    crystallized_via: empirical-resolution
+    stale: false
+
+  - id: O25
+    timestamp: "2026-05-18T10:00"
+    provenance: ai-executed
+    content: >
+      V-2 Val/Test unified reporting applied: Val logging now includes Val MSE(MW²) real-unit
+      value alongside normalized Val MSE. Test metrics.json now includes _units annotation
+      (mse: MW², mae: MW, etc.). OneCycleLR pct_start changed from 0.3→0.16 to align LR peak
+      (epoch 8) with Phase 1→Phase 2 curriculum boundary. Changes in physformer_exp.py:227,344-350,470-478.
+    context: >
+      P0 modifications applied directly to physformer_exp.py. User verbally confirmed P0+P1 execution.
+    potential_type: constraint
+    bound_to: [N45, N46, N47]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O26
+    timestamp: "2026-05-18T10:00"
+    provenance: ai-executed
+    content: >
+      V-3: d512 "best Val, worst Test" is NOT overfitting — it's MSE-MAE divergence.
+      12 P1 experiments all show MATCH=YES (Val*mask_std² ≈ Test). d512 achieves best
+      normalized Val MSE (0.3779) AND worst real Test MAE (0.002158). This is a structural
+      mismatch between MSE optimization target and MAE evaluation metric: d512 suppresses
+      large errors (good MSE) but accumulates small systematic bias (bad MAE). N57 "d512
+      overfitting" and N44 "best Val breakthrough then degrade" are DISPROVEN. d512+batch4
+      data pulled from AutoDL for this analysis.
+    context: >
+      Used scripts/v3_verify_d512.py on 12 P1 experiments pulled from remote. All Match=YES.
+      Corrects the key headline finding from 2026-05-17 dual-draft (N57, N44).
+    potential_type: claim
+    bound_to: [N57, N44, N60, H08]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O27
+    timestamp: "2026-05-18T10:00"
+    provenance: ai-executed
+    content: >
+      D-4 collapse diagnostic (scripts/diagnose_collapse.py) tested on V5.4 (known collapse).
+      Confirms gradient VANISHING pattern: both GradNorm(Net) and GradNorm(Theory) die
+      simultaneously from ~1e-5→~1e-9 by epoch 8. This is NOT gradient competition (where
+      Net stays alive and Theory dies). V5.4 collapse is classic gradient death — encoder
+      cannot propagate signal to physics branches. Distinguishes from O20 gradient competition
+      hypothesis which predicts asymmetric gradient death (Net alive, Theory dead).
+    context: >
+      Script written, tested on V5.4 (local results). p1_batch crash experiments (d512, α≤0.5,
+      no_temp_s2026) not yet diagnosed — physics_states.npz absent locally, needs remote data.
+    potential_type: heuristic
+    bound_to: [N22, O20]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O28
+    timestamp: "2026-05-18T10:00"
+    provenance: ai-executed
+    content: >
+      C-1 OneCycleLR pct_start=0.16 aligns LR peak (epoch 8) with Phase 1→Phase 2 curriculum
+      boundary. Previously pct_start=0.3 peaked at epoch 15, leaving 7 Phase 2 epochs in
+      LR climbing phase with Adam state reset — a potential hidden confound in all Batch 1-4
+      results. Whether this improves training needs future controlled experiment.
+    context: >
+      Code change applied. No experiment yet to validate improvement.
+    potential_type: heuristic
+    bound_to: [N45, N46, C-1]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O23
+    timestamp: "2026-05-17T22:30"
+    provenance: ai-executed
+    content: >
+      e3+detach 联合配置未被实验。e3 (encoder 深度) 和 detach (梯度隔离) 是两个独立验证的
+      Pareto 改进，分别改善深度建模和物理一致性。两者可能叠加产生更优结果，但也可能交互
+      (更深 encoder + 梯度隔离 → 更易梯度死亡)。Claude 将此列为 medium 优先级，
+      Codex 独立指出 e3 推荐的跨批次可比性不足 (Batch 4 使用 N44 场景，Batch 1-3
+      使用 C07 场景)。
+    context: >
+      Dual-draft 双方均指出推荐逻辑链的跳跃——从独立实验直接跳到单一推荐而无联合验证。
+    potential_type: claim
+    bound_to: [N57, N53, N54, C07]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O24
+    timestamp: "2026-05-17T23:00"
+    provenance: ai-executed
+    content: >
+      26 条 dual-draft issue 按优先级分三档。P0 (阻塞性): (1) Val/Test MSE 尺度一致性校验,
+      (2) 崩溃值根因诊断 (常数输出 vs clamp 边界 vs 真正机制)。P1 (关键实验):
+      (1) e3+detach 联合实验, (2) α 网格补齐 0-1 八点 + 多种子, (3) e3 多种子确认。
+      P2 (机制完善): (1) LR-Phase 对齐 (pct_start=0.16), (2) 梯度竞争假说正式化,
+      (3) Pareto 前沿可视化。用户尚未对优先级表态。
+    context: >
+      用户要求展开全部 26 条 issue 详细内容后，本回合结束。下一步等待用户对 P0/P1/P2 的决策。
+    potential_type: constraint
+    bound_to: [N58, N56, N57]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N59-N61 (P0+P1 completion)"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O29
+    timestamp: "2026-05-22T04:00"
+    provenance: ai-executed
+    content: >
+      AMD RX 6800 local training (2-stage 0.03→0.01, accidental): MAE=0.001944 — BEST EVER
+      baseline, beating old detach (0.001988). But Theory MAE=0.003186 worse than remote
+      (0.002240), and ALL 5 component MAEs degraded (PV +137%, Load +40%, Wind +122%,
+      BattP +129%, BattSOC +121%). Residual mean=0.000000 (perfect zero-mean). C08
+      covariance cancellation mechanism perfectly validated: worse physics + better
+      aggregate via net=load−pv−wind+batt signed cancellation. RampViol=0.0052% normal.
+      Key: use_amp=false (FP32 vs AMP FP16) + 2-stage cw=0.03→0.01 (vs 0.03→0.02)
+      produced this result.
+    context: >
+      Local training completed epoch 43 early stop. Test run successfully. This was
+      the first successful local AMD GPU training (after fixing AMP NaN with use_amp=false
+      and OMP_NUM_THREADS=1).
+    potential_type: claim
+    bound_to: [N63, C08]
+    promoted: true
+    promoted_to: "logic/claims.md:C08; trace/exploration_tree.yaml:N63"
+    crystallized_via: empirical-resolution
+    stale: false
+
+  - id: O30
+    timestamp: "2026-05-22T14:00"
+    provenance: ai-executed
+    content: >
+      config_to_args propagation bug: phase_2a_epochs, phase_2a_cw, phase_reset_mode,
+      detach_mode_phase2 were missing from manual key mapping in physformer/config.py:150-198.
+      This means the 3-stage curriculum NEVER actually executed — both local and remote
+      C23 experiments were effectively 2-stage (cw=0.03→0.01). Remote C23 (2026-05-18)
+      also never executed Phase 2a. The Phase 2a→2b transition at epoch 30 never happened.
+      All C23 conclusions about "3-stage" effects are actually about 2-stage 0.03→0.01.
+      Bug fixed by adding 4 missing keys. True 3-stage on AMD later failed with NaN
+      in Phase 2a; clean validation still requires NVIDIA/AutoDL.
+    context: >
+      Discovered when local training resumed from checkpoint at epoch 27, showing
+      Phase 2b log at epoch 8 instead of Phase 2a. Traced to config_to_args manual
+      key-by-key mapping that excluded the 4 new config fields added in C-2/C-3.
+      This invalidates the "3-stage" interpretation of ALL C23 results.
+    potential_type: claim
+    bound_to: [N64, N65, N41, N42]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N64,N65,N66,N67"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O31
+    timestamp: "2026-05-23T11:00"
+    provenance: ai-suggested
+    content: >
+      True 3-stage curriculum NOW empirically validated to execute on this codebase.
+      Synchronized Train-loss cliff at epoch 31 across all three runs
+      (baseline -26%, e3 -27%, detach -27%, all from ~0.0590 to ~0.0432, single-epoch),
+      with Val MSE unchanged through the cliff. Three independent runs producing the
+      identical jump pattern at the identical epoch boundary points to a SHARED
+      schedule event, most consistent with the Phase 2a→Phase 2b cw transition at
+      epoch 30 (one-epoch lag for cw effect to surface in train loss). This is the
+      first positive evidence that the N65 config_to_args bug fix produced an actual
+      behavioural change in training; prior to N65 the schedule was silently
+      collapsed to 2-stage 0.03→0.01 and no such cliff was observed.
+    context: >
+      Live-monitored c23 3-parallel on AutoDL-vGPU-32GB. Cliff witnessed in real
+      time across all three Monitor events at epoch 31. Logged in train.log.
+      Closes the "true 3-stage still needs NVIDIA validation" open thread from
+      session 2026-05-22_001.
+    potential_type: claim
+    bound_to: [N64, N65, N70, N73]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O32
+    timestamp: "2026-05-23T12:20"
+    provenance: ai-executed
+    content: >
+      Val MSE ranking and Test MAE ranking REVERSE for the top performer under
+      true 3-stage:
+        Val MSE (lower=better): e3 0.388006 < detach 0.398992 < baseline 0.406901
+        Test MAE (lower=better): detach 0.002065 < e3 0.002127 < baseline 0.002140
+      Test units already MW (per H08 reporting fix); Val MSE is the normalized
+      net_mse_real used as the early-stop monitor. e3's lead on Val MSE does NOT
+      transfer to Test MAE. H08 (target_std² unit conversion) does NOT explain
+      this divergence because both metrics agree within a run on relative scale —
+      the disagreement is across runs and on a different metric (MAE vs MSE).
+      Candidate mechanism: same MSE-vs-MAE structural divergence as N61/O26
+      (best-MSE configurations can accumulate small systematic bias hurting MAE).
+      If confirmed, this is a generalisation of O26 from N57 (d512 width) to the
+      curriculum-weight axis.
+    context: >
+      Post-training metrics.json comparison after pulling all three runs locally.
+      Aligns with the open thread "O26 d512 MSE-MAE divergence could become a
+      claim (C09)" carried from session 2026-05-18_001. Today's evidence widens
+      the scope of that potential claim beyond the d512 case.
+    potential_type: claim
+    bound_to: [N70, N72, N57, N61, O26, H08]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O33
+    timestamp: "2026-05-23T12:20"
+    provenance: ai-executed
+    content: >
+      Under true 3-stage on NVIDIA, detach DOMINATES baseline on aggregate AND on
+      every component metric simultaneously — a strictly stronger result than the
+      P1-A multi-seed evidence behind C07 (where detach was best on components
+      with comparable aggregate). Test metrics, detach vs baseline:
+        Aggregate MAE -3.5%, MSE -4.9%, RMSE -2.5%
+        Component Load MAE -8%, PV -44%, Wind -42%, Battery Power -47%, Battery SOC -60%
+        Theory MAE -9%, Residual std -17%, net_ramp_violation -30%
+      Magnitudes substantially exceed P1-A (where component improvements were
+      ~50-60%) and component coverage is universal (every component improves).
+      Possible mechanism: true 3-stage curriculum lets detach decouple the cw
+      schedule and the gradient-flow schedule, so the Phase 2a→2b transition
+      provides additional refinement on top of P1-A's single-shot detach effect.
+    context: >
+      Compared metrics.json across the three vgpu_s2025 runs. Magnitudes are
+      much larger than prior P1-A multi-seed evidence used to support C07.
+      Strengthens C07 if confirmed by replication; could also feed a new claim
+      about three-stage curriculum × gradient isolation interaction.
+    potential_type: claim
+    bound_to: [N70, N72, N73, C07]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+    # CONFLICT (partial refutation, 2026-05-25 N82): the "detach DOMINATES on every
+    # component" half of O33 is FALSIFIED by T1 9-run aggregate -- e3 wins all 5
+    # component MAEs and detach is worst on 4 of 5 components. The "detach DOMINATES
+    # aggregate" half is hardened (-> C09). Observation kept open because the original
+    # statement bundles both halves; superseding claim C09 covers only the aggregate part.
+
+  - id: O34
+    timestamp: "2026-05-23T12:20"
+    provenance: ai-executed
+    content: >
+      Under true 3-stage on NVIDIA, detach has the LOWEST net_ramp_violation
+      (0.00328) — 30% below baseline (0.00468), and well below e3 (0.00346).
+      This directly contradicts O11 (battery-as-slack hypothesis) and the P1-A
+      multi-seed finding that "detach consistently produces ~2× ramp violation
+      vs baseline" (N55, C07 trade-off). The contradiction is regime-specific:
+      O11/N55 are valid under 2-stage 0.03→0.01 (pre-N65), where the cw schedule
+      is collapsed and battery may absorb residual error as slack. Under true
+      3-stage with the Phase 2b refinement, detach instead achieves the cleanest
+      ramp behaviour. C07 trade-off framing needs revision.
+    context: >
+      Comparison of net_ramp_violation across the three vgpu_s2025 runs;
+      cross-referenced with O11 (2026-05-15) and the C07 P1-A multi-seed evidence.
+      Flagged as CONFLICT against O11 per the contradiction trigger rule.
+    potential_type: claim
+    bound_to: [N70, N72, O11, N55, C07]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N85; logic/claims.md:C07 (evidence basis revised)"
+    crystallized_via: empirical-resolution
+    stale: false
+    # T1 3-seed (2026-05-25 N82/N85): detach lowest ramp in all 3 seeds
+    # confirming single-seed s2025 finding. Resolves O11 vs O34 CONFLICT.
+
+  - id: O35
+    timestamp: "2026-05-23T12:20"
+    provenance: ai-executed
+    content: >
+      Net-head and Theory-head gradient cosine sign appears DECOUPLED from
+      Val MSE improvement under c23 true 3-stage. Across baseline's 36 epochs,
+      best Val MSE refreshes occurred under both strongly same-sign (epoch 2:
+      GradCos +0.986, epoch 3: +0.951, epoch 8: -0.173 near orthogonal) and
+      strongly reverse-sign (epoch 4: GradCos -0.911, epoch 7: -0.967) gradient
+      relationships. Conversely the most strongly aligned epochs (epoch 22:
+      +0.992, epoch 24: +0.972) failed to refresh best. Pattern repeats in e3
+      and detach. This extends the C08 signed-cancellation framework: even at
+      the gradient (not just error) level, the head-alignment sign is not a
+      monotone proxy for usefulness.
+    context: >
+      Epoch-level GradCos observed across 36 epochs × 3 runs via Monitor.
+      Mechanistic interpretation candidate, not yet a falsifiable claim.
+      Would strengthen C08 if formalised with the per-epoch gradient cosine
+      vs best-refresh probability data.
+    potential_type: claim
+    bound_to: [N70, C08]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O36
+    timestamp: "2026-05-23T00:00"
+    provenance: ai-suggested
+    content: >
+      AutoDL instance hardware variability significantly affects training throughput
+      on nominally identical GPU SKU. Three concurrent c23 trainings on
+      "RTX 4080 SUPER 32GB" achieved 260 S/s on the May 18 reference instance
+      but only 88 S/s on the westd instance (2026-05-22), and 108→133 S/s on the
+      vGPU-32GB instance (2026-05-23). The discriminating factor is PCIe link
+      configuration: same GPU SKU may be wired as Gen4 x16 (full bandwidth) or
+      Gen4 x8 (halved bandwidth, both observed instances), AND host IO contention
+      varies by instance. nvidia-smi 99% utilisation is MISLEADING under PCIe
+      bottleneck — it counts SM-waiting-for-data time as utilisation. Operational
+      heuristic: do not infer training speed from GPU model alone; confirm PCIe
+      link width on each new instance, and prefer instances that report Gen4 x16
+      when 3-parallel training is planned.
+    context: >
+      Diagnosed on 2026-05-22 after observing 3× slowdown vs May 18 reference
+      with identical configs/code/concurrency. Confirmed on 2026-05-23 after
+      switching to a different vGPU-32GB instance also at Gen4 x8.
+    potential_type: heuristic
+    bound_to: [N68, N69]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O37
+    timestamp: "2026-05-23T13:30"
+    provenance: ai-executed
+    content: >
+      Variance decomposition on c23 vgpu_s2025 (single-seed s2025) reveals that
+      detach escapes the C08 cancellation regime via a DIFFERENT mechanism than
+      previously hypothesised. The dominant effect is per-component BIAS CLEARANCE
+      plus variance reduction, NOT covariance restructure.
+
+        Per-component theory bias (MW), baseline -> detach:
+          load   -0.00066 -> -0.00007  (-89%)
+          pv     -0.00325 -> -0.00094  (-71%)
+          batt_p -0.00190 -> -0.00025  (-87%)
+          batt_soc -0.01425 -> -0.00236 (-83%)
+        Per-component diag-var sum (MW^2): 4.65e-5 -> 2.20e-5 (-53%).
+        Cross-cov contribution (the cancellation budget): -3.57e-5 -> -1.28e-5
+          (|cancellation| -64%, i.e. detach has DRAMATICALLY LESS cancellation).
+        Cancellation ratio (per-sample mean): 0.578 -> 0.478 (-17%).
+        Net Var(error_net) (MW^2): 1.08e-5 -> 9.18e-6 (-15%).
+
+      Reading: baseline relies on strong negative covariances (PV·BattP, Load·PV)
+      to absorb ~77% of large biased component errors into the aggregate. detach
+      eliminates much of the bias and ~half of the diag variance; the consequent
+      loss of cov-driven cancellation is more than compensated by the smaller
+      starting variance. e3 magnifies the baseline regime (bigger diag var,
+      stronger cancellation, but cancellation cannot keep up → worst observed
+      Var(error_net) of the three). This is internally consistent with O32
+      (e3 wins Val MSE on normalized space but loses Test MSE on real MW).
+
+      Mechanism interpretation: under TRUE 3-stage curriculum with selective
+      detach, the theory head receives a clean physics-only gradient through
+      Phase 2b refinement and converges to a near-unbiased per-component fit,
+      because the residual head can no longer corrupt theory parameters through
+      the joint encoder. Without detach, the residual head systematically nudges
+      theory toward a biased solution that maximises aggregate cancellation —
+      because aggregate net_mse is what training optimises.
+
+      Predictions this mechanism would make if true:
+        1. detach's aggregate accuracy should be MORE robust to distribution
+           shift than baseline's (baseline relies on cov structure that may
+           change OOD; detach has unbiased components).
+        2. residual head's role under detach should be smaller; residual_std
+           should be lower (consistent: 0.00216 vs baseline 0.00260, -17%).
+        3. Multi-seed: bias clearance should be a STABLE property of detach,
+           not a single-seed artefact. (Replication = T1.)
+    context: >
+      T0 analysis requested at end of session: scripts/c08_vgpu_3way.py runs
+      C08 variance decomposition on the locally pulled c23_*_vgpu_s2025/extras/
+      physics_states.npz files. Took ~20s on local CPU env. Results in
+      scripts/c08_vgpu_3way_results.json.
+
+      Updates the prior C08 prior: aggregate gain through cancellation is ONE
+      regime; aggregate gain through bias-clearance + variance-reduction (with
+      LESS cancellation) is a SECOND regime, made available by true 3-stage
+      + selective detach. Single-seed evidence — replication via T1 is the
+      hardening step before this can become a claim.
+    potential_type: claim
+    bound_to: [N70, N72, N73, C07, C08, O32, O33]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N84 (dead_end)"
+    crystallized_via: empirical-resolution
+    stale: false
+    # T1 3-seed C08 decomp (2026-05-25 N83/N84): only 1/4 regime-escape signals replicate.
+    # bias/diag/cov-cross mechanism signals all FLIP DIRECTION across s2025/s2026/s2027.
+    # s2025 was a mechanism outlier. The agg-MSE outcome IS robust but captured by C09.
+    # Mechanism explanation collapsed; observation closed as refuted hypothesis (N84).
+
+  - id: O38
+    timestamp: "2026-05-23T14:00"
+    provenance: ai-suggested
+    content: >
+      Phase 2b in the 3-stage curriculum (cw=0.01 epochs 30+) is DOMINATED by
+      Phase 2a + early stop for this dataset/architecture/loss formulation.
+      Evidence: across all three c23 vgpu_s2025 runs (baseline, e3, detach),
+      best Val MSE was found at epoch 8 (baseline, e3) or epoch 13 (detach) —
+      all before the Phase 2a->2b transition at epoch 30. Phase 2b produces
+      a real train-loss cliff (-27%, N73) but no validation improvement and
+      no test improvement. Operational consequence: removing Phase 2b
+      (phase_2_epochs=phase_2a_epochs=train_epochs=30) saves ~6 epochs of
+      wall-clock per run without measurable accuracy cost.
+      Quantitative budget: T1 multi-seed (3 seed x 3 arm = 9 runs at 3-parallel)
+      from ~63h down to ~25h.
+      Risk: rare future configurations may have late-emerging benefit from
+      Phase 2b cw=0.01; mitigation is to keep the schedule code path intact
+      and only collapse the phase boundary, so reactivation is a one-line
+      config change (phase_2_epochs from 30 back to 50).
+    context: >
+      Diagnosed in response to user question whether the curriculum was wasting
+      compute. Applied as decision N75; configs updated and committed as N76.
+      Linked to C05 ("curriculum aids robustness not optimization path"):
+      Phase 2b removal sharpens C05 by showing the curriculum's value lives
+      entirely in Phase 1 boundary + Phase 2a refinement, not in later cw decay.
+    potential_type: heuristic
+    bound_to: [N70, N73, N75, N76, C05]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O39
+    timestamp: "2026-05-25T05:30"
+    provenance: ai-executed
+    content: >
+      e3 (deeper encoder, e_layers=3) wins ALL 5 component-level MAEs across T1 9 runs
+      (mean +/- std real MW):
+        load:     e3 1.971e-3 +/- 3.01e-5  | baseline 1.978e-3 | detach 2.063e-3
+        pv:       e3 2.806e-3 +/- 2.70e-4  | baseline 2.885e-3 | detach 3.013e-3
+        wind:     e3 3.52e-4  +/- 3.32e-5  | baseline 3.90e-4  | detach 4.84e-4
+        batt_pwr: e3 2.032e-3 +/- 2.34e-4  | baseline 2.223e-3 | detach 2.395e-3
+        batt_soc: e3 1.147e-2 +/- 2.09e-3  | baseline 1.227e-2 | detach 1.231e-2
+      Yet e3 loses on aggregate MAE / MSE / RMSE (worst of 3 arms; see N82).
+      Mechanism predicted by C08 (capacity regime): deeper encoder -> larger shared
+      capacity -> stronger inter-component error correlation -> more cancellation under
+      net = load - pv - wind + batt; aggregate net error therefore preserved or
+      degraded LESS than expected from component errors. In e3 the trade-off goes
+      the opposite direction: component errors all improve but aggregate worsens
+      because the deeper encoder fails to keep the cancellation budget keeping up.
+      Reading: cancellation phenomenon (C08) generalises from GRU-width (V6 S2) and
+      curriculum-weight (O32 / O26 generalisation) to the encoder-depth axis.
+    context: >
+      Discovered during N82 cross-seed aggregate of T1. e3 + smallest stds on
+      component MAEs (3-5x tighter than baseline/detach on some components) suggest
+      the e3 configuration is also the most REPRODUCIBLE on component metrics.
+      Hardening would require: (a) per-component covariance decomposition specifically
+      for e3 to confirm cancellation ratio is higher than baseline; (b) a cleaner
+      encoder-depth gradient experiment (e_layers in {2, 3, 4} not just 3 vs default).
+    potential_type: claim
+    bound_to: [N82, C08, O32]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O40
+    timestamp: "2026-05-25T05:30"
+    provenance: ai-executed
+    content: >
+      theory_mae cross-seed ranking REVERSE of aggregate MAE ranking:
+        baseline 2.475e-3 +/- 4.9e-5 (LOWEST theory_mae)
+        detach   2.491e-3 +/- 1.6e-4
+        e3       2.577e-3 +/- 7.9e-5
+      Where detach wins aggregate, baseline wins theory; e3 worst on both. Conventional
+      interpretation under O37 (now refuted) would be: under detach, residual head takes
+      on more bias-clearance work, freeing theory head to be slightly less accurate.
+      Without O37, the interpretation is open -- could also be that detach simply
+      under-uses the theory branch because the residual path is unblocked from being
+      corrected by the joint encoder.
+    context: >
+      Surfaced from N82 cross-seed aggregate. Note std on detach theory_mae (1.6e-4)
+      is 3x larger than baseline (4.9e-5) and 2x larger than e3 (7.9e-5) -- detach
+      theory head is also MORE seed-variable than the other two arms. May be related
+      to the N84 mechanism-instability finding.
+    potential_type: claim
+    bound_to: [N82, N84, C07]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O41
+    timestamp: "2026-05-25T21:00"
+    provenance: ai-suggested
+    content: >
+      UCSD-Microgrid-Database 可作为未来 OOD/跨域鲁棒性验证的外部数据集。
+      数据集概况: 2015-2020, 15分钟分辨率, 包含 11 栋建筑负荷、24 个 PV 阵列、
+      2.5MW/5MWh BESS、EV 充电桩、Trade Street 微网净负荷。CSV 格式, GitHub 直接下载。
+      真实校园微网数据 (非半合成), 学术界已有预测研究使用。
+
+      匹配点: PV + BESS + 负荷分量数据齐全, 可对齐 PhysFormer 的分量监督体系;
+      15 分钟分辨率对短期预测足够。
+
+      阻塞项 (当前阶段不可用):
+      (1) 无风电分量 — UCSD 微网无风力发电, PhysFormer 的 wind 辅助监督通道需处理
+          (砍掉/加 dummy/重构为 4 分量模型)。
+      (2) 无单一 VPP 聚合目标 — 仅 Trade Street 子站有局部净负荷, 需自行定义
+          campus 级聚合方式 (如总 PV - 总负荷 + BESS), 引入方法论变量。
+      (3) 研究边界冲突 — project_research_goal.md 明确 "跨 portfolio 泛化能力: 不做",
+          "数据集暂时固定不动"。当前阶段换/加数据集属于 scope creep。
+
+      激活条件: 当前 c23 实验线收敛、detach 机制稳定后, 若论文需要 OOD/跨域鲁棒性
+      验证 (证明 PhysFormer 在真实微网数据上不依赖半合成 artifacts), UCSD 是合理选择。
+      激活前需解决: wind 缺失处理方案、聚合目标构造方法、数据预处理 pipeline。
+    context: >
+      用户询问 UCSD-Microgrid-Database 是否可作为训练/测试数据集。经评估,
+      当前阶段不适合 (3 个关键不匹配), 但长期可作为 OOD 测试资源。
+      用户确认记录为 future work 线索。
+    potential_type: heuristic
+    bound_to: []
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O42
+    timestamp: "2026-05-25T22:00"
+    provenance: ai-executed
+    content: >
+      NextGen 数据中 battery 的生成逻辑已查明: p_battery_mw 和 e_battery_soc_mwh
+      并非算法生成, 而是来自 NextGen Zenodo (ID 14885589) 中澳大利亚南澳州真实家庭
+      的电池运行记录。处理链路: 原始 battery_power_kw/battery_soc_kwh →
+      `_standardize_nextgen_columns()` 列名标准化 (semisynthetic_vpp.py:433-459) →
+      `resample_nextgen_to_15min()` 重采样, power 取 mean, SOC 取 last+ffill
+      (:480-497) → `audit_battery_power_sign()` 符号审计, 不修改数据 (:499-518) →
+      `build_aggregate_table()` 家庭聚合 (:697-737) → ÷1000 转换为 MW/MWh (:1413-1431)。
+      代码库中不存在任何电池调度算法、优化器或控制规则。
+      "半合成" 的含义: 真实家庭 (Load+PV+Battery, 来自 NextGen) + 合成 Wind + 聚合为 VPP portfolio。
+
+      分布式聚合 VPP (DVPP) vs 集中式调度 VPP (CVPP) 定位澄清:
+      - DVPP: 异构 DER 在耦合点聚合, 各单元本地自主运行 (光伏自消纳/峰谷套利/备用),
+        battery 行为由电价信号和用户习惯驱动 → 有独立可预测性 → 应与 PV/Load/Wind 并列建模
+      - CVPP: 中央控制器向各单元发调度指令, battery 是调度目标的执行器 → 从属变量 →
+        适合 forecast + optimize 两阶段 pipeline
+      - NextGen 数据完全匹配 DVPP 范式, PhysFormer 的 5 分量并列架构在此设定下是自洽的
+      - 论文应明确声明 target 为 DVPP setting, 以预先化解 "为什么 battery 不交给下游优化器" 的审稿问题
+      - 若未来需要 CVPP 场景, battery 建模需从 "可预测分量" 改为 "残差闭合器" (见 O41/O42 关联)
+    context: >
+      用户首先质疑 "battery 在 VPP 中是调度执行器, 不应与 PV/Wind 并列预测",
+      引发 DVPP vs CVPP 的理论讨论。随后要求查明 NextGen 数据中 battery 的实际生成逻辑,
+      发现数据来自真实家庭记录而非算法调度, 证实 DVPP 定位与数据一致。
+      用户确认 DVPP 定位并指示记录到 ARA。
+    potential_type: concept
+    bound_to: [N01]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O43
+    timestamp: "2026-05-26T14:20"
+    provenance: ai-executed
+    content: >
+      P2 replacement-mechanism search complete. Three diagnostic tracks + one confirmatory
+      experiment converge on M1 capacity-cancellation as the mechanism behind C09:
+
+      E1 (N88): detach×e3 cross-3-seed MAE = 2.065e-3 ± 7.5e-5 vs detach 1.973e-3 ± 3.7e-5.
+      Gap = +9.17e-5 (2.5σ). detach×e3 ≈ baseline (2.069e-3), NOT ≈ detach.
+      Deeper encoder provides NO benefit when detach is active.
+
+      D1 (N89): |cov(theory, residual)| detach/baseline = 0.87 → M1 cov-cross variant
+      FALSIFIED (threshold <0.30). Per-comp |bias| reduction 5/15 (threshold ≥9/15).
+
+      D2 (N90): residual fraction ~98.75% across ALL arms. Quantile diffs <0.02%.
+      |ΔPearson| = 0.018 (<0.1 threshold). M2 FALSIFIED.
+
+      D3 (N91): all arms near-zero sharpness (FP32 floor, 1e-6–1e-7).
+      detach has smallest cross-seed AND intra-seed sharpness std (mirrors C09),
+      but absolute values indistinguishable. M3 INCONCLUSIVE (N94).
+
+      MECHANISM (N95): detach cuts residual-head gradient backflow into shared encoder,
+      preventing the encoder from organizing cancellable cross-component error covariance
+      (C08 capacity regime). Deeper encoders normally amplify this effect (O39: e3 component
+      win/aggregate loss), but under detach the channel is blocked — detach×e3 ≈ baseline.
+    context: >
+      P2 was designed via /brainstorm session (2026-05-25), user approved P2 (balanced:
+      remote E1 + local D1/D2/D3). All 3 E1 seeds early-stopped E19 with no errors.
+      D1/D2/D3 scripts written, run on 9 existing T1 runs then re-run on 12 runs
+      after E1 data was pulled. All code artifacts saved to scripts/m{1,2,3}_*.py
+      and results to scripts/m{1,2,3}_*_results.json. Design doc at
+      docs/plans/2026-05-25-detach-mechanism-search.md.
+    potential_type: claim
+    bound_to: [N87, N88, N89, N90, N91, N92, N93, N94, N95, C09, C10]
+    promoted: true
+    promoted_to: "logic/claims.md:C10 (evidence basis); trace/exploration_tree.yaml:N95"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O44
+    timestamp: "2026-05-26T14:20"
+    provenance: ai-executed
+    content: >
+      Shell discipline and remote daemon anti-pattern lessons from P2 execution:
+      (1) Windows local operations should use PowerShell, not Bash — each Bash invocation
+      creates a bash.exe process that may linger after completion. During P2, 8+ stale
+      bash processes accumulated from completed autodl-push commands.
+      (2) Remote persistent daemons MUST NOT be launched via SSH `cmd &` — the daemon
+      receives SIGHUP when the SSH session ends and dies silently. The correct pattern
+      is: one-shot checker script on remote + local Monitor polling loop (while+sleep).
+      (3) Monitor while/until loop conditions must be tested first — the first Monitor
+      attempt used `until ... grep -E "epoch|ALL_DONE"` which exited immediately because
+      grep matched "epoch" on the first iteration.
+      Recorded in memory: feedback_shell_discipline.md and feedback_remote_daemon.md.
+    context: >
+      During P2, three Monitor setup attempts were needed: (1) tail -F over SSH died with
+      connection, leaving stale remote PID 4870; (2) until loop logic bug caused instant
+      exit; (3) remote background daemon via `&` died on SSH disconnect. The final solution
+      (/tmp/e1_check.sh one-shot + local while+sleep+Monitor) was stable.
+    potential_type: heuristic
+    bound_to: [N87]
+    promoted: true
+    promoted_to: "logic/solution/heuristics.md:H10"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O45
+    timestamp: "2026-05-26T17:00"
+    provenance: ai-suggested
+    content: >
+      PhysFormer-iGT architecture vision: Physics-Twin Graph iTransformer for DVPP
+      with 4 innovation axes — (1)...[truncated, see original]
+    potential_type: architecture
+    bound_to: [N96, C10]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N96 (design doc committed); N100 verifies P1-1 gate"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O46
+    timestamp: "2026-05-26T17:30"
+    provenance: ai-executed
+    content: >
+      P0 normalization bug: _build_component_net mixed per-component z-score spaces
+      (each column had its own aux_mean[i]/aux_std[i]), breaking the power balance
+      equation. The net injection computed as (load_norm - pv_norm - wind_norm + batt_norm)
+      is NOT equal to norm(load_real - pv_real - wind_real + batt_real) because each
+      component is scaled differently. PV with small aux_std gets amplified weight.
+      Bug affected forward/loss path (pred_net, loss landscape, gradient scale),
+      meaning all pre-fix metrics are confounded. Fixed in P0-1 (N97): denorm residual
+      to real MW, aggregate in MW, re-normalize. Verified: OLD MAE=1.72, NEW MAE=0.0.
+    context: >
+      Discovered during architecture redesign discussion. User flagged residual denorm
+      formula issue. P0-1 implemented in model.py with 4 verification scripts.
+    potential_type: claim
+    bound_to: [N97, N96]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O54
+    timestamp: "2026-05-31T17:35"
+    provenance: ai-suggested
+    content: >
+      B1 failure analysis suggests pure net_mse finetune failed mainly because it
+      removed the auxiliary component objective that made the pretrained checkpoint
+      useful, then restarted an aggressive OneCycle schedule from an already-good
+      basin. The observed pattern (train loss decreases while Val MSE worsens) is
+      consistent with train-split overfitting rather than "pretraining did not learn".
+
+      B1 lagging A1 does not by itself prove component optimization is wrong. It
+      shows the specific MCP objective is not perfectly aligned with the aggregate
+      Test MAE gate. A1 optimizes only signed aggregate error through
+      net = load - pv - wind + batt; B1 adds masked component MAE, which pushes each
+      component toward individually accurate conditional means. Because aggregate
+      accuracy depends on signed error covariance (C08), component-level correctness
+      can conflict with the cancellation structure that minimizes net error.
+
+      Code audit adds two confounds that should be checked before crystallizing a
+      stronger claim: (1) current PretrainLoss is masked component MAE + lambda_net
+      * net MSE only, not a theory-loss physics pretrain; (2) pretraining_mode=True
+      fits/uses train+val data and scaler buffers in the model state_dict, while
+      finetune/test datasets are built from train-only scalers, so loading the
+      checkpoint may import train+val scaler buffers into a train-scaler loss/data
+      regime. Other possible alignment issues: checkpoint selection uses total
+      pretrain Val Loss rather than Val Net, zero masking has no explicit mask token,
+      and lambda_net=0.3 may underweight aggregate net gradients.
+    context: >
+      User asked why B1 finetune failed, whether pretrain or finetune is at fault,
+      why B1 lags A1, and whether multi-component optimization is wrong. AI inspected
+      configs/physformer_igt_a1.yaml, configs/physformer_igt_b1_pretrain.yaml,
+      configs/physformer_igt_b1_finetune.yaml, physformer/models/physformer/igt_model.py,
+      physformer/loss.py, physformer/train/pretrain_exp.py, physformer/train/physformer_exp.py,
+      physformer/data.py, A1 metrics, B1 pretrain log, and N110-N113 in exploration_tree.
+    potential_type: claim
+    bound_to: [N100, N106, N107, N110, N112, N113, C08, C11, C12]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O55
+    timestamp: "2026-05-31T18:05"
+    provenance: user
+    content: >
+      User wants to rescue B1 because the real DVPP deployment value of
+      pretraining+finetuning is cross-region / cross-resource adaptation: future
+      portfolios will differ in resource mix, region, and connected asset types,
+      so a fixed-weight model is less attractive than a pretrained initialization
+      that can be adapted. This reframes the B1 failure: the current B1 protocol
+      tested whether MCP+finetune beats A1 on the existing static held-out test
+      distribution, but it did not directly test few-shot / target-portfolio
+      adaptation value. Therefore B1 should not be considered fully dead until
+      evaluated under a deployment-like adaptation protocol.
+
+      Additional code audit found a concrete confound: for portfolio_manifest
+      data, pretraining_mode=True fits scaler statistics on train+val (data.py
+      lines 269-274), while normal finetune/test datasets use train-only scalers.
+      PhysFormeriGT stores target/aux scaler values as state_dict buffers; loading
+      a pretrained checkpoint can overwrite finetune model buffers with train+val
+      scalers, while the finetune loss/test denorm still use train-only
+      self.scaler_params. This makes the current B1 finetune/direct-test evidence
+      not fully clean until scaler-buffer consistency is audited or fixed.
+    context: >
+      User referenced docs/plans/2026-05-29-pretraining-finetune-phase-b.md and
+      argued that DVPP has many real-world deployment scenarios beyond the current
+      multi-portfolio split. AI reread the Phase B design doc and inspected
+      data.py, igt_model.py, physformer_exp.py. Relevant dead ends: N07 component
+      loss too strong, N12 pure net_mse Phase 3 ineffective, N113 pure net_mse
+      finetune degrades pretrained.
+    potential_type: constraint
+    bound_to: [N106, N107, N110, N112, N113, C08, C11, C12, O54]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N114"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O56
+    timestamp: "2026-06-01T00:00"
+    provenance: ai-suggested
+    content: >
+      Applied Energy submission-distillation workflow proposed as the first
+      lightweight ARS/ARA integration trial. The plan is to build a 10-15 paper
+      Applied Energy core-paper pack, extract a journal_profile focused on energy
+      significance, method granularity, baseline norms, operational metrics,
+      figure/table patterns, and likely reviewer objections, then align that profile
+      with an ARA-derived source pack before using ARS reviewer mode for a
+      desk-reject risk audit. This is intended as Plan A: low-cost trial before
+      building a formal ARA-ARS bridge.
+    context: >
+      User asked how to start distilling Applied Energy core papers after agreeing
+      that the current branch paper content should be ignored and the evaluation
+      should be based on experimental results / ARA evidence. AI recommended using
+      ARS as a paper-production and reviewer-simulation layer while ARA remains the
+      evidence/fact layer. Relevant constraints: C11 supports component-token
+      separation as the strongest result; C12 warns that fixed physics-prior
+      additions should not be framed as universally beneficial.
+    potential_type: constraint
+    bound_to: [C11, C12]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N116; docs/analysis/applied_energy_literature_screen.md"
+    crystallized_via: artifact-commitment
+    stale: false

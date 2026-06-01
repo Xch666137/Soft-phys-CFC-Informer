@@ -1,0 +1,235 @@
+session:
+  id: "2026-05-23_001"
+  date: "2026-05-23"
+  started: "2026-05-23T00:00"
+  last_turn: "2026-05-23T14:30"
+  turn_count: 3
+  summary: "True 3-stage validated on NVIDIA vGPU-32GB: 3-parallel c23 baseline/e3/detach all reached natural early stop @ epoch 36. Epoch-31 synchronized Train-loss cliff confirmed N65 fix worked. Val/Test ranking REVERSE at top (e3 best Val 0.388, detach best Test MAE 0.002065). Detach dominates aggregate + every component. T0 variance decomposition: detach EXITS C08 cancellation regime via bias clearance (-71~89%) + variance reduction (diag -53%) with WEAKER cancellation (-64%). A+B applied: c23 configs truncated to 2-stage (Phase 2b removed) + early stop tightened (patience=8, start=12) — T1 wall-clock drops 63h→25h. Configs committed to git 6dca986; push pending."
+
+events_logged:
+  - turn: 1
+    type: experiment
+    id: "N68"
+    routing: direct
+    provenance: ai-executed
+    summary: "westd instance 3-parallel throughput diagnosis — PCIe Gen4 x8 + concurrency → 3× slowdown vs May 18 reference; nvidia-smi 99% is misleading under PCIe bottleneck"
+
+  - turn: 1
+    type: pivot
+    id: "N69"
+    routing: direct
+    provenance: user
+    summary: "westd → vGPU-32GB instance migration; throughput recovered partially (108-133 S/s) but still below May 18 reference (260 S/s)"
+
+  - turn: 1
+    type: experiment
+    id: "N70"
+    routing: direct
+    provenance: ai-executed
+    summary: "c23 true 3-stage 3-parallel on vGPU-32GB: 36 epochs, natural early stop. Best Val MSE — e3 0.388 < detach 0.399 < baseline 0.407"
+
+  - turn: 1
+    type: decision
+    id: "N71"
+    routing: direct
+    provenance: user
+    summary: "Let trainings run to natural early stop (option A); 51-min wait acceptable for clean curve over mid-kill"
+
+  - turn: 1
+    type: experiment
+    id: "N72"
+    routing: direct
+    provenance: ai-executed
+    summary: "Post-training test + export-forecast on best ckpts (trainer does NOT auto-eval). Test MAE — detach 0.002065 < e3 0.002127 < baseline 0.002140 (REVERSED vs Val MSE)"
+
+  - turn: 1
+    type: insight
+    id: "N73"
+    routing: direct
+    provenance: ai-suggested
+    summary: "Epoch-31 synchronized Train-loss cliff across all 3 runs (-26-27%) — first empirical evidence that N65 config bug fix worked and Phase 2a→2b cw transition is actually executing"
+
+  - turn: 1
+    type: observation
+    id: "O31"
+    routing: staged
+    provenance: ai-suggested
+    summary: "True 3-stage curriculum now empirically validated (epoch-31 cliff is shared schedule event)"
+
+  - turn: 1
+    type: observation
+    id: "O32"
+    routing: staged
+    provenance: ai-executed
+    summary: "Val/Test ranking REVERSE at top performer — generalizes O26 MSE-MAE divergence beyond d512 width axis"
+
+  - turn: 1
+    type: observation
+    id: "O33"
+    routing: staged
+    provenance: ai-executed
+    summary: "Detach dominates aggregate + every component under true 3-stage — strictly stronger than C07 P1-A evidence (PV -44%, Wind -42%, Battery SOC -60%)"
+
+  - turn: 1
+    type: observation
+    id: "O34"
+    routing: staged
+    provenance: ai-executed
+    summary: "Detach has LOWEST net_ramp_violation under true 3-stage (-30% vs baseline) — CONFLICT with O11 battery-as-slack hypothesis and C07 ramp-violation trade-off"
+
+  - turn: 1
+    type: observation
+    id: "O35"
+    routing: staged
+    provenance: ai-executed
+    summary: "GradCos sign appears decoupled from Val MSE improvement — best refreshes seen under both same-sign and reverse-sign head alignment; extends C08"
+
+  - turn: 1
+    type: observation
+    id: "O36"
+    routing: staged
+    provenance: ai-suggested
+    summary: "AutoDL instance hardware variability (PCIe x8 vs x16, host IO) significantly impacts training throughput on same GPU SKU — operational heuristic candidate"
+
+ai_actions:
+  - turn: 1
+    action: "Pushed worktree HEAD (codex/thesis-mainline + uncommitted) to AutoDL-vGPU-32GB via autodl-push skill (tar+scp fallback because Windows git-bash has no rsync)"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 1
+    action: "Launched 3 parallel nohup trainings on vGPU-32GB: configs/physformer_c23_{baseline,e3,detach}.yaml with run-names *_vgpu_s2025"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 1
+    action: "Ran post-training test + export-forecast on all 3 best ckpts (trainer does NOT auto-eval after early stop)"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 1
+    action: "Pulled 3 run directories locally via tar+scp (~807 MB compressed)"
+    provenance: ai-executed
+    files_changed: ["runs/physformer_c23_baseline_vgpu_s2025/", "runs/physformer_c23_e3_vgpu_s2025/", "runs/physformer_c23_detach_vgpu_s2025/"]
+  - turn: 1
+    action: "Cleaned up tarballs both ends"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 1
+    action: "Started/stopped two persistent Monitors. v1 (subshell tail pattern) silently dropped e3/detach events — only baseline reported. v2 (single tail -F file1 file2 file3 | awk -W interactive) worked"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 1
+    action: "Updated ARA: exploration_tree N68-N73 appended; staging O31-O36 appended; O11 annotated with CONFLICT vs O34"
+    provenance: ai-executed
+    files_changed: ["ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml"]
+  - turn: 2
+    action: "Wrote scripts/c08_vgpu_3way.py — variance decomposition + bias accounting + 3-way comparison + per-pair cancellation budget"
+    provenance: ai-executed
+    files_changed: ["scripts/c08_vgpu_3way.py"]
+  - turn: 2
+    action: "Ran C08 variance decomposition on c23 vgpu_s2025 — output scripts/c08_vgpu_3way_results.json"
+    provenance: ai-executed
+    files_changed: ["scripts/c08_vgpu_3way_results.json"]
+  - turn: 2
+    action: "Updated ARA: exploration_tree N74 appended (T0 analysis); staging O37 appended (bias-clearance regime escape)"
+    provenance: ai-executed
+    files_changed: ["ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 3
+    action: "Diagnosed curriculum compute-waste question; proposed and applied A+B (early-stop tightening + Phase 2b removal) to 3 c23 configs"
+    provenance: user (decision), ai-executed (edits)
+    files_changed: ["configs/physformer_c23_baseline.yaml", "configs/physformer_c23_e3.yaml", "configs/physformer_c23_detach.yaml"]
+  - turn: 3
+    action: "Git commit 6dca986 — added c23 configs + configs/base/v5_base.yaml (was untracked since project start)"
+    provenance: ai-executed
+    files_changed: ["configs/base/v5_base.yaml", "configs/physformer_c23_baseline.yaml", "configs/physformer_c23_e3.yaml", "configs/physformer_c23_detach.yaml"]
+  - turn: 3
+    action: "Push to origin/codex/thesis-mainline attempted but SSH key not loaded — user to push manually or load key"
+    provenance: ai-executed (attempted)
+    files_changed: []
+  - turn: 3
+    action: "Updated ARA: exploration_tree N75 (A+B decision) + N76 (commit artifact) appended; staging O38 (Phase 2b dominated heuristic candidate) appended; pm_reasoning_log turn-3 notes appended"
+    provenance: ai-executed
+    files_changed: ["ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml", "ara/trace/pm_reasoning_log.yaml", "ara/trace/sessions/2026-05-23_001.yaml", "ara/trace/sessions/session_index.yaml"]
+  - turn: 3
+    action: "Updated PAPER.md phase line (option 1 'compact factual' selected from 3-way menu) — now reflects true 3-stage validation, regime escape, A+B, Phase B plan"
+    provenance: user (selection), ai-executed (edit)
+    files_changed: ["ara/PAPER.md"]
+
+claims_touched:
+  - id: C05
+    action: unchanged
+    turn: 1
+  - id: C07
+    action: candidate-strengthening
+    turn: 1
+  - id: C08
+    action: candidate-strengthening
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "用户问 connect.westd.seetacloud.com:45015 上训练现状 → 诊断 PCIe x8 + 3 并发拖慢 3× → 切到 vGPU-32GB → 推代码 + 启动 3 并行 → 36 epoch 自然 early stop → 跑 test + export → 拉回结果 → Val/Test 排名反转 + detach 完胜全部分量指标 + epoch-31 cliff 验证 N65 修复 → 跑 /research-manager"
+  - turn: 2
+    excerpt: "T0 方差分解发现 detach 跳出 C08 cancellation regime — 不是更强抵消，而是 bias 清零 + diag var 减半，抵消反而少 64%。e3 是同 regime 极端化（更大 diag、更强抵消但 net var 最差）。机制：true 3-stage Phase 2b 给 theory 头时间去 bias，selective detach 阻止 residual head 把 theory 拉向偏置解。"
+  - turn: 3
+    excerpt: "用户问：multi-stage curriculum 实际 best epoch 都在转阶段前，转换阶段后无优化，20 epoch 才开始 early-stop 计数 — 是浪费 compute 还是 curriculum 本身设计错？答：是浪费 + Phase 2b 设计问题，Phase 2a 在 detach 上有效（best @ epoch 13）但 Phase 2b 三家全部无 Val 改善。应用 A（early-stop 12/8）+B（Phase 2b 去除）—— T1 wall-clock 63h→25h。配置 commit 6dca986，push 待 SSH key 加载。"
+
+events_logged_turn_3:
+  - turn: 3
+    type: decision
+    id: "N75"
+    routing: direct
+    provenance: user
+    summary: "Apply A+B to c23 configs — early-stop tightened (patience 12->8, start_epoch 25->12) + Phase 2b removed (phase_2_epochs 50->30, train_epochs=30). Scoped to c23 only, NOT v5_base."
+
+  - turn: 3
+    type: artifact
+    id: "N76"
+    routing: direct
+    provenance: ai-executed
+    summary: "Git commit 6dca986 on codex/thesis-mainline — 4 files (configs/base/v5_base.yaml first-time committed + 3 c23 configs). Push to origin pending due to local SSH key not loaded."
+
+  - turn: 3
+    type: observation
+    id: "O38"
+    routing: staged
+    provenance: ai-suggested
+    summary: "Phase 2b in 3-stage curriculum dominated by Phase 2a + early-stop for current dataset/architecture. Heuristic candidate; single-seed evidence; T1 replication is the hardening step."
+
+events_logged_turn_2:
+  - turn: 2
+    type: experiment
+    id: "N74"
+    routing: direct
+    provenance: ai-executed
+    summary: "T0 variance decomposition on c23 vgpu_s2025 — diag var -53%, cancellation -64%, bias -71~89%, net var -15% in detach vs baseline"
+
+  - turn: 2
+    type: observation
+    id: "O37"
+    routing: staged
+    provenance: ai-executed
+    summary: "Bias-clearance regime escape: detach exits C08 cancellation regime through bias removal + variance reduction (not cov restructure). Single-seed; needs T1 replication."
+
+open_threads:
+  - "Push commit 6dca986 to origin/codex/thesis-mainline (SSH key not loaded at attempt time)"
+  - "Launch T1: 3-seed replication on c23 configs (now 2-stage truncated). Budget ~25h single-instance 3-parallel. Suggest seeds {2025, 2026, 2027} via --seed CLI override; run-names *_vgpu_s{2025,2026,2027}"
+  - "T2 e3+detach JOINT experiment (O23 from 2026-05-17, long-standing) — natural to combine with T1 seeds for 4th arm"
+  - "T3 ramp-violation regime adjudication (O11 vs O34): single-controlled comparison of detach under 2-stage vs 3-stage to confirm O34"
+  - "T4 MSE-vs-MAE divergence formalisation (O32 generalising O26 from d512 width to curriculum-weight axis)"
+  - "T6 cross-portfolio / OOD robustness test — O37's mechanism predicts detach is more OOD-robust because it doesn't rely on cov structure"
+  - "Whether O37 (bias-clearance regime escape) crystallises after T1 — would link C07 and C08 as ONE mechanism viewed from two angles"
+  - "Whether O38 (Phase 2b dominated) crystallises after T1 — heuristic H09 candidate"
+  - "O11 vs O34 CONFLICT adjudication — battery-as-slack hypothesis vs true-3-stage ramp improvement"
+  - "powerflow/ outputs missing — would need validate-powerflow --mapping-csv to produce"
+  - "reports/ outputs missing — downstream visualisation script needs to run"
+  - "training_state.pth × 3 locally (~69 MB) — can be deleted if no continued training planned"
+  - "Whether to commit ARA today's writes (N68-N76, O31-O38, sessions, reasoning) as a separate git commit — user has not asked"
+
+ai_suggestions_pending:
+  - "O31 (true 3-stage execution validated) could feed an updated PAPER.md phase line if user confirms"
+  - "O32 candidate-claim C09: MSE-vs-MAE structural divergence in multi-component forecasting generalises beyond d512 width to curriculum-weight axis — needs replication"
+  - "O33 candidate-claim C10: under true 3-stage curriculum, detach strictly dominates baseline on aggregate AND every component metric"
+  - "O34 candidate-revision to C07: ramp-violation trade-off is regime-specific (2-stage), not intrinsic to detach"
+  - "O35 candidate-extension to C08: gradient-cosine sign decoupled from best-Val-refresh probability"
+  - "O36 candidate-heuristic H?? (instance hardware variability) — operational, no scientific weight"
+  - "O37 candidate-claim C11: under true 3-stage + selective detach, theory head achieves bias clearance + variance reduction, escaping the C08 cancellation regime. Unifies C07 and C08."
+  - "O38 candidate-heuristic H09: Phase 2b in 3-stage curriculum is dominated by Phase 2a + early stop on current data/architecture"

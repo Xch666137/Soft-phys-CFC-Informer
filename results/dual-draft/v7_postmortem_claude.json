@@ -1,0 +1,72 @@
+{
+  "reviewer": "claude",
+  "file": "results/dual-draft/v7_postmortem_target.md",
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v7_postmortem_target.md:Q1",
+      "description": "BalancePoint paradox: worse theory (+12.2% MAE) but near-zero residual mean (-0.000120 vs -0.000949) and identical aggregate MAE — root cause is bias-variance tradeoff between constrained and unconstrained temp models",
+      "original_snippet": "V7 BP Theory MAE 0.002920 vs V6 S2 0.002602 (+12.2%), but Residual Mean -0.000120 vs -0.000949",
+      "suggested_fix": "Reframe the finding: BalancePoint is a better PRIOR (unbiased, residual near zero) but worse FIT (noisy, residual std 0.003304 vs 0.002276). Temp MLP is a worse prior (biased, residual -0.000949) but better fit (std 0.002276). The residual head can compensate for both noise and bias, making aggregate MAE insensitive to temp model architecture. This is actually a POSITIVE finding for PhysFormer: the residual mechanism provides robustness to theory model quality.",
+      "rationale": "The 5-param BP model is smooth and monotonic — it captures the broad temperature-load shape correctly (unbiased) but can't fit fine nonlinearities (high noise). The 1153-param MLP overfits local patterns, introducing systematic bias but reducing per-sample noise. The residual head compensates differently in each case: for BP it applies large per-sample corrections, for MLP it applies a systematic offset. The aggregate accuracy parity is not a BP failure — it's evidence that the residual mechanism is effective regardless of theory model quality. This should be framed as an architectural strength, not a BP failure."
+    },
+    {
+      "line_start": 2,
+      "line_end": 2,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "v7_postmortem_target.md:Q2",
+      "description": "Universal ultra-fast convergence (best at epochs 4-9) followed by 25-epoch plateau across all 4 experiments points to encoder representational capacity as the bottleneck, not optimizer or loss schedule",
+      "original_snippet": "ALL 4 experiments converge to best Val MSE between epochs 4-9. NO experiment improves after epoch 14.",
+      "suggested_fix": "Three concrete actions: (1) Reduce total epochs to 15-20 with early_stop_start_epoch=5 — saves 60-70% compute with identical results. (2) Test if increasing encoder capacity (d_model=512, e_layers=3-4) shifts the plateau epoch later — if yes, confirms encoder bottleneck hypothesis. (3) Consider OneCycleLR with peak at epoch 5, total 15 epochs — matches the observed convergence dynamics.",
+      "rationale": "The common element across all 4 experiments is the shared Transformer encoder (d_model=256, e_layers=2, n_heads=8). All converge at the same time despite different temp models and loss schedules. This means the encoder saturates its representational capacity by epoch 4-9, after which neither theory-branch tuning nor residual-head refinement can extract more information. The cosine restart at epoch 25 gives a transient perturbation but can't overcome the encoder ceiling. This is a fundamental architectural finding, not a training issue."
+    },
+    {
+      "line_start": 3,
+      "line_end": 3,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "v7_postmortem_target.md:Q3",
+      "description": "Gradient isolation (selective detach) mechanism is physically sound and effect size (-10% Theory MAE) exceeds likely seed variance, but battery-as-slack variable pathology (RampViol +144%) needs mitigation before thesis claims",
+      "original_snippet": "detach (N30): Theory MAE -10% (0.002342 vs 0.002602), but RampViol +144% (0.0090 vs 0.0037)",
+      "suggested_fix": "Three-tier validation: (1) Multi-seed (≥3) replication of detach to confirm effect size and quantify seed variance. (2) Test gradient SCALING (residual→encoder gradient multiplied by α=0.3, 0.5, 0.7) instead of binary detach — this creates a continuous isolation parameter and may find a sweet spot with better RampViol. (3) Add battery ramp penalty to the loss to counteract the slack-variable effect — a soft constraint on battery power rate-of-change during detach training.",
+      "rationale": "The physics mechanism is valid: shared encoder gradients DO couple theory branches, and detach breaks this coupling. The non-monotonic optimum (C07, too much isolation → antagonistic) is a genuine discovery. But the RampViol degradation limits practical applicability. The battery-as-slack interpretation (O11) is likely correct: when load/PV/wind gradient is cut, the residual head pushes all error compensation through the battery pathway. A gradient-SCALING approach (α ∈ [0,1]) preserves partial encoder coupling while reducing contamination, potentially finding a RampViol-acceptable sweet spot."
+    },
+    {
+      "line_start": 4,
+      "line_end": 4,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v7_postmortem_target.md:Q4",
+      "description": "V7 path forward should prioritize gradient isolation over temperature model improvements — the residual head's robustness to temp model quality makes further temp architecture work low-ROI for thesis completion",
+      "original_snippet": "Should we: (a) abandon temperature-model improvements and focus on gradient isolation, (b) try Lagged Temperature States, (c) hybrid, or (d) accept Temp MLP?",
+      "suggested_fix": "Priority order for thesis: (1) Multi-seed validate detach gradient isolation (highest impact: Theory MAE -10%, novel mechanism). (2) Accept Temp MLP as the Load model — it works, the residual head compensates for its imperfections, and BP's failure actually strengthens the narrative ('physics constraints help but data-driven flexibility is needed for behavioral components'). (3) Lagged Temperature States (N40) is worth a QUICK test only if (1) succeeds quickly — 1 experiment, 15 epochs with OneCycleLR, check if Load MAE improves. Otherwise skip.",
+      "rationale": "The Q1 analysis shows that temp model quality barely affects aggregate accuracy — the residual head is robust. Spending more experiments on temp modeling has diminishing returns. The gradient isolation mechanism (detach) has higher impact on Theory MAE and is a more novel contribution. For thesis completion: validate detach (high impact), accept Temp MLP (low risk), skip lags unless detach resolves quickly."
+    },
+    {
+      "line_start": 5,
+      "line_end": 5,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "v7_postmortem_target.md:Q5",
+      "description": "Current AdamW + CosineAnnealingWarmRestarts (T_0=20, warmup=5) is severely mismatched to the observed convergence dynamics — 25 of 39 epochs (64%) are wasted in plateau with zero improvement",
+      "original_snippet": "ALL experiments converge at epochs 4-9 with zero improvement after epoch 14. Cosine restart at epoch 25 doesn't beat early bests.",
+      "suggested_fix": "Three concrete improvements: (1) Shorten T_0 from 20 to 8-10 — matches the actual convergence window; the current T_0=20 means the LR decreases monotonically for 20 epochs while the model is already converged. (2) Switch to OneCycleLR with peak_lr=1e-4, total_epochs=20, pct_start=0.25 — LR rises for 5 epochs (matching warmup), then decays for 15, matching the fast-converge-then-refine pattern. (3) Add SWA (Stochastic Weight Averaging) starting at epoch 5 — averages checkpoints across the plateau, which is known to improve generalization for models with fast convergence + long plateau dynamics. For future experiments, train for only 20 epochs with early_stop_start_epoch=5 — saves 50% compute.",
+      "rationale": "The T_0=20 cosine schedule was designed for models that need 20+ epochs to converge. PhysFormer converges in 4-9 epochs. The cosine schedule then wastes 25 epochs slowly decreasing LR while the model oscillates in a saturated basin. The cosine restart at epoch 25 provides a temporary LR boost but (a) the encoder is already at capacity, so the model can't escape its basin, and (b) the restart period (T_0=20) is 2-5x longer than the actual convergence window. OneCycleLR is designed precisely for this pattern: fast rise to peak LR, then gradual annealing. SWA would extract value from the plateau by averaging, rather than letting it go to waste."
+    },
+    {
+      "line_start": 5,
+      "line_end": 5,
+      "severity": "low",
+      "category": "implementation",
+      "location": "v7_postmortem_target.md:Q5",
+      "description": "AdamW weight_decay=1e-5 may be too low for a model with small parameter count in theory branches — the tiny weight decay provides negligible regularization",
+      "original_snippet": "AdamW (lr=1e-4, wd=1e-5)",
+      "suggested_fix": "Increase weight_decay to 1e-3 for theory branch parameters specifically (differential weight decay). The theory branches have very few parameters (BP: 5, MLP: 1153) and need stronger regularization to prevent overfitting to noise in the temperature-load relationship. Keep encoder wd=1e-5.",
+      "rationale": "AdamW with wd=1e-5 on a model with ~1M total params means the effective regularization is ~0.01 per parameter per epoch — essentially zero. The theory branches (5-1153 params) fit a 1D function (temperature→load) from limited data (3 years, 15-min resolution) and would benefit from stronger regularization. The ultra-fast convergence + subsequent plateau is partially consistent with weak regularization: the model quickly fits the training signal, then oscillates because there's no penalty for doing so."
+    }
+  ]
+}

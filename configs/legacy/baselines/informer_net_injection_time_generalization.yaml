@@ -1,7 +1,0 @@
-_base_: informer_net_injection.yaml
-
-data:
-  data_path: data_processed/multi_portfolio/portfolio_dataset_for_time_generalization.csv
-
-checkpoint:
-  name: informer_net_injection_time_generalization

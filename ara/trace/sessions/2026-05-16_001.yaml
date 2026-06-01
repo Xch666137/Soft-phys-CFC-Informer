@@ -1,0 +1,152 @@
+session:
+  id: "2026-05-16_001"
+  date: "2026-05-16"
+  started: "2026-05-16T00:00"
+  last_turn: "2026-05-16T01:30"
+  turn_count: 1
+  summary: "V7 3-parallel completed. BP fails vs MLP (theory +12.2%), C05 curriculum>fixed confirmed. Dual-draft 18 issues. P0/P1/P2 plan. Research phase declared."
+
+events_logged:
+  - turn: 1
+    type: experiment
+    id: "N39"
+    routing: direct
+    provenance: user
+    summary: "V7 BalancePoint FAILED: Theory MAE +12.2% vs Temp MLP, aggregate MAE neutral. Near-zero residual mean → unbiased prior."
+  - turn: 1
+    type: experiment
+    id: "N41"
+    routing: direct
+    provenance: ai-suggested
+    summary: "C05 fixed-w002: curriculum > fixed λ=0.02 confirmed. MAE +6.5%, MSE +7.4% vs curriculum."
+  - turn: 1
+    type: experiment
+    id: "N42"
+    routing: direct
+    provenance: ai-suggested
+    summary: "C05 fixed-w005: curriculum > fixed λ=0.05 confirmed. MAE +2.0%, MSE +2.6% vs curriculum."
+  - turn: 1
+    type: insight
+    id: "N43"
+    routing: direct
+    provenance: ai-executed
+    summary: "BP paradox resolved: bias-variance tradeoff. Residual head robust to theory quality."
+  - turn: 1
+    type: insight
+    id: "N44"
+    routing: direct
+    provenance: ai-executed
+    summary: "Encoder capacity bottleneck: all 4 experiments plateau at epoch 4-9."
+  - turn: 1
+    type: decision
+    id: "N45"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P0: early stop fix, OneCycleLR, metric reporting standards."
+  - turn: 1
+    type: decision
+    id: "N46"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P1: gradient isolation multi-seed, encoder bottleneck test, BP fixes, V6.1 re-run."
+  - turn: 1
+    type: decision
+    id: "N47"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P1: thesis narrative reframing (BP→residual robustness, C05→robustness not path)."
+  - turn: 1
+    type: decision
+    id: "N48"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P2: SWA, diff wd, residual constraints, battery SOC, lagged temp — held."
+  - turn: 1
+    type: question
+    id: "N49"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P2 planned: SWA + differential weight decay."
+  - turn: 1
+    type: question
+    id: "N50"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P2 planned: residual constraints + battery SOC consistency."
+  - turn: 1
+    type: question
+    id: "N51"
+    routing: direct
+    provenance: ai-suggested
+    summary: "P2 planned: Lagged Temperature States (N40 activation)."
+  - turn: 1
+    type: observation
+    id: "O15"
+    routing: staged
+    provenance: ai-executed
+    summary: "V7 results + dual-draft post-mortem captured."
+  - turn: 1
+    type: observation
+    id: "O16"
+    routing: staged
+    provenance: ai-executed
+    summary: "Dual-draft blind-spot coverage: Codex physics/implementation, Claude architecture/training."
+  - turn: 1
+    type: observation
+    id: "O17"
+    routing: staged
+    provenance: user
+    summary: "Research phase declared. P0 > P1 > P2 priority. Paper deferred."
+
+ai_actions:
+  - turn: 1
+    action: "C08 variance decomposition analysis (V6 S2 gru64 vs gru96)"
+    provenance: ai-executed
+    files_changed: ["scripts/c08_extract_and_analyze.py", "docs/analysis/c08_variance_decomposition.md"]
+  - turn: 1
+    action: "Implemented LearnedBalancePoint + load_temp_model switch"
+    provenance: ai-executed
+    files_changed: ["physformer/models/physformer/physical_layer.py", "physformer/models/physformer/model.py", "physformer/train/physformer_exp.py"]
+  - turn: 1
+    action: "Created V7 + C05 experiment configs (3 total)"
+    provenance: ai-executed
+    files_changed: ["configs/physformer_v7_balance_point.yaml", "configs/physformer_c05_fixed_w002.yaml", "configs/physformer_c05_fixed_w005.yaml"]
+  - turn: 1
+    action: "Pushed to AutoDL-vGPU-32GB, launched 3 parallel experiments, monitored 30min, pulled results"
+    provenance: ai-executed
+    files_changed: ["results/v7_parallel_ablation/"]
+  - turn: 1
+    action: "Dual-draft post-mortem: Claude analysis + Codex review + aggregate (18 issues)"
+    provenance: ai-executed
+    files_changed: ["results/dual-draft/v7_postmortem_*"]
+  - turn: 1
+    action: "ARA updates: C05 supported, N39/N41/N42 resolved, N43-N51 created, O14-O17 staged, session record"
+    provenance: ai-executed
+    files_changed: ["ara/logic/claims.md", "ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml", "ara/trace/sessions/2026-05-16_001.yaml", "ara/trace/sessions/session_index.yaml"]
+
+claims_touched:
+  - id: C05
+    action: confirmed
+    turn: 1
+  - id: C08
+    action: confirmed
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "用户: 现阶段状态处在研究阶段，paper撰写无需现在考虑"
+
+open_threads:
+  - "P0-1/2: 修改 early_stop + OneCycleLR (代码改动等待执行)"
+  - "P1-1: Multi-seed detach 验证 + 梯度缩放 (α=0.3,0.5,0.7)"
+  - "P1-2: Encoder bottleneck test (d_model=512, e_layers=3)"
+  - "P1-3: V6.1 baseline drift 修复 (重跑 V6.1 全 4 组)"
+  - "P1-4/5/6: BP fixes (shifted softplus, ordered balance points, remove base_offset)"
+  - "P2-1～5: SWA, diff wd, residual constraints, battery SOC, lagged temp (held)"
+
+ai_suggestions_pending:
+  - "P0 modifications (N45) — early_stop_start_epoch=5, patience=8, OneCycleLR"
+  - "P1 gradient isolation validation (N46) — multi-seed detach + gradient scaling"
+  - "P1 encoder bottleneck test (N46) — d_model=512"
+  - "P2 items (N48) — SWA, diff wd, residual constraints, battery SOC, lagged temp"
+  - "Thesis narrative reframing (N47) — BP as residual robustness, C05 as robustness"

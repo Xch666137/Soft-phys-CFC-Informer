@@ -1,0 +1,88 @@
+{
+  "issues": [
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "training_dynamics",
+      "severity": "high",
+      "description": "Phase 2 is not creating a new useful optimization regime. It only weakens physics weights while keeping the same theory-plus-residual decomposition, so the model remains anchored to the Phase 1 solution.",
+      "recommendation": "Treat Phase 2 as residual/data adaptation, not just lower-weight physics training. Change gradient routing so the residual and battery/SOC path can improve net MSE without corrupting exogenous physics components."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "architecture",
+      "severity": "high",
+      "description": "The architecture biases the solution toward theory dominance: pred = theory + residual, while theory_mse and res_reg both discourage the residual from carrying systematic correction.",
+      "recommendation": "In Phase 2, reduce or remove residual regularization and prevent final net-MSE gradients from rewriting load/PV/wind theory components."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "gradient_conflict",
+      "severity": "high",
+      "description": "The same shared representation is being optimized for net MSE, theory MSE, component MAE, SOC bounds, and residual regularization. In Phase 2, these objectives still conflict even at lower weights.",
+      "recommendation": "Use selective detach or partial freezing to separate physical component preservation from residual correction."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "optimization",
+      "severity": "medium",
+      "description": "The brief restart improvement to 0.4038 indicates the model can find a better local point, but the current objective or scheduler dynamics pull it back toward the Phase 1 compromise.",
+      "recommendation": "Reset the Phase 2 optimizer/scheduler state and use a short warmup, but only as a secondary fix after addressing the gradient-routing issue."
+    },
+    {
+      "line_start": 1,
+      "line_end": 1,
+      "category": "curriculum",
+      "severity": "medium",
+      "description": "Longer strong-physics training is likely counterproductive because Phase 1 already reaches its best validation MSE at epoch 8. Additional Phase 1 training can further suppress residual learning.",
+      "recommendation": "Switch from the best Phase 1 checkpoint, not the last Phase 1 checkpoint, and avoid extending Phase 1 unless component quality is still clearly improving."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "approach": "Selective detach in Phase 2: detach load, PV, and wind, but keep battery/SOC differentiable",
+      "rationale": "Load, PV, and wind are exogenous physical components that should not be rewritten by net-MSE gradients during residual fine-tuning. Battery/SOC is endogenous and should keep gradient flow because it can absorb physically meaningful temporal correction.",
+      "expected_impact": "Most likely to make Phase 2 stable and capable of improving beyond the Phase 1 best.",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 2,
+      "approach": "Reset Phase 2 LR schedule and optimizer moments, with a short warmup and lower peak LR",
+      "rationale": "This fixes transition shock from Phase 1 optimizer state. It explains oscillation control, but not the core failure.",
+      "expected_impact": "Helpful when combined with selective detach; unlikely to solve the problem alone.",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 3,
+      "approach": "Make Phase 2 explicitly residual-focused: greatly reduce or zero res_reg, keep SOC bounds, keep theory/component losses as weak stabilizers",
+      "rationale": "If residual correction is penalized, Phase 2 cannot learn the systematic error left by the physics prior.",
+      "expected_impact": "Moderate to high, especially if the theory branch has irreducible bias.",
+      "implementation_complexity": "low"
+    },
+    {
+      "priority": 4,
+      "approach": "Do not abandon two-phase training; fix the transition semantics",
+      "rationale": "Phase 1 is clearly useful because it reaches good validation MSE. The failure is that Phase 2 is not structurally different enough from Phase 1.",
+      "expected_impact": "Preserves the benefit of physics pretraining while enabling data-driven correction.",
+      "implementation_complexity": "medium"
+    },
+    {
+      "priority": 5,
+      "approach": "Single-phase adaptive loss weights",
+      "rationale": "This may reduce curriculum discontinuity, but it does not fix the theory-plus-residual gradient conflict by itself.",
+      "expected_impact": "Possible fallback, not the first fix.",
+      "implementation_complexity": "medium"
+    },
+    {
+      "priority": 6,
+      "approach": "Longer Phase 1 with earlier restart",
+      "rationale": "Longer Phase 1 likely strengthens the same physics-dominant basin that blocks Phase 2. Earlier restart may reproduce transient gains but will not make them stable.",
+      "expected_impact": "Low; may worsen residual underuse.",
+      "implementation_complexity": "low"
+    }
+  ]
+}

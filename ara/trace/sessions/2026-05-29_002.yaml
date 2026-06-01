@@ -1,0 +1,63 @@
+session:
+  id: "2026-05-29_002"
+  date: "2026-05-29"
+  started: "2026-05-29T10:00"
+  last_turn: "2026-05-29T11:30"
+  turn_count: 1
+  summary: "B1 code implementation complete: model cleaned to pure A1 + mask_indices, PretrainLoss, PretrainExperiment, pretraining_mode data, configs, CLI. Local verification passed. Ready for remote GPU training."
+
+events_logged:
+  - turn: 1
+    type: experiment-progress
+    id: N107
+    routing: direct
+    provenance: ai-executed
+    summary: "B1 implementation complete — model A2-A5 legacy removed, mask_indices added, PretrainLoss/PretrainExperiment/data/CLI all ready. Local verification passed (1.3M params, forward + masking + loss). Pending remote training."
+
+ai_actions:
+  - turn: 1
+    action: "Cleaned igt_model.py — removed all A2-A5 legacy (twin tokens, constraint tokens, graph bias, horizon decoder), restored pure A1 + added mask_indices parameter for pretraining"
+    provenance: ai-executed
+    files_changed: ["physformer/models/physformer/igt_model.py"]
+  - turn: 1
+    action: "Added PretrainLoss to loss.py — component MAE on masked channels + lambda_net=0.3 net MSE anchor"
+    provenance: ai-executed
+    files_changed: ["physformer/loss.py"]
+  - turn: 1
+    action: "Created pretrain_exp.py — PretrainExperiment with train∪val data, random 1-2 component masking, no curriculum, saves pretrained_checkpoint.pth"
+    provenance: ai-executed
+    files_changed: ["physformer/train/pretrain_exp.py"]
+  - turn: 1
+    action: "Added pretraining_mode support to VPPDataset + data_provider — train∪val (both time_series and portfolio_manifest splits)"
+    provenance: ai-executed
+    files_changed: ["physformer/data.py"]
+  - turn: 1
+    action: "Added pretrained_path weight loading to PhysFormerExperiment.train() for finetuning"
+    provenance: ai-executed
+    files_changed: ["physformer/train/physformer_exp.py"]
+  - turn: 1
+    action: "Added pretrained_path + pretrain_lambda_net to config TRAINING_KEYS, pretrain CLI subcommand, create_pretrain_experiment to factory"
+    provenance: ai-executed
+    files_changed: ["physformer/config.py", "physformer/cli.py", "physformer/train/factory.py", "physformer/train/__init__.py", "physformer/__init__.py"]
+  - turn: 1
+    action: "Created B1 configs: physformer_igt_b1_pretrain.yaml, physformer_igt_b1_finetune.yaml"
+    provenance: ai-executed
+    files_changed: ["configs/physformer_igt_b1_pretrain.yaml", "configs/physformer_igt_b1_finetune.yaml"]
+  - turn: 1
+    action: "Local import/forward/loss verification passed — 1,294,560 params, all output keys present"
+    provenance: ai-executed
+
+claims_touched: []
+
+key_context:
+  - turn: 1
+    excerpt: "User: '继续 PhysFormer Phase B: Self-Supervised Pretraining + Finetune.' B1 6-step plan executed (model cleanup + pretraining infrastructure). Design doc in docs/plans/2026-05-29-pretraining-finetune-phase-b.md."
+
+open_threads:
+  - "Push code to AutoDL and run B1 pretraining (1 run, train∪val, ~3h)"
+  - "Run B1 finetuning on 3 seeds (2025, 2026, 2027), Gate: Test MAE < 0.001811 on ≥2/3 seeds"
+  - "Monitor pretraining convergence (component MAE trend, net MSE anchor stability)"
+  - "If B1 passes: proceed to B1-aux (λ_net sensitivity). If fails: diagnose per §7 confound control"
+
+ai_suggestions_pending:
+  - "None this turn — all changes were direct implementation of the approved Phase B design doc"

@@ -1,0 +1,13 @@
+# PhysFormer-iGT P2-2 (Ablation A4): A3 + Graph-biased attention
+# 16 tokens + B_phys graph bias + B_learned + annealing (1.0→0.1)
+# Tests whether DVPP physical topology as attention prior improves component accuracy.
+#
+# Gate: Component MAE improvement >=5% on >=3/5 components vs A3, aggregate no worse.
+#
+_base_: physformer_igt_a1.yaml
+model:
+  name: PhysFormer-iGT
+training:
+  seed: 2025
+checkpoint:
+  name: physformer_igt_a4

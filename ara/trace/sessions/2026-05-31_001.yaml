@@ -1,0 +1,149 @@
+session:
+  id: "2026-05-31_001"
+  date: "2026-05-31"
+  started: "2026-05-31T14:30"
+  last_turn: "2026-05-31T23:27"
+  turn_count: 6
+  summary: "B1 rescue implemented and first B1-R1-reg 3-seed VGPU run launched incrementally in /root/autodl-tmp/physformer. Runs confirmed pretrained load + scaler-buffer skip, reached common epoch 3, then were stopped at user request before final Test metrics."
+
+events_logged:
+  - turn: 1
+    type: dead_end
+    id: N110
+    routing: direct
+    provenance: ai-executed
+    summary: "Config bug: config_to_args missed pretrained_path/pretrain_lambda_net — B1 original finetune was from-scratch, never loaded pretrained weights"
+  - turn: 1
+    type: decision
+    id: N111
+    routing: direct
+    provenance: ai-executed
+    summary: "Bug fix: 2 lines in physformer/config.py — flat[pretrained_path] + flat[pretrain_lambda_net]"
+  - turn: 1
+    type: experiment
+    id: N112
+    routing: direct
+    provenance: ai-executed
+    summary: "Fixed B1 finetune: pretrained weights loaded (confirmed), but Val MSE degraded E1→E3 across all 3 seeds. Killed at user request."
+  - turn: 1
+    type: dead_end
+    id: N113
+    routing: direct
+    provenance: ai-executed
+    summary: "Pure net_mse finetune degrades pretrained — multi-task pretraining IS optimal, removing auxiliary losses triggers overfitting"
+  - turn: 1
+    type: observation
+    id: O53
+    routing: staged
+    provenance: ai-executed
+    summary: "B1 finetune dead end: two independent runs (buggy from-scratch + fixed true finetune) both confirm net_mse-only training cannot match/beat pretrained"
+  - turn: 2
+    type: observation
+    id: O54
+    routing: staged
+    provenance: ai-suggested
+    summary: "B1 failure analysis: finetune removed useful auxiliary regularization; MCP objective may be misaligned with aggregate signed-covariance optimum; scaler/checkpoint-selection confounds need audit"
+  - turn: 3
+    type: observation
+    id: O55
+    routing: staged
+    provenance: user
+    summary: "B1 should be rescued/evaluated as real DVPP target adaptation, not only static held-out Test MAE; scaler-buffer mismatch found as concrete confound"
+  - turn: 4
+    type: decision
+    id: N114
+    routing: direct
+    provenance: ai-executed
+    summary: "Implemented B1 rescue protocol: pretrained scaler buffers skipped by default, scaler diff reports, low-LR/regularized finetune arms, best-Val-Net checkpoint, and target few-shot adaptation configs"
+  - turn: 4
+    type: observation
+    id: O55
+    routing: crystallized
+    provenance: user
+    summary: "O55 crystallized via artifact-commitment into N114 after code/config implementation"
+  - turn: 5
+    type: experiment
+    id: N115
+    routing: direct
+    provenance: ai-executed
+    summary: "Prepared and launched B1-R1-reg 3-seed VGPU run via existing remote directory; logs confirmed pretrained load and scaler-buffer skip; monitor log issue remained"
+  - turn: 6
+    type: experiment
+    id: N115
+    routing: direct
+    provenance: ai-executed
+    summary: "User asked to stop; remote B1-R1-reg train/monitor processes were terminated and GPU compute-app query returned empty"
+
+ai_actions:
+  - turn: 1
+    action: "Killed monitoring Cron job; pulled checkpoints from 16846 server; pushed to VGPU-32GB; ran pretrained baseline test; discovered config_to_args bug; fixed bug in physformer/config.py; re-launched B1 finetune 3 seeds on VGPU; monitored E1-E3 degradation; killed training at user request"
+    provenance: ai-executed
+    files_changed: ["physformer/config.py (+2 lines: pretrained_path, pretrain_lambda_net)"]
+  - turn: 2
+    action: "Read B1/A1 configs, iGT masking path, PretrainLoss, PretrainExperiment, data pretraining_mode, finetune load path, A1 metrics, B1 logs, and N110-N113; synthesized failure mechanism"
+    provenance: ai-executed
+    files_changed: ["ara/staging/observations.yaml (added O54)"]
+  - turn: 3
+    action: "Read Phase B design doc, checked relevant ARA dead ends/claims, inspected scaler buffer path in data.py, iGT state_dict buffers, and test denormalization path; reframed B1 rescue around deployment-like adaptation"
+    provenance: ai-executed
+    files_changed: ["ara/staging/observations.yaml (added O55)"]
+  - turn: 4
+    action: "Implemented B1 rescue plan locally; verified py_compile, print-config for R0/R1/R2 configs, component regularizer sanity, adaptation split borders, local R2 dataset counts, and checkpoint scaler-buffer presence"
+    provenance: ai-executed
+    files_changed: ["physformer/config.py", "physformer/data.py", "physformer/loss.py", "physformer/train/physformer_exp.py", "physformer/train/pretrain_exp.py", "configs/physformer_igt_b1_r0/r1/r2*.yaml", "configs/physformer_igt_a1_r2_fewshot_scratch*.yaml", "ara/trace/exploration_tree.yaml", "ara/staging/observations.yaml"]
+  - turn: 5
+    action: "Added seed configs and remote launcher/monitor for B1-R1-reg 3-seed run; incrementally synced source/checkpoint to existing /root/autodl-tmp/physformer; launched 3 seeds via nohup; confirmed pretrained scaler buffers skipped and scaler diff 0.0"
+    provenance: ai-executed
+    files_changed: ["configs/physformer_igt_b1_r1_reg_finetune_s2026.yaml", "configs/physformer_igt_b1_r1_reg_finetune_s2027.yaml", "scripts/train/launch_b1_r1_reg_3seed.sh", "scripts/train/monitor_b1_3seed_epochs.py", "ara/trace/exploration_tree.yaml"]
+  - turn: 6
+    action: "Stopped remote B1-R1-reg training/monitor processes at user request; verified no active GPU compute apps. Also made local monitor parser/default-path and launcher default-path fixes, but did not redeploy or restart after the stop request."
+    provenance: ai-executed
+    files_changed: ["scripts/train/monitor_b1_3seed_epochs.py", "scripts/train/launch_b1_r1_reg_3seed.sh", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-05-31_001.yaml"]
+
+claims_touched:
+  - id: C11
+    action: reinforced
+    turn: 1
+  - id: C12
+    action: reinforced
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "Pretrained 直接 test 的 MAE (0.001820) 比三个 finetune seed 的任意一个都好 — Finetune 不仅没有提升，反而全面退化了"
+
+  - turn: 2
+    excerpt: "B1 should be interpreted as a failed phase-separated MCP-to-net_mse finetune recipe, not as proof that component supervision is intrinsically wrong."
+  - turn: 3
+    excerpt: "The original Phase B rationale is still valid for DVPP deployment; the current B1 gate may not test the finetune value the user cares about."
+  - turn: 4
+    excerpt: "B1 rescue implementation changes the gate from static Test-only failure to R0 scaler audit, R1 safe finetune, and R2 few-shot target adaptation."
+  - turn: 5
+    excerpt: "User approved using the .ssh alias and incremental update of the existing remote directory; B1-R1-reg launched on AutoDL-vGPU-32GB with 3 seeds."
+  - turn: 6
+    excerpt: "User said '先停了吧'; remote training and monitor were stopped, and nvidia-smi reported no active compute apps."
+
+open_threads:
+  - "N115 paused: B1-R1-reg stopped after common epoch 3, before final Test metrics"
+  - "Monitor follow-up: local parser/default-path fix exists but was not redeployed or restarted after stop request"
+  - "B1-R0 old-load vs fixed-load direct test still needs to be run on GPU/target data"
+  - "B1-R1 lowLR/reg finetune needs 3 seeds (2025/2026/2027)"
+  - "B1-R2 needs target-group adaptation matrix across 5/10/20% labeled target data vs A1 scratch"
+  - "N114 reframing: B1 is not closed until deployment-style target adaptation gate is evaluated"
+  - "N113 lesson: future work should tune λ_net during pretraining (not finetune) or try joint training"
+  - "Second config_to_args propagation bug — systemic fragility in two-part mapping pattern"
+  - "Gate 0.001811 not reached — pretrained MAE 0.001820 is 0.5% above, closest any model has gotten"
+
+  - "O54 confound audit: pretrain state_dict may carry train+val scaler buffers into train-scaler finetune/test regime"
+  - "O54 hypothesis: multi-component objective is useful as regularizer but misaligned if treated as pretrain-only and then removed"
+  - "O55 reframing: evaluate B1 under target-portfolio / few-shot adaptation before declaring pretrain+finetune dead"
+
+ai_suggestions_pending:
+  - "Run B1-R0 old-load vs fixed-load direct test and compare scaler_buffer_report.json"
+  - "Run B1-R1 lowLR/reg finetune for seeds 2025/2026/2027"
+  - "Run B1-R2 few-shot target adaptation for 5/10/20% and summarize win rate vs A1 scratch"
+  - "Multi-task joint training (component + theory + net_mse) from scratch — no phase separation"
+  - "Tuning λ_net in pretraining to push net_mse lower while keeping auxiliary losses as regularizers"
+  - "Refactor config_to_args to autogenerate from TRAINING_KEYS instead of dual manual+auto mapping"
+  - "Audit B1 scaler-buffer consistency and select/checkpoint by Val Net before declaring MCP fully falsified"
+  - "Design B1 rescue protocol: scaler repair, low-LR/regularized finetune, and deployment-like adaptation split"

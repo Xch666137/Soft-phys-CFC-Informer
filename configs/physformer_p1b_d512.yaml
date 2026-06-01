@@ -1,0 +1,18 @@
+# P1-B encoder bottleneck: d_model=256→512, d_ff=512→1024
+_base_: base/v5_base.yaml
+model:
+  load_gru_hidden: 64
+  load_gru_use_temp: true
+  d_model: 512
+  d_ff: 1024
+training:
+  restart_t0: 20
+  detach_mode_phase2: none
+  phase_2_cw: 0.02
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+  seed: 2024
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_p1b_d512

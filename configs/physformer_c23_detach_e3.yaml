@@ -1,0 +1,27 @@
+# C-2+C-3 detach×e3: detach + e_layers=3 joint (replacement-mechanism search 2026-05-25)
+# Falsification: see docs/plans/2026-05-25-detach-mechanism-search.md §4 E1
+_base_: base/v5_base.yaml
+model:
+  load_gru_hidden: 64
+  load_gru_use_temp: true
+  e_layers: 3
+training:
+  restart_t0: 20
+  phase_reset_mode: soft
+  phase_1_epochs: 8
+  phase_2a_epochs: 30
+  phase_2_epochs: 30
+  phase_1_cw: 0.03
+  phase_2a_cw: 0.02
+  phase_2_cw: 0.01
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+  detach_mode_phase2: selective
+  train_epochs: 30
+  patience: 8
+  early_stop_start_epoch: 12
+  seed: 2025
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_c23_detach_e3

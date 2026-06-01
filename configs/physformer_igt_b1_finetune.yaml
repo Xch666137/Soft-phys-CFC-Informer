@@ -1,0 +1,39 @@
+# Phase B1: Finetuning pretrained weights on A1 net MSE.
+# Identical to A1 config + pretrained checkpoint loading.
+# Run with 3 seeds (2025, 2026, 2027).
+#
+_base_: base/v5_base.yaml
+model:
+  name: PhysFormer-iGT
+training:
+  train_epochs: 50
+  patience: 12
+  early_stop_start_epoch: 12
+  # Net MSE only — no component, theory, or SOC loss
+  component_loss_weight: 0.0
+  theory_loss_weight: 0.0
+  soc_weight: 0.0
+  res_reg_weight: 0.0
+  # Single phase, no curriculum
+  phase_1_epochs: 50
+  phase_2_epochs: 50
+  phase_2a_epochs: 50
+  phase_1_cw: 0.0
+  phase_2_cw: 0.0
+  phase_2a_cw: 0.0
+  phase_1_rr: 0.0
+  phase_2_rr: 0.0
+  phase_1_tw: 0.0
+  phase_2_tw: 0.0
+  batch_size: 256
+  seed: 2025
+  val_interval: 1
+  grad_angle_interval: 999
+  # Path to pretrained checkpoint from B1 pretraining
+  pretrained_path: runs/physformer_igt_b1_pretrain/pretrained_checkpoint.pth
+  load_pretrained_scaler_buffers: false
+hardware:
+  num_workers: 4
+  persistent_workers: true
+checkpoint:
+  name: physformer_igt_b1_finetune_s2025

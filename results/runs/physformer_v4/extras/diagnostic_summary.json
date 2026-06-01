@@ -1,0 +1,6 @@
+{
+  "theory_mae": 0.0038105437997728586,
+  "residual_std_real_mw": 0.0043120295740664005,
+  "residual_mean_real_mw": 0.00225923047401011,
+  "soc_bound_violation": 0.0
+}

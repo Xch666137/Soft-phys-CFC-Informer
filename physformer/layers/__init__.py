@@ -1,14 +1,5 @@
 """
 Reusable layers shared across models.
-
-- attention: ProbAttention, FullAttention
-- embedding: DataEmbedding, TokenEmbedding
-- encoder: Encoder, EncoderLayer, FeedForward, AttentionLayer
-- decoder: Decoder, DecoderLayer
-- positional: PositionalEncoding, RoPEPositionalEncoding
-- distillation: SelfAttentionDistillation
-- mask: TriangularCausalMask
-- revin: RevIN
 """
 
 from .attention import ProbAttention, FullAttention
@@ -18,6 +9,7 @@ from .positional import PositionalEncoding, RoPEPositionalEncoding
 from .embedding import DataEmbedding
 from .mask import TriangularCausalMask
 from .revin import RevIN
+from .decomposition import moving_avg, series_decomp
 
 __all__ = [
     'ProbAttention', 'FullAttention',
@@ -27,4 +19,5 @@ __all__ = [
     'DataEmbedding',
     'TriangularCausalMask',
     'RevIN',
+    'moving_avg', 'series_decomp',
 ]

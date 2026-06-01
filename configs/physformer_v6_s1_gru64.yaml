@@ -1,0 +1,13 @@
+# V6 Stage 1: GRU temporal module (d_gru=64) — ablation lower bound
+_base_: base/v5_base.yaml
+model:
+  load_gru_hidden: 64
+training:
+  restart_t0: 20
+  phase_2_cw: 0.02
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+hardware:
+  num_workers: 2
+checkpoint:
+  name: physformer_v6_s1_gru64

@@ -1,0 +1,103 @@
+model:
+  name: PhysFormer
+  enc_in: 6
+  d_model: 256
+  n_heads: 8
+  e_layers: 2
+  d_ff: 512
+  factor: 5
+  dropout: 0.1
+  attn: full
+  embed: custom
+  activation: gelu
+  use_rope: true
+  rope_base: 10000
+  distil: false
+  use_temporal_decoder: true
+  film_scale: 0.5
+  time_feat_dim: 10
+  load_gru_hidden: 96
+  dec_in: 6
+  c_out: 1
+  output_attention: false
+  decoder_n_heads: null
+data:
+  root_path: /root/autodl-tmp
+  data_path: physformer/data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+  features: M
+  target: null
+  time_col: date
+  id_col: portfolio_id
+  region_col: region_id
+  split_col: split
+  split_strategy: portfolio_manifest
+  task_mode: net_injection
+  target_cols:
+  - p_vpp_mw
+  known_future_covariate_cols:
+  - temperature
+  - irradiance
+  - wind_speed
+  history_state_cols:
+  - p_battery_mw
+  - e_battery_soc_mwh
+  aux_target_cols:
+  - p_load_mw
+  - p_pv_mw
+  - p_wind_mw
+  - p_battery_mw
+  - e_battery_soc_mwh
+  seq_len: 672
+  pred_len: 96
+  freq: t
+  label_len: 0
+training:
+  batch_size: 64
+  train_epochs: 50
+  learning_rate: 0.0001
+  weight_decay: 1.0e-05
+  grad_clip: 1.0
+  patience: 20
+  use_amp: true
+  warmup_epochs: 5
+  warmup_start_factor: 0.2
+  early_stop_metric: net_mse
+  early_stop_start_epoch: 20
+  soc_weight: 0.1
+  component_loss_weight: 0.01
+  theory_loss_weight: 0.1
+  restart_t0: 20
+  restart_t_mult: 1
+  res_reg_weight: 0.01
+  phase_1_epochs: 8
+  phase_2_epochs: 50
+  phase_1_cw: 0.03
+  phase_2_cw: 0.02
+  phase_1_rr: 0.05
+  phase_2_rr: 0.01
+  phase_1_tw: 0.1
+  phase_2_tw: 0.05
+  seed: 2024
+  log_interval: 50
+  battery_component_weight: 1.0
+hardware:
+  use_gpu: true
+  gpu: 0
+  num_workers: 2
+  pin_memory: true
+  use_multi_gpu: false
+  device_ids:
+  - 0
+  persistent_workers: true
+  prefetch_factor: 4
+checkpoint:
+  path: /root/autodl-tmp/physformer/runs/physformer_v6_s2_gru96
+  name: physformer_v6_s2_gru96
+ablation:
+  no_phys_stream: false
+  no_battery_branch: false
+  no_soc_consistency: false
+  no_future_weather: false
+  no_battery_physics_loss: false
+  no_temporal_decoder: false
+  no_deep_battery_context: false

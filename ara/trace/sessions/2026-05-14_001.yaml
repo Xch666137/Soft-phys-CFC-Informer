@@ -1,0 +1,120 @@
+session:
+  id: "2026-05-14_001"
+  date: "2026-05-14"
+  started: "2026-05-14T14:00"
+  last_turn: "2026-05-15T01:00"
+  turn_count: 1
+  summary: "V6 Stage 1+2 executed: behavioral load module (Temp MLP + GRU) replaces HDD/CDD. N28 capacity-ceiling insight discovered. Three unexplored paths identified (N29-N31)."
+
+events_logged:
+  - turn: 1
+    type: experiment
+    id: "N26"
+    routing: direct
+    provenance: ai-executed
+    summary: "V6 S1: GRU + HDD/CDD, gru64 wins all 19 metrics vs gru96. MAE=0.001952, Theory=0.002483."
+  - turn: 1
+    type: experiment
+    id: "N27"
+    routing: direct
+    provenance: ai-executed
+    summary: "V6 S2: Temp MLP + GRU, d_gru order REVERSES. gru64 wins all 5 component MAEs, gru96 wins aggregate (MSE=7.281e-6 = V5.5b)."
+  - turn: 1
+    type: insight
+    id: "N28"
+    routing: direct
+    provenance: ai-suggested
+    summary: "Capacity ceiling governs physics-data boundary: larger GRU duplicates Temp MLP, degrading components."
+  - turn: 1
+    type: question
+    id: "N29"
+    routing: direct
+    provenance: ai-suggested
+    summary: "Path A: Remove temperature from GRU input to enforce physics-data boundary."
+  - turn: 1
+    type: question
+    id: "N30"
+    routing: direct
+    provenance: ai-suggested
+    summary: "Path C: Activate selective gradient detach (code exists, never used in training)."
+  - turn: 1
+    type: question
+    id: "N31"
+    routing: direct
+    provenance: ai-suggested
+    summary: "C05 remains hypothesis: curriculum vs fixed-weight never experimentally compared."
+  - turn: 1
+    type: observation
+    id: "O06"
+    routing: crystallized
+    provenance: user
+    summary: "O06 crystallized via artifact-commitment: V6 code + experiments confirm the Load behavioral direction."
+  - turn: 1
+    type: observation
+    id: "O07"
+    routing: staged
+    provenance: ai-executed
+    summary: "S1: d_gru=64 surprises data analysis that predicted 96. Smaller capacity better under weak physics."
+  - turn: 1
+    type: observation
+    id: "O08"
+    routing: staged
+    provenance: ai-executed
+    summary: "S2: d_gru ordering reverses. GRU capacity ceiling drives physics-data specialization boundary."
+  - turn: 1
+    type: observation
+    id: "O09"
+    routing: staged
+    provenance: ai-suggested
+    summary: "Proposed V6 S3: remove temp from GRU input to test capacity-ceiling hypothesis directly."
+
+ai_actions:
+  - turn: 1
+    action: "Implemented LoadTemporalModule (GRU-96, 98K params) in physical_layer.py"
+    provenance: ai-executed
+    files_changed: ["physformer/models/physformer/physical_layer.py", "physformer/models/physformer/model.py", "physformer/train/physformer_exp.py"]
+  - turn: 1
+    action: "Fixed cuDNN RNN backward bug (eval mode) in physformer_exp.py:173"
+    provenance: ai-executed
+    files_changed: ["physformer/train/physformer_exp.py"]
+  - turn: 1
+    action: "Removed tqdm from training loop for clean logs"
+    provenance: ai-executed
+    files_changed: ["physformer/train/physformer_exp.py", "physformer/train/base.py"]
+  - turn: 1
+    action: "Fixed autodl.sh: function ordering, YAML comment parsing, data exclusion"
+    provenance: ai-executed
+    files_changed: ["~/.claude/skills/autodl-push/autodl.sh", "~/.claude/skills/autodl-push/config.yaml"]
+  - turn: 1
+    action: "Implemented LearnableTempResponse (3-layer MLP) replacing HDD/CDD"
+    provenance: ai-executed
+    files_changed: ["physformer/models/physformer/physical_layer.py"]
+  - turn: 1
+    action: "Deployed + trained 4 experiments on AutoDL 3080Ti: V6 S1 gru64/96 + V6 S2 gru64/96"
+    provenance: ai-executed
+    files_changed: ["configs/physformer_v6_s1_gru64.yaml", "configs/physformer_v6_s1_gru96.yaml", "configs/physformer_v6_s2_gru64.yaml", "configs/physformer_v6_s2_gru96.yaml"]
+  - turn: 1
+    action: "Pulled + analyzed all results. Conducted deep analysis of d_gru reversal across S1→S2."
+    provenance: ai-executed
+    files_changed: ["results/v6_s1_ablation/", "results/v6_s2_ablation/"]
+
+claims_touched:
+  - id: C06
+    action: advanced
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "V6: Load分支从ExplicitVPPPhysicalLayer中分离，替换为Temp MLP + GRU + calendar embedding。Stage 1: GRU修正HDD/CDD。Stage 2: Temp MLP替换HDD/CDD。核心发现: GRU容量上限决定物理-数据分工边界。"
+
+open_threads:
+  - "V6 S3 (Path A): Remove temperature from GRU input — proposed, not yet implemented."
+  - "Path C: Activate selective gradient detach — code exists, never tested."
+  - "C05 remains hypothesis: curriculum vs fixed-weight not experimentally compared."
+  - "Multi-seed verification for all V6 experiments (single seed=2024 limitation)."
+  - "Path D (N20): PV/Wind physical model enhancement — open, not yet explored."
+
+ai_suggestions_pending:
+  - "N29: Path A — remove temperature from GRU input, test if gru96 becomes universal winner."
+  - "N30: Path C — activate selective detach in training loop."
+  - "N28: Capacity-ceiling principle — needs user verbal affirmation to crystallize to claim/heuristic."

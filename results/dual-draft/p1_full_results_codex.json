@@ -1,0 +1,159 @@
+{
+  "reviewer": "codex",
+  "file": "results/dual-draft/p1_full_results.md",
+  "issues": [
+    {
+      "line_start": 10,
+      "severity": "high",
+      "category": "methodology",
+      "description": "Batch 1-2 只覆盖 baseline/detach/no_temp 的两个种子，Batch 3 和 Batch 4 又切换到 seed=2024，导致配置差异与种子差异混杂。",
+      "suggested_fix": "对核心配置 baseline、detach、no_temp、alpha=0/0.3/0.5/0.7、e3、d512、d512_e3 至少统一跑 3-5 个相同种子，并报告均值、标准差和置信区间。",
+      "rationale": "当前很多结论依赖跨 seed 或跨批次比较，但不同批次不是同一随机条件下的完整因子实验。",
+      "line_end": 10
+    },
+    {
+      "line_start": 34,
+      "severity": "high",
+      "category": "methodology",
+      "description": "梯度缩放实验缺失 alpha=0 和 alpha=1 的同批次直接对照，且 alpha 网格过稀。",
+      "suggested_fix": "在同一 seed 和同一训练设置下补齐 alpha=0、0.1、0.2、0.3、0.5、0.7、0.9、1.0，并重复多种子。",
+      "rationale": "声称临界阈值 alpha>=0.7 和非单调最优位于 alpha=0 或 alpha>=0.7，需要端点和更密集区间支撑。",
+      "line_end": 34
+    },
+    {
+      "line_start": 40,
+      "severity": "high",
+      "category": "physics_interpretation",
+      "description": "alpha=0.3 和 alpha=0.5 的 Load/Batt 均固定在约 0.0145/0.02135，与 no_temp_s2026、d512 崩溃数值高度一致，可能不是普通性能退化，而是物理分支输出进入常数解、裁剪边界或归一化反变换上限。",
+      "suggested_fix": "检查组件输出分布、反归一化范围、激活饱和、clamp/softplus 边界、组件损失梯度路径，并报告每个组件的均值、方差、边界命中率。",
+      "rationale": "相同崩溃数值跨配置重复出现，说明存在共同机制或实现边界，不能只用“容量比失衡”解释。",
+      "line_end": 40
+    },
+    {
+      "line_start": 38,
+      "severity": "high",
+      "category": "statistical_validity",
+      "description": "Batch 3 的 alpha 结论来自单次运行，且 alpha=0.5 与 alpha=0.3 的聚合 MAE 差距很小，缺少不确定性估计。",
+      "suggested_fix": "对每个 alpha 运行多种子，报告 paired seed 差值、Cohen's d 或 bootstrap CI，并给出排序稳定性。",
+      "rationale": "0.001951 vs 0.001985 这类差异可能落在训练随机波动内，不能直接作为最优点。",
+      "line_end": 38
+    },
+    {
+      "line_start": 51,
+      "severity": "high",
+      "category": "overfitting",
+      "description": "Batch 4 使用 N44，而 Batch 1-3 使用 C07，跨数据集或场景的比较被混在同一个推荐链中。",
+      "suggested_fix": "明确 C07 与 N44 的数据分布、任务难度、划分方式和指标尺度；核心推荐 e3/detach/alpha 应在两个场景分别复现。",
+      "rationale": "跨批次可比性不足时，不能把 C07 的 detach 结论和 N44 的 e3 结论直接合成统一推荐。",
+      "line_end": 51
+    },
+    {
+      "line_start": 55,
+      "severity": "medium",
+      "category": "statistical_validity",
+      "description": "Best Val MSE 数值约 0.38-0.40，而 Test MSE 约 8e-6，量级不一致，缺少指标定义和归一化说明。",
+      "suggested_fix": "说明 Val MSE 与 Test MSE 是否处于同一尺度、是否经过反归一化、是否是不同目标；若不同，不应直接用“Val 突破但 Test 退化”表述。",
+      "rationale": "量级不一致会削弱 Val/Test 背离判断，也可能隐藏数据处理或日志口径问题。",
+      "line_end": 55
+    },
+    {
+      "line_start": 57,
+      "severity": "high",
+      "category": "overfitting",
+      "description": "d512 的 Val MSE 更优但 Test MAE 退化，被解读为过拟合，但缺少训练集指标、验证曲线、早停 epoch 和多种子复现。",
+      "suggested_fix": "补充 train/val/test 曲线、early stopping 触发轮次、最终 checkpoint 与 best-val checkpoint 指标，并在多 seed 下验证。",
+      "rationale": "单个 d512 结果也可能来自验证集偏差、checkpoint 选择、学习率调度差异或数据划分问题，不一定是过拟合。",
+      "line_end": 57
+    },
+    {
+      "line_start": 34,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "GradNorm 只给出近似数量级，未说明统计位置、层级、时间点或是否为全局范数。",
+      "suggested_fix": "记录每个 epoch 的 theory 分支、残差头、共享 encoder、组件 head 的梯度范数曲线，并标注 phase 切换和 LR。",
+      "rationale": "判断“梯度死亡”需要动态证据；单点 GradNorm 无法区分早期死亡、后期衰减、梯度裁剪或学习率过低。",
+      "line_end": 34
+    },
+    {
+      "line_start": 7,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "description": "P0 引入 OneCycleLR、early_stop_start_epoch=5、patience=8，但分析未检查 LR schedule 与 phase 切换、detach/alpha 切换之间的交互。",
+      "suggested_fix": "报告 LR 曲线、phase 切换 epoch、梯度范数与 loss 分项曲线，并尝试固定 LR 或延后/提前 phase 切换作为对照。",
+      "rationale": "OneCycleLR 的高 LR 阶段可能触发物理分支饱和或残差头接管，尤其会影响 alpha 部分梯度流实验。",
+      "line_end": 7
+    },
+    {
+      "line_start": 18,
+      "severity": "medium",
+      "category": "recommendation",
+      "description": "detach 被称为两个种子下 MAE 和 Theory MAE 最优，但 seed=2026 中 detach 的 MAE 0.002008 只比 baseline 0.002016 好 0.4%，效应量很小。",
+      "suggested_fix": "把结论改为“初步稳定但效应小”，并用多种子均值差、标准差和显著性检验支持。",
+      "rationale": "统计波动可能超过 8e-6 的 MAE 差距，直接推荐 detach 有过度解释风险。",
+      "line_end": 18
+    },
+    {
+      "line_start": 58,
+      "severity": "medium",
+      "category": "recommendation",
+      "description": "e3 推荐隐含假设是“可接受 2.3% aggregate MAE 代价以换取 6.7% Theory MAE 改善”，但没有给出业务目标权重。",
+      "suggested_fix": "定义模型选择准则，例如 aggregate MAE、Theory MAE、组件 MAE、ResMean 的加权目标或 Pareto 前沿。",
+      "rationale": "若最终应用重视聚合预测，e3 未必优于 baseline；若重视物理可解释性，则需要明确代价函数。",
+      "line_end": 58
+    },
+    {
+      "line_start": 59,
+      "severity": "medium",
+      "category": "recommendation",
+      "description": "d512_e3 与 e3 很接近，但没有分析深度和宽度的交互项，也没有测试 d384/e4 等中间配置。",
+      "suggested_fix": "补充 d_model={192,256,384,512} 与 e_layers={2,3,4} 的小型网格或响应面实验。",
+      "rationale": "“宽度有害、深度有益”可能只在 d512 或 e3 这两个点成立，无法推出单调结构规律。",
+      "line_end": 59
+    },
+    {
+      "line_start": 40,
+      "severity": "high",
+      "category": "physics_interpretation",
+      "description": "alpha=0.5 聚合最优但组件崩溃，说明残差头可能绕过物理分支；当前未量化残差头贡献比例和物理分支可辨识性。",
+      "suggested_fix": "报告 theory 输出、residual 输出、final 输出的方差占比、相关性、能量分解和残差均值漂移；增加限制残差容量或残差正则的对照。",
+      "rationale": "如果残差头完全接管，聚合指标改善不能说明模型学到了物理结构。",
+      "line_end": 40
+    },
+    {
+      "line_start": 26,
+      "severity": "medium",
+      "category": "overfitting",
+      "description": "no_temp_s2026 出现组件崩溃但聚合 MSE 最优，提示验证/测试指标可能允许非物理解；未检查是否存在数据泄露或目标构造捷径。",
+      "suggested_fix": "检查时间切分、归一化统计是否只用训练集、滑窗是否跨越 split、未来变量是否进入输入，并做按时间段/工况的分层测试。",
+      "rationale": "残差补偿型模型若在测试集上异常稳健，需排除泄露或分布过近导致的捷径。",
+      "line_end": 26
+    },
+    {
+      "line_start": 18,
+      "severity": "low",
+      "category": "missing_analysis",
+      "description": "只报告平均 MAE/MSE，缺少峰值、低负荷、高 PV、高风、SOC 边界等物理关键工况下的分层误差。",
+      "suggested_fix": "按工况分桶报告组件误差、聚合误差和残差偏置，并检查崩溃配置是否集中失败于特定工况。",
+      "rationale": "电力系统预测的物理一致性通常在边界工况和快速变化阶段更关键。",
+      "line_end": 18
+    },
+    {
+      "line_start": 18,
+      "severity": "low",
+      "category": "missing_analysis",
+      "description": "没有报告误差方向、校准和残差自相关，只给 ResMean 一个均值指标。",
+      "suggested_fix": "补充 residual distribution、ACF、按 horizon 的误差、P90/P95 absolute error 和 bias。",
+      "rationale": "均值接近 0 不代表残差无结构，可能仍存在系统性时序偏差。",
+      "line_end": 18
+    },
+    {
+      "line_start": 5,
+      "severity": "low",
+      "category": "methodology",
+      "description": "并行 3 实验/批次且 GPU 99% 限制，未说明并行运行是否影响确定性、吞吐、温度降频或 dataloader 随机性。",
+      "suggested_fix": "记录每次运行的 wall time、GPU 利用率、显存、确定性设置和依赖版本；关键实验单独复跑确认。",
+      "rationale": "硬件拥塞通常不是主要因素，但在小效应量比较中可能影响复现性。",
+      "line_end": 5
+    }
+  ]
+}

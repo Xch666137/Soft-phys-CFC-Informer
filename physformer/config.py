@@ -24,6 +24,7 @@ MODEL_KEYS = (
     "distil",
     "output_attention",
     "use_temporal_decoder",
+    "use_horizon_decoder",
     "film_scale",
     "decoder_n_heads",
     "time_feat_dim",
@@ -51,6 +52,11 @@ DATA_KEYS = (
     "known_future_covariate_cols",
     "history_state_cols",
     "aux_target_cols",
+    "adaptation_target_portfolios",
+    "adaptation_target_regions",
+    "adaptation_source_splits",
+    "adaptation_train_fraction",
+    "adaptation_val_fraction",
 )
 
 TRAINING_KEYS = (
@@ -84,6 +90,17 @@ TRAINING_KEYS = (
     "battery_component_weight",
     "detach_mode_phase2",
     "detach_scale",
+    "pretrained_path",
+    "load_pretrained_scaler_buffers",
+    "pretrain_lambda_net",
+    "l2sp_weight",
+    "save_best_val_net_checkpoint",
+    "phase_2a_epochs",
+    "phase_2a_cw",
+    "phase_reset_mode",
+    "use_compile",
+    "val_interval",
+    "grad_angle_interval",
 )
 
 HARDWARE_KEYS = (
@@ -103,6 +120,9 @@ LIST_KEYS = {
     "known_future_covariate_cols",
     "history_state_cols",
     "aux_target_cols",
+    "adaptation_target_portfolios",
+    "adaptation_target_regions",
+    "adaptation_source_splits",
     "device_ids",
 }
 
@@ -202,6 +222,11 @@ def config_to_args(cfg):
     flat["use_compile"] = training_cfg.get("use_compile", True)
     flat["val_interval"] = training_cfg.get("val_interval", 1)
     flat["grad_angle_interval"] = training_cfg.get("grad_angle_interval", 1)
+    flat["pretrained_path"] = training_cfg.get("pretrained_path", None)
+    flat["load_pretrained_scaler_buffers"] = training_cfg.get("load_pretrained_scaler_buffers", False)
+    flat["pretrain_lambda_net"] = training_cfg.get("pretrain_lambda_net", 1.0)
+    flat["l2sp_weight"] = training_cfg.get("l2sp_weight", 0.0)
+    flat["save_best_val_net_checkpoint"] = training_cfg.get("save_best_val_net_checkpoint", True)
 
     hardware_cfg = cfg.get("hardware", {})
     flat["use_gpu"] = hardware_cfg.get("use_gpu", True)

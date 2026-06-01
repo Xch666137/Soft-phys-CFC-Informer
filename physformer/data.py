@@ -111,6 +111,12 @@ class VPPDataset(Dataset):
         history_state_cols=None,
         aux_target_cols=None,
         task_mode="component_multitask",
+        pretraining_mode=False,
+        adaptation_target_portfolios=None,
+        adaptation_target_regions=None,
+        adaptation_source_splits=None,
+        adaptation_train_fraction=1.0,
+        adaptation_val_fraction=0.2,
     ):
         if size is None:
             self.seq_len = 96 * 4 * 7
@@ -136,6 +142,21 @@ class VPPDataset(Dataset):
         self.split_col = split_col
         self.split_strategy = split_strategy or "time_series"
         self.task_mode = task_mode or "component_multitask"
+        self.pretraining_mode = bool(pretraining_mode)
+        self.adaptation_target_portfolios = (
+            {str(v) for v in adaptation_target_portfolios}
+            if adaptation_target_portfolios else set()
+        )
+        self.adaptation_target_regions = (
+            {str(v) for v in adaptation_target_regions}
+            if adaptation_target_regions else set()
+        )
+        self.adaptation_source_splits = (
+            {str(v) for v in adaptation_source_splits}
+            if adaptation_source_splits else set()
+        )
+        self.adaptation_train_fraction = float(adaptation_train_fraction or 1.0)
+        self.adaptation_val_fraction = float(adaptation_val_fraction or 0.2)
 
         self.explicit_target_cols = list(target_cols) if target_cols else None
         self.explicit_known_future_covariate_cols = (
@@ -172,6 +193,45 @@ class VPPDataset(Dataset):
         self._train_aux_frame = None
 
         self.__read_data__()
+
+    def _use_adaptation_split(self):
+        has_targets = bool(self.adaptation_target_portfolios or self.adaptation_target_regions)
+        has_source_splits = bool(self.adaptation_source_splits)
+        fewshot = self.adaptation_train_fraction < 0.999
+        return has_targets or has_source_splits or fewshot
+
+    def _filter_adaptation_frame(self, df_raw):
+        df_target = df_raw
+        if self.adaptation_source_splits:
+            if not self.split_col or self.split_col not in df_raw.columns:
+                raise ValueError("adaptation_source_splits requires a configured split_col.")
+            df_target = df_target.loc[df_target[self.split_col].astype(str).isin(self.adaptation_source_splits)]
+        if self.adaptation_target_portfolios:
+            if not self.id_col or self.id_col not in df_raw.columns:
+                raise ValueError("adaptation_target_portfolios requires a configured id_col.")
+            df_target = df_target.loc[df_target[self.id_col].astype(str).isin(self.adaptation_target_portfolios)]
+        if self.adaptation_target_regions:
+            if not self.region_col or self.region_col not in df_raw.columns:
+                raise ValueError("adaptation_target_regions requires a configured region_col.")
+            df_target = df_target.loc[df_target[self.region_col].astype(str).isin(self.adaptation_target_regions)]
+        if df_target.empty:
+            raise ValueError("Adaptation filtering produced an empty dataset.")
+        return df_target.copy()
+
+    def _adaptation_borders(self, n_rows):
+        train_fraction = min(max(self.adaptation_train_fraction, 0.0), 1.0)
+        val_fraction = min(max(self.adaptation_val_fraction, 0.0), 0.8)
+        labeled_end = int(n_rows * train_fraction)
+        if train_fraction > 0.0:
+            labeled_end = max(labeled_end, min(n_rows, self.seq_len + self.pred_len))
+        val_rows = int(labeled_end * val_fraction)
+        train_end = max(0, labeled_end - val_rows)
+
+        if self.set_type == 0:
+            return 0, train_end, 0, train_end
+        if self.set_type == 1:
+            return max(0, train_end - self.seq_len), labeled_end, 0, train_end
+        return max(0, labeled_end - self.seq_len), n_rows, 0, train_end
 
     def _resolve_columns(self, df_raw):
         reserved = {self.time_col}
@@ -226,6 +286,11 @@ class VPPDataset(Dataset):
 
         border1s = [0, max(0, num_train - self.seq_len), max(0, n - num_test - self.seq_len)]
         border2s = [num_train, num_train + num_val, n]
+
+        # Pretraining mode: extend train to include validation data
+        if self.pretraining_mode and self.set_type == 0:
+            border2s[0] = num_train + num_val
+
         return border1s[self.set_type], border2s[self.set_type], border1s[0], border2s[0]
 
     def __read_data__(self):
@@ -257,22 +322,63 @@ class VPPDataset(Dataset):
         train_aux_frames = []
         prepared_groups = []
 
-        if manifest_mode:
+        if manifest_mode and self._use_adaptation_split():
+            target_frame = self._filter_adaptation_frame(df_raw)
+            if self.id_col and self.id_col in target_frame.columns:
+                grouped = [
+                    (str(group_id), df_group.copy())
+                    for group_id, df_group in target_frame.groupby(self.id_col, sort=False)
+                ]
+            else:
+                grouped = [("__global__", target_frame.copy())]
+
+            fit_frames = []
+            fit_aux_frames = []
+            for group_id, df_group in grouped:
+                df_group = df_group.sort_values(self.time_col).reset_index(drop=True)
+                border1, border2, train_border1, train_border2 = self._adaptation_borders(len(df_group))
+                if train_border2 <= train_border1:
+                    continue
+                fit_frames.append(df_group.loc[train_border1:train_border2 - 1, self.feature_cols])
+                if self.aux_target_cols:
+                    fit_aux_frames.append(df_group.loc[train_border1:train_border2 - 1, self.aux_target_cols])
+                prepared_groups.append((group_id, df_group, border1, border2))
+
+            if not fit_frames:
+                raise ValueError(
+                    "Adaptation split produced no scaler-fit rows. Increase adaptation_train_fraction "
+                    "or choose larger target portfolios."
+                )
+            if self.id_col and self.id_col in target_frame.columns:
+                self._train_portfolio_ids = [str(gid) for gid, _ in grouped]
+            else:
+                self._train_portfolio_ids = None
+            train_feature_frames.extend(fit_frames)
+            train_aux_frames.extend(fit_aux_frames)
+        elif manifest_mode:
             split_value = ["train", "val", "test"][self.set_type]
-            train_frame = df_raw.loc[df_raw[self.split_col] == "train"].copy()
-            if train_frame.empty:
+            if self.pretraining_mode and self.set_type == 0:
+                train_frame = df_raw.loc[df_raw[self.split_col] == "train"].copy()
+                val_frame = df_raw.loc[df_raw[self.split_col] == "val"].copy()
+                fit_frame = pd.concat([train_frame, val_frame], axis=0, ignore_index=True)
+            else:
+                fit_frame = df_raw.loc[df_raw[self.split_col] == "train"].copy()
+            if fit_frame.empty:
                 raise ValueError(
                     f"split_strategy='portfolio_manifest' requires at least one train row in split column '{self.split_col}'."
                 )
-            if self.id_col and self.id_col in train_frame.columns:
-                self._train_portfolio_ids = [str(gid) for gid in sorted(train_frame[self.id_col].unique())]
+            if self.id_col and self.id_col in fit_frame.columns:
+                self._train_portfolio_ids = [str(gid) for gid in sorted(fit_frame[self.id_col].unique())]
             else:
                 self._train_portfolio_ids = None
-            train_feature_frames.append(train_frame[self.feature_cols])
+            train_feature_frames.append(fit_frame[self.feature_cols])
             if self.aux_target_cols:
-                train_aux_frames.append(train_frame[self.aux_target_cols])
+                train_aux_frames.append(fit_frame[self.aux_target_cols])
 
-            active_frame = df_raw.loc[df_raw[self.split_col] == split_value].copy()
+            if self.pretraining_mode and self.set_type == 0:
+                active_frame = df_raw.loc[df_raw[self.split_col].isin(["train", "val"])].copy()
+            else:
+                active_frame = df_raw.loc[df_raw[self.split_col] == split_value].copy()
             if self.id_col and self.id_col in active_frame.columns:
                 grouped = [(str(group_id), df_group.copy()) for group_id, df_group in active_frame.groupby(self.id_col, sort=False)]
             else:
@@ -623,11 +729,10 @@ class PhysFormerDataset(VPPDataset):
         return x_net_hist, x_weather_hist, x_battery_hist, x_weather_future, y_target, y_aux, x_mark_enc, y_mark, portfolio_idx, x_component_hist
 
 
-def data_provider(args, flag):
+def data_provider(args, flag, pretraining_mode=False):
     Data = PhysFormerDataset if args.model in ("PhysFormer", "PhysFormer-iGT") else VPPDataset
 
     shuffle_flag = flag == "train"
-    drop_last = flag == "train"
     batch_size = args.batch_size
     num_workers = getattr(args, "num_workers", 0)
     pin_memory = bool(getattr(args, "pin_memory", False)) and bool(getattr(args, "use_gpu", False))
@@ -654,7 +759,15 @@ def data_provider(args, flag):
         history_state_cols=getattr(args, "history_state_cols", None),
         aux_target_cols=getattr(args, "aux_target_cols", None),
         task_mode=getattr(args, "task_mode", "component_multitask"),
+        pretraining_mode=pretraining_mode,
+        adaptation_target_portfolios=getattr(args, "adaptation_target_portfolios", None),
+        adaptation_target_regions=getattr(args, "adaptation_target_regions", None),
+        adaptation_source_splits=getattr(args, "adaptation_source_splits", None),
+        adaptation_train_fraction=getattr(args, "adaptation_train_fraction", 1.0),
+        adaptation_val_fraction=getattr(args, "adaptation_val_fraction", 0.2),
     )
+
+    drop_last = flag == "train" and len(data_set) >= batch_size
 
     loader_kwargs = dict(
         batch_size=batch_size,

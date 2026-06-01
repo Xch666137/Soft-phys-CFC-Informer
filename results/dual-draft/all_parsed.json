@@ -1,0 +1,420 @@
+=== physformer_v5_2 ===
+{
+  "log_path": "runs/physformer_v5_2/train.log",
+  "total_epochs_logged": 0,
+  "epochs": [],
+  "best_val_net_mse": null,
+  "best_epoch": null,
+  "best_from_early_stop": null,
+  "phase_changes": [],
+  "gradient_diagnostics": [],
+  "early_stop_events": [
+    {
+      "raw": "EarlyStopping counter: 1 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 2 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 3 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 4 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 5 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 6 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 7 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 8 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 9 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 10 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 11 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 12 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 13 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 14 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 15 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 16 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 17 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 18 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 19 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "EarlyStopping counter: 20 out of 20 (Validation Net MSE best: 0.408893)"
+    },
+    {
+      "raw": "Early stopping"
+    },
+    {
+      "raw": "2026-05-08 20:10:30,427 - INFO - Early stopping"
+    }
+  ],
+  "debug_terms": [],
+  "optimizer_info": {
+    "raw": "Optimizer | lr=0.0001 | warmup_epochs=5 | early_stop=net_mse | scheduler=WarmRestarts"
+  }
+}
+
+=== physformer_v5_3 ===
+{
+  "log_path": "runs/physformer_v5_3/train.log",
+  "total_epochs_logged": 0,
+  "epochs": [],
+  "best_val_net_mse": null,
+  "best_epoch": null,
+  "best_from_early_stop": null,
+  "phase_changes": [],
+  "gradient_diagnostics": [],
+  "early_stop_events": [
+    {
+      "raw": "EarlyStopping counter: 1 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 2 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 3 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 4 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 5 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 6 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 7 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 8 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 9 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 10 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 11 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 12 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 13 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 14 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 15 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 16 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 17 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 18 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 19 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "EarlyStopping counter: 20 out of 20 (Validation Net MSE best: 0.394313)"
+    },
+    {
+      "raw": "Early stopping"
+    },
+    {
+      "raw": "2026-05-10 20:15:58,484 - INFO - Early stopping"
+    }
+  ],
+  "debug_terms": [],
+  "optimizer_info": {
+    "raw": "Optimizer | lr=0.0001 | warmup_epochs=5 | early_stop=net_mse | scheduler=WarmRestarts"
+  }
+}
+
+=== physformer_v5_4 ===
+{
+  "log_path": "runs/physformer_v5_4/train.log",
+  "total_epochs_logged": 0,
+  "epochs": [],
+  "best_val_net_mse": null,
+  "best_epoch": null,
+  "best_from_early_stop": null,
+  "phase_changes": [],
+  "gradient_diagnostics": [],
+  "early_stop_events": [
+    {
+      "raw": "EarlyStopping counter: 1 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 2 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 3 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 4 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 5 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 6 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 7 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 8 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 9 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 10 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 11 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 12 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 13 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 14 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 15 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 16 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 17 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 18 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 19 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "EarlyStopping counter: 20 out of 20 (Validation Net MSE best: 0.387212)"
+    },
+    {
+      "raw": "Early stopping"
+    },
+    {
+      "raw": "2026-05-11 07:01:15,247 - INFO - Early stopping"
+    }
+  ],
+  "debug_terms": [],
+  "optimizer_info": {
+    "raw": "Optimizer | lr=0.0001 | warmup_epochs=5 | early_stop=net_mse | scheduler=WarmRestarts"
+  }
+}
+
+=== physformer_v5_4a ===
+{
+  "log_path": "runs/physformer_v5_4a/train.log",
+  "total_epochs_logged": 0,
+  "epochs": [],
+  "best_val_net_mse": null,
+  "best_epoch": null,
+  "best_from_early_stop": null,
+  "phase_changes": [],
+  "gradient_diagnostics": [],
+  "early_stop_events": [
+    {
+      "raw": "EarlyStopping counter: 1 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 2 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 3 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 4 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 5 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 6 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 7 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 8 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 9 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 10 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 11 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 12 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 13 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 14 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 15 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 16 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 17 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 18 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 19 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "EarlyStopping counter: 20 out of 20 (Validation Net MSE best: 0.396112)"
+    },
+    {
+      "raw": "Early stopping"
+    },
+    {
+      "raw": "2026-05-11 07:08:45,097 - INFO - Early stopping"
+    }
+  ],
+  "debug_terms": [],
+  "optimizer_info": {
+    "raw": "Optimizer | lr=0.0001 | warmup_epochs=5 | early_stop=net_mse | scheduler=WarmRestarts"
+  }
+}
+
+=== physformer_v5_4b ===
+{
+  "log_path": "runs/physformer_v5_4b/train.log",
+  "total_epochs_logged": 0,
+  "epochs": [],
+  "best_val_net_mse": null,
+  "best_epoch": null,
+  "best_from_early_stop": null,
+  "phase_changes": [],
+  "gradient_diagnostics": [],
+  "early_stop_events": [
+    {
+      "raw": "EarlyStopping counter: 1 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 2 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 3 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 4 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 5 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 6 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 7 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 8 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 9 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 10 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 11 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 12 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 13 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 14 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 15 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 16 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 17 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 18 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 19 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "EarlyStopping counter: 20 out of 20 (Validation Net MSE best: 0.395548)"
+    },
+    {
+      "raw": "Early stopping"
+    },
+    {
+      "raw": "2026-05-11 07:14:48,781 - INFO - Early stopping"
+    }
+  ],
+  "debug_terms": [],
+  "optimizer_info": {
+    "raw": "Optimizer | lr=0.0001 | warmup_epochs=5 | early_stop=net_mse | scheduler=WarmRestarts"
+  }
+}
+

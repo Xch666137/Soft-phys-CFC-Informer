@@ -1,0 +1,519 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\Users\Xch\.codex\worktrees\7c57\Physformer
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e2a80-f44a-7e82-ab4b-7ee80c4c6439
+--------
+user
+You are a senior architect reviewing a design proposal. Review the design described in file C:/Users/Xch/.codex/worktrees/7c57/Physformer/results/dual-draft/v6_1_analysis_target.md and identify concrete issues.
+
+Categories to consider:
+- architecture: structural flaws, coupling, cohesion, layering
+- physics_fidelity: physical correctness, constraint violations, domain mismatch
+- training_dynamics: optimization issues, convergence risks, gradient problems
+- scalability: scaling limitations, memory/compute bottlenecks
+- missing_mechanism: important mechanisms or edge cases not addressed
+- implementation: practical concerns, integration risks, hidden complexity
+
+For each issue you find, output an object with these fields:
+- line_start: integer, starting line number where the issue appears in the design doc
+- line_end: integer, ending line number (same as line_start for single-line issues)
+- severity: "high" | "medium" | "low"
+- category: one of the categories listed above
+- location: "FILENAME:LINE"
+- description: one-sentence summary of the design concern
+- original_snippet: the relevant design description excerpt
+- suggested_fix: concrete design alternative or mitigation
+- rationale: why this design choice is problematic
+
+Rules:
+- Focus on structural and conceptual issues, not formatting or wording.
+- Only flag issues you are confident about.
+- Order issues by line number ascending.
+- Use the exact category names listed above.
+- Every issue MUST have line_start and description.
+
+Wrap your review in these markers:
+===JSON_START===
+{
+  "reviewer": "codex",
+  "file": "C:/Users/Xch/.codex/worktrees/7c57/Physformer/results/dual-draft/v6_1_analysis_target.md",
+  "issues": [ ... ]
+}
+===JSON_END===
+
+codex
+I’ll read the proposal with line numbers and check it against the requested architecture, physics, training, scalability, mechanism, and implementation concerns.
+2026-05-15T07:19:23.966711Z ERROR codex_core::tools::router: error=`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$p = '"'C:\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md'; Get-Content -LiteralPath "'$p | ForEach-Object -Begin {$i=1} -Process { '"'{0,5}: {1}' -f "'$i, $_; $i++ }'` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$p = '"'C:\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md'; Get-Content -LiteralPath "'$p | ForEach-Object -Begin {$i=1} -Process { '"'{0,5}: {1}' -f "'$i, $_; $i++ }' in C:\Users\Xch\.codex\worktrees\7c57\Physformer
+ declined in 0ms:
+`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$p = '"'C:\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md'; Get-Content -LiteralPath "'$p | ForEach-Object -Begin {$i=1} -Process { '"'{0,5}: {1}' -f "'$i, $_; $i++ }'` rejected: blocked by policy
+codex
+The first read command was rejected by the local policy parser, so I’m switching to a simpler read form and will add line numbers from the output.
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -LiteralPath 'C:\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md'" in C:\Users\Xch\.codex\worktrees\7c57\Physformer
+ succeeded in 904ms:
+# V6.1 Ablation Analysis Target
+
+## Background
+
+PhysFormer is a physics-guided Transformer for VPP aggregated net power forecasting.
+It decomposes the forecast into theory-driven (physics equations) and residual (data-driven)
+components across four asset types: Load, PV, Wind, Battery.
+
+The V6 architecture replaced the HDD/CDD-based Load physics branch with:
+- **Temp MLP**: 3-layer MLP (1鈫?2鈫?2鈫?) for temperature鈫抣oad response
+- **GRU temporal module**: Processes historical net_load + temperature + calendar features
+  to produce temporal corrections
+
+V6.1 tested two independent mechanisms to reinforce the physics-data boundary:
+
+- **N29**: Remove temperature from GRU input 鈫?GRU only sees [net_load, calendar],
+  making Temp MLP the sole temperature鈫抣oad pathway
+- **N30**: Activate selective gradient detach in Phase 2 鈫?detach load/PV/wind theory
+  outputs from the residual head's gradient flow, preventing the residual head from
+  influencing physics branch learning (battery gradient kept intact)
+
+## Experiment Design
+
+2脳2 factorial ablation. All share: restart_t0=20, load_gru_hidden=64, phase_1_epochs=8,
+phase_2_epochs=50, patience=20, early_stop_start_epoch=20, seed=2024.
+
+| Config | N29 (remove temp) | N30 (selective detach) |
+|--------|:---:|:---:|
+| baseline (V6 S2 gru64) | 鉁?| 鉁?|
+| no_temp | 鉁?| 鉁?|
+| detach | 鉁?| 鉁?|
+| full | 鉁?| 鉁?|
+
+## Raw Results (metrics.json)
+
+All values in MW unless noted.
+
+| Metric | baseline | no_temp | detach | full |
+|--------|:---:|:---:|:---:|:---:|
+| Test MAE | 0.002017 | 0.001999 | 0.002031 | 0.002032 |
+| Test MSE (脳10鈦烩伓) | 7.581 | 7.938 | 8.161 | 8.214 |
+| RMSE | 0.002753 | 0.002817 | 0.002857 | 0.002866 |
+| Theory MAE | 0.002602 | 0.002431 | 0.002342 | 0.002509 |
+| Ramp Violation | 0.0037% | 0.0043% | 0.0090% | 0.0046% |
+| Residual Mean | 鈭?.000949 | 鈭?.000849 | 鈭?.000065 | 鈭?.000849 |
+| Residual Std | 0.002276 | 0.002165 | 0.002199 | 0.002190 |
+| Component Load MAE | 0.001936 | 0.001886 | 0.001898 | 0.001925 |
+| Component PV MAE | 0.002551 | 0.001992 | 0.001738 | 0.001998 |
+| Component Wind MAE | 0.000319 | 0.000314 | 0.000313 | 0.000314 |
+| Component Batt P MAE | 0.001703 | 0.001496 | 0.001391 | 0.001526 |
+| Component Batt SOC MAE | 0.008910 | 0.005957 | 0.006299 | 0.006152 |
+
+## Training Dynamics (Val MSE trajectory)
+
+| Epoch | baseline* | no_temp | detach | full |
+|-------|-----------|---------|--------|------|
+| 1 | ~10.7 | 10.74 | 9.70 | 11.16 |
+| 5 | 鈥?| 0.439 | 0.439 | 0.425 |
+| 8 | 鈥?| 鈥?| 0.451 | 0.418 |
+| 10 | 鈥?| 0.418 | 0.424 | 0.413 |
+| 12 | 鈥?| 0.410 | 0.432 | 0.423 |
+| 15 | 鈥?| 0.417 | 0.421 | 0.427 |
+| 20 | 鈥?| 0.442 | 0.419 | 0.436 |
+| 25 | 鈥?| 0.440 | 0.422 | 0.436 |
+| 30 | 鈥?| 0.440 | 0.419 | 0.435 |
+| 35 | 鈥?| 鈥?| 0.419 | 0.436 |
+| Best (ep鈮?0) | 鈥?| 0.432 (ep28) | 0.412 (ep26) | 0.432 (ep29) |
+
+*Baseline training trajectory not monitored in real-time; values from its metrics.json.
+
+## Key Architecture Details
+
+1. **Load branch**: Temp MLP (1鈫?2鈫?2鈫?) for temperature鈫抣oad. GRU (d_gru=64, 2 layers)
+   for temporal correction. In baseline/detach: GRU input = [net_load, temp, calendar].
+   In no_temp/full: GRU input = [net_load, calendar] (temp removed).
+
+2. **Selective detach (N30)**: In model.py forward(), when detach_mode="selective":
+   physics_for_head[..., :3] = physics_features[..., :3].detach() 鈥?cuts gradient from
+   residual head to load/pv/wind theory branches. Battery gradient preserved.
+
+3. **Phase structure**: Phase 1 (epochs 1-8): component_loss_weight=0.03, detach_mode="none".
+   Phase 2 (epochs 9-50): component_loss_weight decays, detach_mode set per config.
+
+## Research Questions
+
+1. Does removing temperature from GRU (N29) improve the physics-data boundary,
+   as hypothesized from the capacity-ceiling principle (N28)?
+2. Does selective gradient detach (N30) reinforce component-consistent residual
+   learning, or does it over-constrain gradient flow?
+3. Are N29 and N30 complementary or antagonistic when combined?
+4. What is the overall recommendation for the thesis: which variant should be the
+   reported PhysFormer configuration, and why?
+. : 无法加载文件 C:\Users\Xch\Documents\WindowsPowerShell\profile.ps1，因为在此系统上禁止运行脚本。有关详细信息，请参阅 
+https:/go.microsoft.com/fwlink/?LinkID=135170 中的 about_Execution_Policies。
+所在位置 行:1 字符: 3
++ . 'C:\Users\Xch\Documents\WindowsPowerShell\profile.ps1'
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : SecurityError: (:) []，PSSecurityException
+    + FullyQualifiedErrorId : UnauthorizedAccess
+无法设置属性。此语言模式仅支持核心类型的属性设置。
+所在位置 行:1 字符: 1
++ [Console]::OutputEncoding=[System.Text.Encoding]::UTF8;
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) []，RuntimeException
+    + FullyQualifiedErrorId : PropertySetterNotSupportedInConstrainedLanguage
+ 
+
+codex
+I have the document content now. I’m getting exact line numbers next so the review can point to the precise proposal statements.
+2026-05-15T07:19:38.089831Z ERROR codex_core::tools::router: error=`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -Command 'cmd /c findstr /n "''^" "C:'"\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md\""` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -Command 'cmd /c findstr /n "''^" "C:'"\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md\"" in C:\Users\Xch\.codex\worktrees\7c57\Physformer
+ declined in 0ms:
+`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -Command 'cmd /c findstr /n "''^" "C:'"\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md\""` rejected: blocked by policy
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -Command "Select-String -LiteralPath 'C:\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\results\\dual-draft\\v6_1_analysis_target.md' -Pattern '.*'" in C:\Users\Xch\.codex\worktrees\7c57\Physformer
+ succeeded in 494ms:
+
+results\dual-draft\v6_1_analysis_target.md:1:# V6.1 Ablation Analysis Target
+results\dual-draft\v6_1_analysis_target.md:2:
+results\dual-draft\v6_1_analysis_target.md:3:## Background
+results\dual-draft\v6_1_analysis_target.md:4:
+results\dual-draft\v6_1_analysis_target.md:5:PhysFormer is a physics-guided Transformer for VPP aggregated net power fo
+recasting.
+results\dual-draft\v6_1_analysis_target.md:6:It decomposes the forecast into theory-driven (physics equations) and resi
+dual (data-driven)
+results\dual-draft\v6_1_analysis_target.md:7:components across four asset types: Load, PV, Wind, Battery.
+results\dual-draft\v6_1_analysis_target.md:8:
+results\dual-draft\v6_1_analysis_target.md:9:The V6 architecture replaced the HDD/CDD-based Load physics branch with:
+results\dual-draft\v6_1_analysis_target.md:10:- **Temp MLP**: 3-layer MLP (1→32→32→1) for temperature→load response
+results\dual-draft\v6_1_analysis_target.md:11:- **GRU temporal module**: Processes historical net_load + temperature + 
+calendar features
+results\dual-draft\v6_1_analysis_target.md:12:  to produce temporal corrections
+results\dual-draft\v6_1_analysis_target.md:13:
+results\dual-draft\v6_1_analysis_target.md:14:V6.1 tested two independent mechanisms to reinforce the physics-data boun
+dary:
+results\dual-draft\v6_1_analysis_target.md:15:
+results\dual-draft\v6_1_analysis_target.md:16:- **N29**: Remove temperature from GRU input → GRU only sees [net_load, c
+alendar],
+results\dual-draft\v6_1_analysis_target.md:17:  making Temp MLP the sole temperature→load pathway
+results\dual-draft\v6_1_analysis_target.md:18:- **N30**: Activate selective gradient detach in Phase 2 → detach load/PV
+/wind theory
+results\dual-draft\v6_1_analysis_target.md:19:  outputs from the residual head's gradient flow, preventing the residual
+ head from
+results\dual-draft\v6_1_analysis_target.md:20:  influencing physics branch learning (battery gradient kept intact)
+results\dual-draft\v6_1_analysis_target.md:21:
+results\dual-draft\v6_1_analysis_target.md:22:## Experiment Design
+results\dual-draft\v6_1_analysis_target.md:23:
+results\dual-draft\v6_1_analysis_target.md:24:2×2 factorial ablation. All share: restart_t0=20, load_gru_hidden=64, pha
+se_1_epochs=8,
+results\dual-draft\v6_1_analysis_target.md:25:phase_2_epochs=50, patience=20, early_stop_start_epoch=20, seed=2024.
+results\dual-draft\v6_1_analysis_target.md:26:
+results\dual-draft\v6_1_analysis_target.md:27:| Config | N29 (remove temp) | N30 (selective detach) |
+results\dual-draft\v6_1_analysis_target.md:28:|--------|:---:|:---:|
+results\dual-draft\v6_1_analysis_target.md:29:| baseline (V6 S2 gru64) | ? | ? |
+results\dual-draft\v6_1_analysis_target.md:30:| no_temp | ? | ? |
+results\dual-draft\v6_1_analysis_target.md:31:| detach | ? | ? |
+results\dual-draft\v6_1_analysis_target.md:32:| full | ? | ? |
+results\dual-draft\v6_1_analysis_target.md:33:
+results\dual-draft\v6_1_analysis_target.md:34:## Raw Results (metrics.json)
+results\dual-draft\v6_1_analysis_target.md:35:
+results\dual-draft\v6_1_analysis_target.md:36:All values in MW unless noted.
+results\dual-draft\v6_1_analysis_target.md:37:
+results\dual-draft\v6_1_analysis_target.md:38:| Metric | baseline | no_temp | detach | full |
+results\dual-draft\v6_1_analysis_target.md:39:|--------|:---:|:---:|:---:|:---:|
+results\dual-draft\v6_1_analysis_target.md:40:| Test MAE | 0.002017 | 0.001999 | 0.002031 | 0.002032 |
+results\dual-draft\v6_1_analysis_target.md:41:| Test MSE (×10??) | 7.581 | 7.938 | 8.161 | 8.214 |
+results\dual-draft\v6_1_analysis_target.md:42:| RMSE | 0.002753 | 0.002817 | 0.002857 | 0.002866 |
+results\dual-draft\v6_1_analysis_target.md:43:| Theory MAE | 0.002602 | 0.002431 | 0.002342 | 0.002509 |
+results\dual-draft\v6_1_analysis_target.md:44:| Ramp Violation | 0.0037% | 0.0043% | 0.0090% | 0.0046% |
+results\dual-draft\v6_1_analysis_target.md:45:| Residual Mean | ?0.000949 | ?0.000849 | ?0.000065 | ?0.000849 |
+results\dual-draft\v6_1_analysis_target.md:46:| Residual Std | 0.002276 | 0.002165 | 0.002199 | 0.002190 |
+results\dual-draft\v6_1_analysis_target.md:47:| Component Load MAE | 0.001936 | 0.001886 | 0.001898 | 0.001925 |
+results\dual-draft\v6_1_analysis_target.md:48:| Component PV MAE | 0.002551 | 0.001992 | 0.001738 | 0.001998 |
+results\dual-draft\v6_1_analysis_target.md:49:| Component Wind MAE | 0.000319 | 0.000314 | 0.000313 | 0.000314 |
+results\dual-draft\v6_1_analysis_target.md:50:| Component Batt P MAE | 0.001703 | 0.001496 | 0.001391 | 0.001526 |
+results\dual-draft\v6_1_analysis_target.md:51:| Component Batt SOC MAE | 0.008910 | 0.005957 | 0.006299 | 0.006152 |
+results\dual-draft\v6_1_analysis_target.md:52:
+results\dual-draft\v6_1_analysis_target.md:53:## Training Dynamics (Val MSE trajectory)
+results\dual-draft\v6_1_analysis_target.md:54:
+results\dual-draft\v6_1_analysis_target.md:55:| Epoch | baseline* | no_temp | detach | full |
+results\dual-draft\v6_1_analysis_target.md:56:|-------|-----------|---------|--------|------|
+results\dual-draft\v6_1_analysis_target.md:57:| 1 | ~10.7 | 10.74 | 9.70 | 11.16 |
+results\dual-draft\v6_1_analysis_target.md:58:| 5 | — | 0.439 | 0.439 | 0.425 |
+results\dual-draft\v6_1_analysis_target.md:59:| 8 | — | — | 0.451 | 0.418 |
+results\dual-draft\v6_1_analysis_target.md:60:| 10 | — | 0.418 | 0.424 | 0.413 |
+results\dual-draft\v6_1_analysis_target.md:61:| 12 | — | 0.410 | 0.432 | 0.423 |
+results\dual-draft\v6_1_analysis_target.md:62:| 15 | — | 0.417 | 0.421 | 0.427 |
+results\dual-draft\v6_1_analysis_target.md:63:| 20 | — | 0.442 | 0.419 | 0.436 |
+results\dual-draft\v6_1_analysis_target.md:64:| 25 | — | 0.440 | 0.422 | 0.436 |
+results\dual-draft\v6_1_analysis_target.md:65:| 30 | — | 0.440 | 0.419 | 0.435 |
+results\dual-draft\v6_1_analysis_target.md:66:| 35 | — | — | 0.419 | 0.436 |
+results\dual-draft\v6_1_analysis_target.md:67:| Best (ep≥20) | — | 0.432 (ep28) | 0.412 (ep26) | 0.432 (ep29) |
+results\dual-draft\v6_1_analysis_target.md:68:
+results\dual-draft\v6_1_analysis_target.md:69:*Baseline training trajectory not monitored in real-time; values from its
+ metrics.json.
+results\dual-draft\v6_1_analysis_target.md:70:
+results\dual-draft\v6_1_analysis_target.md:71:## Key Architecture Details
+results\dual-draft\v6_1_analysis_target.md:72:
+results\dual-draft\v6_1_analysis_target.md:73:1. **Load branch**: Temp MLP (1→32→32→1) for temperature→load. GRU (d_gru
+=64, 2 layers)
+results\dual-draft\v6_1_analysis_target.md:74:   for temporal correction. In baseline/detach: GRU input = [net_load, te
+mp, calendar].
+results\dual-draft\v6_1_analysis_target.md:75:   In no_temp/full: GRU input = [net_load, calendar] (temp removed).
+results\dual-draft\v6_1_analysis_target.md:76:
+results\dual-draft\v6_1_analysis_target.md:77:2. **Selective detach (N30)**: In model.py forward(), when detach_mode="s
+elective":
+results\dual-draft\v6_1_analysis_target.md:78:   physics_for_head[..., :3] = physics_features[..., :3].detach() — cuts 
+gradient from
+results\dual-draft\v6_1_analysis_target.md:79:   residual head to load/pv/wind theory branches. Battery gradient preser
+ved.
+results\dual-draft\v6_1_analysis_target.md:80:
+results\dual-draft\v6_1_analysis_target.md:81:3. **Phase structure**: Phase 1 (epochs 1-8): component_loss_weight=0.03,
+ detach_mode="none".
+results\dual-draft\v6_1_analysis_target.md:82:   Phase 2 (epochs 9-50): component_loss_weight decays, detach_mode set p
+er config.
+results\dual-draft\v6_1_analysis_target.md:83:
+results\dual-draft\v6_1_analysis_target.md:84:## Research Questions
+results\dual-draft\v6_1_analysis_target.md:85:
+results\dual-draft\v6_1_analysis_target.md:86:1. Does removing temperature from GRU (N29) improve the physics-data boun
+dary,
+results\dual-draft\v6_1_analysis_target.md:87:   as hypothesized from the capacity-ceiling principle (N28)?
+results\dual-draft\v6_1_analysis_target.md:88:2. Does selective gradient detach (N30) reinforce component-consistent re
+sidual
+results\dual-draft\v6_1_analysis_target.md:89:   learning, or does it over-constrain gradient flow?
+results\dual-draft\v6_1_analysis_target.md:90:3. Are N29 and N30 complementary or antagonistic when combined?
+results\dual-draft\v6_1_analysis_target.md:91:4. What is the overall recommendation for the thesis: which variant shoul
+d be the
+results\dual-draft\v6_1_analysis_target.md:92:   reported PhysFormer configuration, and why?
+
+
+无法设置属性。此语言模式仅支持核心类型的属性设置。
+所在位置 行:1 字符: 1
++ [Console]::OutputEncoding=[System.Text.Encoding]::UTF8;
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) []，RuntimeException
+    + FullyQualifiedErrorId : PropertySetterNotSupportedInConstrainedLanguage
+ 
+
+codex
+The proposal is short but it describes several actual mechanism choices, so I’m focusing the findings on those choices rather than the result-table presentation. The most important risks are in the load branch boundary, the selective detach rule, and how the ablation is interpreted from one seed.
+codex
+===JSON_START===
+{
+  "reviewer": "codex",
+  "file": "C:/Users/Xch/.codex/worktrees/7c57/Physformer/results/dual-draft/v6_1_analysis_target.md",
+  "issues": [
+    {
+      "line_start": 10,
+      "line_end": 10,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "v6_1_analysis_target.md:10",
+      "description": "The scalar unconstrained Temp MLP is too weakly physical to replace a degree-day style load model.",
+      "original_snippet": "- **Temp MLP**: 3-layer MLP (1→32→32→1) for temperature→load response",
+      "suggested_fix": "Use a constrained temperature-response module with heating/cooling balance points, monotonic piecewise basis functions, and optional lagged temperature states.",
+      "rationale": "Load response to temperature is asymmetric, thresholded, and often hysteretic; an unconstrained MLP can learn nonphysical shapes while still fitting aggregate error."
+    },
+    {
+      "line_start": 11,
+      "line_end": 12,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v6_1_analysis_target.md:11",
+      "description": "Feeding historical net_load into the load physics branch couples aggregate system behavior back into a component branch.",
+      "original_snippet": "- **GRU temporal module**: Processes historical net_load + temperature + calendar features\n  to produce temporal corrections",
+      "suggested_fix": "Separate component-specific load history from aggregate net power, or feed the GRU deweathered/load-only residual features with explicit masking of PV, wind, and battery effects.",
+      "rationale": "Aggregate net_load can encode PV, wind, and battery actions, so the load branch can absorb cross-asset dynamics and undermine the intended component decomposition."
+    },
+    {
+      "line_start": 16,
+      "line_end": 17,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:16",
+      "description": "Removing current temperature from the GRU does not make the Temp MLP the sole temperature pathway.",
+      "original_snippet": "- **N29**: Remove temperature from GRU input → GRU only sees [net_load, calendar],\n  making Temp MLP the sole temperature→load pathway",
+      "suggested_fix": "Validate the boundary with temperature-perturbation tests and remove or orthogonalize temperature-correlated history/calendar proxies if sole-path behavior is required.",
+      "rationale": "Historical net_load and calendar features can still carry weather and seasonal temperature information, so the GRU can reconstruct a temperature-dependent correction indirectly."
+    },
+    {
+      "line_start": 18,
+      "line_end": 20,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "v6_1_analysis_target.md:18",
+      "description": "Selective detach cuts useful final-loss gradients from most physics branches during Phase 2.",
+      "original_snippet": "- **N30**: Activate selective gradient detach in Phase 2 → detach load/PV/wind theory\n  outputs from the residual head's gradient flow, preventing the residual head from\n  influencing physics branch learning (battery gradient kept intact)",
+      "suggested_fix": "Replace hard detach with a scheduled gradient gate, auxiliary consistency losses, or branch-specific gradient clipping so physics branches still receive controlled signal from forecast error.",
+      "rationale": "If component losses are weak or noisy, detached branches can become stale while the residual head compensates around them, causing worse end-to-end forecasts despite better component metrics."
+    },
+    {
+      "line_start": 20,
+      "line_end": 20,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "v6_1_analysis_target.md:20",
+      "description": "Keeping only battery gradients intact makes the battery branch a likely slack variable for errors from detached branches.",
+      "original_snippet": "  influencing physics branch learning (battery gradient kept intact)",
+      "suggested_fix": "Either apply the same detach policy to all physical branches or constrain the battery branch with explicit SOC dynamics, charge/discharge limits, and energy-balance penalties.",
+      "rationale": "The residual head can push battery representations to absorb load, PV, or wind mismatch, which can improve aggregate loss while degrading physical interpretability."
+    },
+    {
+      "line_start": 24,
+      "line_end": 25,
+      "severity": "medium",
+      "category": "implementation",
+      "location": "v6_1_analysis_target.md:24",
+      "description": "The ablation uses a single seed, so the reported differences are not reliable enough to choose a thesis configuration.",
+      "original_snippet": "2×2 factorial ablation. All share: restart_t0=20, load_gru_hidden=64, phase_1_epochs=8,\nphase_2_epochs=50, patience=20, early_stop_start_epoch=20, seed=2024.",
+      "suggested_fix": "Run multiple seeds with confidence intervals and paired statistical comparisons for Test MAE, Theory MAE, ramp violations, and component metrics.",
+      "rationale": "The metric deltas are small enough that optimizer stochasticity and early stopping variance could change the ranking."
+    },
+    {
+      "line_start": 44,
+      "line_end": 44,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:44",
+      "description": "Ramp violations are measured but the design does not include a mechanism to enforce ramp feasibility.",
+      "original_snippet": "| Ramp Violation | 0.0037% | 0.0043% | 0.0090% | 0.0046% |",
+      "suggested_fix": "Add a differentiable ramp-rate penalty, constrained output projection, or battery-aware feasibility layer on the final net-power trajectory.",
+      "rationale": "A physics-guided VPP forecaster should preserve operational feasibility, and the detach variant already shows a ramp-violation regression."
+    },
+    {
+      "line_start": 77,
+      "line_end": 79,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v6_1_analysis_target.md:77",
+      "description": "Detaching physics features only blocks gradients; it does not stop the residual head from learning to undo the physics outputs.",
+      "original_snippet": "2. **Selective detach (N30)**: In model.py forward(), when detach_mode=\"selective\":\n   physics_for_head[..., :3] = physics_features[..., :3].detach() — cuts gradient from\n   residual head to load/pv/wind theory branches. Battery gradient preserved.",
+      "suggested_fix": "Constrain the residual head with residual magnitude budgets, zero-mean or orthogonality penalties, and conditioning on exogenous error features rather than raw theory outputs alone.",
+      "rationale": "The forward dependency remains, so the residual model can still build anti-physics corrections even though the physics branches no longer receive corrective gradients."
+    },
+    {
+      "line_start": 81,
+      "line_end": 82,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "v6_1_analysis_target.md:81",
+      "description": "Decaying component loss in the same phase that applies detach can leave physics branches under-supervised.",
+      "original_snippet": "3. **Phase structure**: Phase 1 (epochs 1-8): component_loss_weight=0.03, detach_mode=\"none\".\n   Phase 2 (epochs 9-50): component_loss_weight decays, detach_mode set per config.",
+      "suggested_fix": "Maintain a nonzero per-branch component loss floor, monitor gradient norms per branch, and delay detach until component validation metrics have stabilized.",
+      "rationale": "Once residual-head gradients are removed and component loss decays, the load/PV/wind branches may receive too little signal to stay aligned with the final forecast objective."
+    }
+  ]
+}
+===JSON_END===
+tokens used
+25,748
+===JSON_START===
+{
+  "reviewer": "codex",
+  "file": "C:/Users/Xch/.codex/worktrees/7c57/Physformer/results/dual-draft/v6_1_analysis_target.md",
+  "issues": [
+    {
+      "line_start": 10,
+      "line_end": 10,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "v6_1_analysis_target.md:10",
+      "description": "The scalar unconstrained Temp MLP is too weakly physical to replace a degree-day style load model.",
+      "original_snippet": "- **Temp MLP**: 3-layer MLP (1→32→32→1) for temperature→load response",
+      "suggested_fix": "Use a constrained temperature-response module with heating/cooling balance points, monotonic piecewise basis functions, and optional lagged temperature states.",
+      "rationale": "Load response to temperature is asymmetric, thresholded, and often hysteretic; an unconstrained MLP can learn nonphysical shapes while still fitting aggregate error."
+    },
+    {
+      "line_start": 11,
+      "line_end": 12,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v6_1_analysis_target.md:11",
+      "description": "Feeding historical net_load into the load physics branch couples aggregate system behavior back into a component branch.",
+      "original_snippet": "- **GRU temporal module**: Processes historical net_load + temperature + calendar features\n  to produce temporal corrections",
+      "suggested_fix": "Separate component-specific load history from aggregate net power, or feed the GRU deweathered/load-only residual features with explicit masking of PV, wind, and battery effects.",
+      "rationale": "Aggregate net_load can encode PV, wind, and battery actions, so the load branch can absorb cross-asset dynamics and undermine the intended component decomposition."
+    },
+    {
+      "line_start": 16,
+      "line_end": 17,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:16",
+      "description": "Removing current temperature from the GRU does not make the Temp MLP the sole temperature pathway.",
+      "original_snippet": "- **N29**: Remove temperature from GRU input → GRU only sees [net_load, calendar],\n  making Temp MLP the sole temperature→load pathway",
+      "suggested_fix": "Validate the boundary with temperature-perturbation tests and remove or orthogonalize temperature-correlated history/calendar proxies if sole-path behavior is required.",
+      "rationale": "Historical net_load and calendar features can still carry weather and seasonal temperature information, so the GRU can reconstruct a temperature-dependent correction indirectly."
+    },
+    {
+      "line_start": 18,
+      "line_end": 20,
+      "severity": "high",
+      "category": "training_dynamics",
+      "location": "v6_1_analysis_target.md:18",
+      "description": "Selective detach cuts useful final-loss gradients from most physics branches during Phase 2.",
+      "original_snippet": "- **N30**: Activate selective gradient detach in Phase 2 → detach load/PV/wind theory\n  outputs from the residual head's gradient flow, preventing the residual head from\n  influencing physics branch learning (battery gradient kept intact)",
+      "suggested_fix": "Replace hard detach with a scheduled gradient gate, auxiliary consistency losses, or branch-specific gradient clipping so physics branches still receive controlled signal from forecast error.",
+      "rationale": "If component losses are weak or noisy, detached branches can become stale while the residual head compensates around them, causing worse end-to-end forecasts despite better component metrics."
+    },
+    {
+      "line_start": 20,
+      "line_end": 20,
+      "severity": "medium",
+      "category": "physics_fidelity",
+      "location": "v6_1_analysis_target.md:20",
+      "description": "Keeping only battery gradients intact makes the battery branch a likely slack variable for errors from detached branches.",
+      "original_snippet": "  influencing physics branch learning (battery gradient kept intact)",
+      "suggested_fix": "Either apply the same detach policy to all physical branches or constrain the battery branch with explicit SOC dynamics, charge/discharge limits, and energy-balance penalties.",
+      "rationale": "The residual head can push battery representations to absorb load, PV, or wind mismatch, which can improve aggregate loss while degrading physical interpretability."
+    },
+    {
+      "line_start": 24,
+      "line_end": 25,
+      "severity": "medium",
+      "category": "implementation",
+      "location": "v6_1_analysis_target.md:24",
+      "description": "The ablation uses a single seed, so the reported differences are not reliable enough to choose a thesis configuration.",
+      "original_snippet": "2×2 factorial ablation. All share: restart_t0=20, load_gru_hidden=64, phase_1_epochs=8,\nphase_2_epochs=50, patience=20, early_stop_start_epoch=20, seed=2024.",
+      "suggested_fix": "Run multiple seeds with confidence intervals and paired statistical comparisons for Test MAE, Theory MAE, ramp violations, and component metrics.",
+      "rationale": "The metric deltas are small enough that optimizer stochasticity and early stopping variance could change the ranking."
+    },
+    {
+      "line_start": 44,
+      "line_end": 44,
+      "severity": "medium",
+      "category": "missing_mechanism",
+      "location": "v6_1_analysis_target.md:44",
+      "description": "Ramp violations are measured but the design does not include a mechanism to enforce ramp feasibility.",
+      "original_snippet": "| Ramp Violation | 0.0037% | 0.0043% | 0.0090% | 0.0046% |",
+      "suggested_fix": "Add a differentiable ramp-rate penalty, constrained output projection, or battery-aware feasibility layer on the final net-power trajectory.",
+      "rationale": "A physics-guided VPP forecaster should preserve operational feasibility, and the detach variant already shows a ramp-violation regression."
+    },
+    {
+      "line_start": 77,
+      "line_end": 79,
+      "severity": "high",
+      "category": "architecture",
+      "location": "v6_1_analysis_target.md:77",
+      "description": "Detaching physics features only blocks gradients; it does not stop the residual head from learning to undo the physics outputs.",
+      "original_snippet": "2. **Selective detach (N30)**: In model.py forward(), when detach_mode=\"selective\":\n   physics_for_head[..., :3] = physics_features[..., :3].detach() — cuts gradient from\n   residual head to load/pv/wind theory branches. Battery gradient preserved.",
+      "suggested_fix": "Constrain the residual head with residual magnitude budgets, zero-mean or orthogonality penalties, and conditioning on exogenous error features rather than raw theory outputs alone.",
+      "rationale": "The forward dependency remains, so the residual model can still build anti-physics corrections even though the physics branches no longer receive corrective gradients."
+    },
+    {
+      "line_start": 81,
+      "line_end": 82,
+      "severity": "medium",
+      "category": "training_dynamics",
+      "location": "v6_1_analysis_target.md:81",
+      "description": "Decaying component loss in the same phase that applies detach can leave physics branches under-supervised.",
+      "original_snippet": "3. **Phase structure**: Phase 1 (epochs 1-8): component_loss_weight=0.03, detach_mode=\"none\".\n   Phase 2 (epochs 9-50): component_loss_weight decays, detach_mode set per config.",
+      "suggested_fix": "Maintain a nonzero per-branch component loss floor, monitor gradient norms per branch, and delay detach until component validation metrics have stabilized.",
+      "rationale": "Once residual-head gradients are removed and component loss decays, the load/PV/wind branches may receive too little signal to stay aligned with the final forecast objective."
+    }
+  ]
+}
+===JSON_END===

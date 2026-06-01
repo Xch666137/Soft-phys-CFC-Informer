@@ -1,0 +1,83 @@
+{
+  "reviewer": "claude",
+  "file": "results/dual-draft/training_analysis_target.md",
+  "issues": [
+    {
+      "location": "training_analysis_target.md:26-29",
+      "line_start": 26,
+      "line_end": 29,
+      "severity": "high",
+      "category": "convergence_analysis",
+      "description": "DBC 版本 Phase 1 初始 loss (~980) 比非 DBC 版本 (~5000-6000) 低 5-6 倍。根因：DBC 残差 MLP 的恒等映射初始化让首个 forward pass 输出接近 0（标准化后的 target 均值），避免了浅层 MLP 随机权重的巨大方差。这与 ResNet 理论一致——残差学习将优化问题从 F(x)=y 转化为 F(x)+x=y，初始化时 F(x)≈0 天然接近解。佐证：V5.4b（浅层MLP+新cw/tw）首步6177反证并非 cw/tw 差异造成。",
+      "original_snippet": "V5.4: inf→980→11.4→... vs V5.3: inf→6125→9.8→...",
+      "suggested_fix": "在所有版本中强制使用 DBC 架构。浅层 MLP 的高初始 loss 意味着 Phase 1 的早期 epoch 主要花在修正初始偏差而非学习数据模式，浪费了 warmup 阶段的 LR。",
+      "rationale": "初始 loss 5-6x 差距直接影响 Phase 1 收敛效率和最终 best 的上限。DBC 版本 Phase 1 结束时 best 更低 (0.4185 vs 0.4014) 就来自更高效的早期学习。"
+    },
+    {
+      "location": "training_analysis_target.md:32-35",
+      "line_start": 32,
+      "line_end": 35,
+      "severity": "high",
+      "category": "phase_transition",
+      "description": "Phase 2 reset 改善幅度分解：DBC 贡献约 64%，新 cw/tw 贡献约 42%（独立可加性验证：0.0154+0.0102≈0.0256 vs 实测 0.0242）。V5.4 需要两步 (0.4185→0.3949→0.3872) 而 V5.3/V5.4b 只需一步，说明 DBC 使 Phase 2 的 loss landscape 更宽缓——需要多一步收敛但能到达更低的极小值。",
+      "original_snippet": "V5.3 Δ=0.0071(1步) | V5.4 Δ=0.0313(2步) | V5.4a Δ=0.0225(2步) | V5.4b Δ=0.0173(1步)",
+      "suggested_fix": "Phase 2 首次改善后应给至少 3-5 个 epoch 的缓冲窗口再开始 early stop count。当前 early_stop_start_epoch=20 在 V5.4 场景下足够，但如果 Δ 步数随架构复杂度增加，需要扩展缓冲。",
+      "rationale": "两步收敛模式是 DBC 的正常行为而非 bug。优化器 momentum 清零后在新 landscape 中需要至少两次更新才能稳定方向。early_stop_start_epoch 应设在 Phase 2 的 reset 后至少 5 epoch，而非训练总 epoch 的固定偏移。"
+    },
+    {
+      "location": "training_analysis_target.md:37-38",
+      "line_start": 37,
+      "line_end": 38,
+      "severity": "medium",
+      "category": "methodology_flaw",
+      "description": "所有版本 Phase 2 best 后全部 stuck 19-20 epochs 触发 early stop。Optimizer reset 提供了一次性盆地逃逸，但 reset 后 LR 从峰值快速衰减 (cosine T0=8)，在找到新 best 后 LR 已衰减到过低水平，无法继续探索。这不是 plateau 问题而是 LR 调度问题。",
+      "original_snippet": "Best=0.387212, stuck 19 ep (all versions show same pattern)",
+      "suggested_fix": "方案 A：Phase 2 使用 constant LR (不衰减) 或更长的 cosine 周期 (T0≥20)。方案 B：使用 SWA (Stochastic Weight Averaging) 收集 Phase 2 best 后的多个 checkpoints 做平均。方案 C：Phase 2 使用周期性 cosine 重启 (T_mult=2)，每次重启到峰值 LR 给模型多次 escape 机会。",
+      "rationale": "Optimizer reset 的 '一次性' 特性意味着当前方案的 potential 已经被榨干。要突破 0.3872 的天花板，需要 Phase 2 维持探索能力而非快速衰减 LR。"
+    },
+    {
+      "location": "training_analysis_target.md:53-57",
+      "line_start": 53,
+      "line_end": 57,
+      "severity": "high",
+      "category": "generalization_gap",
+      "description": "Val/Test rank 倒挂：V5.4a Val 最差 (0.3961) 但 Test 排第三 (0.002110)，V5.4b Val 排第三 (0.3955) 但 Test 垫底 (0.002133)。V5.4a 的 DBC+旧cw/tw 组合产生最强正则化——较高的 val loss 是欠拟合（非过拟合），反而泛化更好。V5.4b 的浅层 MLP+新cw/tw 导致残余 std 最高 (0.002437)，表明 residual 分量的 test 方差大，是选择性过拟合的典型信号。",
+      "original_snippet": "V5.4a Val worst but Test 3rd. V5.4b Val 3rd but Test last. Residual std: V5.4a=0.002318 (lowest), V5.4b=0.002437 (highest).",
+      "suggested_fix": "1) 训练时增加 val set 的理论一致性约束（而非仅在 train 上计算 theory loss）。2) 对 V5.4b 类配置，添加 val 上的 res_reg 作为 early stop 辅助指标。3) 在 test 报告中去重 Val 排序——当前 Val Net MSE 与实际泛化能力的相关性为 0.6 (Spearman)，不可靠。",
+      "rationale": "Val/Test rank 偏差超过 1 个位置（Spearman ρ=0.6）说明 Val set 的分裂方式存在问题。portfolio_manifest split 将不同 portfolio 分配到 train/test，如果 val 是从 train split 中二次划分的，val 与 train 的分布一致但与 test 不一致，无法代表真实泛化。"
+    },
+    {
+      "location": "training_analysis_target.md:60-61",
+      "line_start": 60,
+      "line_end": 61,
+      "severity": "high",
+      "category": "architectural_insight",
+      "description": "电池指标 Batt Power MAE 和 Batt SOC MAE 在全五个版本中精确锁定 (0.02135/0.02011)，不受 DBC、cw/tw、optimizer reset 任何改动影响。这强烈暗示电池预测子网络已收敛到 architecture-level 的容量上限，而非 loss 或优化问题。Physics Layer 的 battery 分支使用固定物理参数 (P_max, E_max, roundtrip efficiency) 做 SOC 递推，这些参数来自 training set 全局统计且对所有版本相同——因此电池预测质量完全由物理参数精度决定。",
+      "original_snippet": "Batt Power MAE = 0.02135 for ALL versions. Batt SOC MAE = 0.02011 for ALL versions.",
+      "suggested_fix": "要突破电池天花板，唯一路径是提高物理参数精度：(1) 使用 per-portfolio 而非全局 P_max/E_max；(2) 引入电池老化/温度补偿模型更新物理参数；(3) 在训练中联合优化物理参数（当前是固定的），例如将 R_roundtrip 作为可学习参数。",
+      "rationale": "Batt Power MAE (0.02135) 是 Net MAE (0.001909) 的 11 倍，SOC MAE (0.02011) 是 10 倍。电池是整个模型最大的单一误差源。如果物理参数的 10% 精度提升能带来电池 MAE 的 10% 改善，整个 Net MAE 可下降 ~0.001 量级——这是当前最大的可优化方向。"
+    },
+    {
+      "location": "training_analysis_target.md:30-35",
+      "line_start": 30,
+      "line_end": 35,
+      "severity": "medium",
+      "category": "phase_transition",
+      "description": "V5.2 无 optimizer reset 的 Phase 1 best (0.4089) 即最终 best，Phase 2 零改善。这反证了 optimizer reset 是 Phase 2 产生改善的必要条件——没有 momentum 清零，Phase 1 的动量惯性将模型锁定在 Phase 1 basin，即使用了 selective detach 和不同 loss 权重也无法 escape。",
+      "original_snippet": "V5.2: ...→0.4089 (No Phase 2 reset) → Best=0.408893, stuck 20 ep",
+      "suggested_fix": "Optimizer reset 应作为 curriculum training 的标准组件写入 CLAUDE.md 设计原则。任何多阶段训练方案，如果 Phase 间 loss landscape 不同，必须 reset 动量。",
+      "rationale": "V5.2 vs V5.3-5.4b 的对比构成了一个干净的 ablation: optimizer reset 是 Phase 2 有效的必要条件。"
+    },
+    {
+      "location": "training_analysis_target.md:45-50",
+      "line_start": 45,
+      "line_end": 50,
+      "severity": "low",
+      "category": "methodology_flaw",
+      "description": "Test MAE 虽然 V5.4 最优 (0.001909)，但 Theory MAE 与 V5.4a (0.002468 vs 0.002414) 差异仅 2.2%，Residual std 差异 1.7%。考虑到 V5.4a 的 Theory MAE 和 Residual std 都是最优，V5.4 的 0.001909 可能部分归因于其对 net_mse 的过优化（Test MSE 差距 7.26e-06 vs 7.77e-06 = 6.6% 但 Theory 反而差了 2%）。这在物理引导模型的评价体系中是一个矛盾——更好的净注入预测是以轻微牺牲物理一致性为代价的。",
+      "original_snippet": "V5.4 Theory MAE=0.002468 vs V5.4a Theory MAE=0.002414 (V5.4a better by 2.2%)",
+      "suggested_fix": "在 test 报告中增加一个综合指标：Theory-Net Tradeoff Ratio = ΔTheory_MAE / ΔNet_MAE。当该比率 > 1 时说明 Net 改善是以超比例 Theory 退化为代价，V5.4 的比率为 (0.002468-0.002414)/(0.001909-0.002110) = 0.054/0.201 = 0.27 —— 实际上 Net 改善远超 Theory 退化，tradeoff 是可接受的。但应持续监控此指标。",
+      "rationale": "物理引导模型的核心优势是物理一致性。最终评价不应仅看 Net MAE 单项指标，而应同时报告 Physics Fidelity Score。"
+    }
+  ]
+}

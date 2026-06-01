@@ -1,0 +1,20 @@
+# B1-R0: direct test of the MCP checkpoint with current-dataset scaler buffers.
+#
+# Run:
+#   python run.py test --config configs/physformer_igt_b1_r0_pretrained_direct_test.yaml
+#
+_base_: base/v5_base.yaml
+model:
+  name: PhysFormer-iGT
+training:
+  batch_size: 256
+  seed: 2025
+  val_interval: 1
+  grad_angle_interval: 999
+  pretrained_path: results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth
+  load_pretrained_scaler_buffers: false
+hardware:
+  num_workers: 4
+  persistent_workers: true
+checkpoint:
+  name: physformer_igt_b1_r0_pretrained_direct_test

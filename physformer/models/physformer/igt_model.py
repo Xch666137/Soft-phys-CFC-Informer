@@ -1,30 +1,35 @@
 """
-PhysFormer-iGT: Physics-Twin Graph iTransformer for DVPP Forecasting.
+PhysFormer-iGT: Inverted Transformer for DVPP Forecasting.
 
 P1-1 (Ablation A1): 8-token inverted Transformer PoC.
   5 component tokens (GRU over 672-step history) + 3 weather tokens (MLP over 96-step future)
-  -> inverted self-attention across 8 tokens -> per-token FFN decoder -> real-unit power balance
+  -> inverted self-attention across 8 tokens -> shared FFN decoder -> real-unit power balance
   -> net MSE only.
 
-Gate: single-seed MAE within 2x of c23 baseline (~2e-3 to ~4e-3 MW).
+Phase B (B1): mask_indices parameter for Masked Component Pretraining.
+  Zeroes out masked component history channels before GRU tokenization.
+  Returns comp_preds_norm for pretraining component MAE loss.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ...layers.attention import FullAttention
-
 
 # ---------------------------------------------------------------------------
-# Token embedders
+# Token embedders (batched — single GRU/MLP call for all components/weather)
 # ---------------------------------------------------------------------------
 
-class ComponentTokenEmbedder(nn.Module):
-    """Encode one component's 672-step history into a d_model token via GRU."""
+class BatchedComponentEmbedding(nn.Module):
+    """Encode ALL component histories into tokens in one batched GRU call.
 
-    def __init__(self, seq_len: int, d_model: int, gru_hidden: int = 64):
+    Input  (B, seq_len, 5)  ->  reshape (B*5, seq_len, 1)  ->  GRU  ->  project
+    Output (B, 5, d_model)
+    """
+
+    def __init__(self, seq_len: int, d_model: int, gru_hidden: int = 64, num_components: int = 5):
         super().__init__()
+        self.num_components = num_components
         self.gru = nn.GRU(
             input_size=1, hidden_size=gru_hidden, num_layers=1,
             batch_first=True, bidirectional=True,
@@ -32,16 +37,20 @@ class ComponentTokenEmbedder(nn.Module):
         self.proj = nn.Linear(2 * gru_hidden, d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, seq_len)
-        out, _ = self.gru(x.unsqueeze(-1))            # (B, seq_len, 2*gru_hidden)
-        return self.proj(out[:, -1, :])                # (B, d_model)
+        B = x.shape[0]
+        x = x.permute(0, 2, 1).reshape(B * self.num_components, -1)  # (B*C, seq_len)
+        out, _ = self.gru(x.unsqueeze(-1))                             # (B*C, seq_len, 2*hidden)
+        last = out[:, -1, :]                                           # (B*C, 2*hidden)
+        tok = self.proj(last)                                          # (B*C, d_model)
+        return tok.reshape(B, self.num_components, -1)                  # (B, C, d_model)
 
 
-class WeatherTokenEmbedder(nn.Module):
-    """Encode one weather variable's 96-step future into a d_model token via MLP."""
+class BatchedWeatherEmbedding(nn.Module):
+    """Encode ALL weather futures into tokens in one batched MLP call."""
 
-    def __init__(self, pred_len: int, d_model: int):
+    def __init__(self, pred_len: int, d_model: int, num_weather: int = 3):
         super().__init__()
+        self.num_weather = num_weather
         self.mlp = nn.Sequential(
             nn.Linear(pred_len, d_model),
             nn.GELU(),
@@ -49,8 +58,10 @@ class WeatherTokenEmbedder(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, pred_len)
-        return self.mlp(x)                             # (B, d_model)
+        B = x.shape[0]
+        x = x.permute(0, 2, 1).reshape(B * self.num_weather, -1)  # (B*W, pred_len)
+        tok = self.mlp(x)                                          # (B*W, d_model)
+        return tok.reshape(B, self.num_weather, -1)                 # (B, W, d_model)
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +73,14 @@ class InvertedEncoderLayer(nn.Module):
 
     def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
-        self.attention = FullAttention(d_model, n_heads, dropout=dropout,
-                                       output_attention=False, use_rope=False)
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_k = d_model // n_heads
+        self.scale = self.d_k ** -0.5
+        self.w_q = nn.Linear(d_model, d_model)
+        self.w_k = nn.Linear(d_model, d_model)
+        self.w_v = nn.Linear(d_model, d_model)
+        self.w_o = nn.Linear(d_model, d_model)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
@@ -76,7 +93,19 @@ class InvertedEncoderLayer(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        attn_out, _ = self.attention(x, x, x, attn_mask=None)
+        B, N, D = x.shape
+        H = self.n_heads
+        Q = self.w_q(x).view(B, N, H, -1).permute(0, 2, 1, 3)  # (B, H, N, d_k)
+        K = self.w_k(x).view(B, N, H, -1).permute(0, 2, 1, 3)
+        V = self.w_v(x).view(B, N, H, -1).permute(0, 2, 1, 3)
+
+        V_out = F.scaled_dot_product_attention(
+            Q, K, V, attn_mask=None, dropout_p=self.dropout.p if self.training else 0.0,
+            scale=self.scale, is_causal=False,
+        )
+        attn_out = V_out.permute(0, 2, 1, 3).contiguous().view(B, N, D)
+        attn_out = self.w_o(attn_out)
+
         x = self.norm1(x + self.dropout(attn_out))
         x = self.norm2(x + self.ffn(x))
         return x
@@ -98,14 +127,18 @@ class InvertedEncoder(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# PhysFormer-iGT Model (P1-1 / A1)
+# PhysFormer-iGT Model (pure A1 + mask_indices for Phase B pretraining)
 # ---------------------------------------------------------------------------
 
 class PhysFormeriGT(nn.Module):
-    """8-token inverted Transformer — P1-1 minimal PoC.
+    """8-token inverted Transformer — pure A1 architecture.
 
-    No PhysicalLayer, no physics tokens, no component loss, no graph bias.
-    Only component tokens + weather tokens + self-attention + net MSE.
+    No physics tokens, no graph bias, no twin tokens, no constraint tokens,
+    no horizon decoder. 5 component tokens + 3 weather tokens + self-attention
+    + shared FFN decoder + real-unit power balance + net MSE.
+
+    Phase B: mask_indices parameter zeroes component history channels for
+    Masked Component Pretraining.
     """
 
     def __init__(
@@ -134,6 +167,7 @@ class PhysFormeriGT(nn.Module):
         target_std=None,
         aux_mean=None,
         aux_std=None,
+        # --- Unused params (A2-A5 legacy, kept for _build_model compatibility) ---
         no_phys_stream=False,
         no_battery_branch=False,
         no_soc_consistency=False,
@@ -149,6 +183,7 @@ class PhysFormeriGT(nn.Module):
         load_gru_use_temp=True,
         load_temp_model="mlp",
         detach_scale=0.0,
+        use_horizon_decoder=False,
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -161,25 +196,18 @@ class PhysFormeriGT(nn.Module):
 
         gru_hidden = max(32, d_model // 4)
 
-        # 5 component token embedders: [load, pv, wind, batt_p, batt_soc]
-        self.comp_embeddings = nn.ModuleList([
-            ComponentTokenEmbedder(seq_len, d_model, gru_hidden=gru_hidden)
-            for _ in range(5)
-        ])
-
-        # 3 weather token embedders: [temp, irrad, wind_speed]
-        self.weather_embeddings = nn.ModuleList([
-            WeatherTokenEmbedder(pred_len, d_model)
-            for _ in range(3)
-        ])
-
-        # Inverted encoder — attention across tokens
+        self.comp_embedding = BatchedComponentEmbedding(
+            seq_len, d_model, gru_hidden=gru_hidden, num_components=5,
+        )
+        self.weather_embedding = BatchedWeatherEmbedding(
+            pred_len, d_model, num_weather=3,
+        )
         self.encoder = InvertedEncoder(
             d_model=d_model, n_heads=n_heads, e_layers=e_layers,
             d_ff=d_ff, dropout=dropout,
         )
 
-        # Per-token projectors for 4 main components (skip SOC)
+        # Per-component FFN projectors: one independent decoder per component type
         self.component_projectors = nn.ModuleList([
             nn.Sequential(nn.Linear(d_model, d_ff // 2), nn.GELU(), nn.Linear(d_ff // 2, pred_len))
             for _ in range(4)
@@ -195,6 +223,21 @@ class PhysFormeriGT(nn.Module):
         return tensor
 
     # ------------------------------------------------------------------
+    # Training protocol stubs (compatible with PhysFormerExperiment)
+    # ------------------------------------------------------------------
+    def set_detach_mode(self, mode: str):
+        pass
+
+    def freeze_for_physics_warmup(self):
+        pass
+
+    def phys_layer_parameters(self):
+        return []
+
+    def non_phys_layer_parameters(self):
+        return list(self.parameters())
+
+    # ------------------------------------------------------------------
     # Forward
     # ------------------------------------------------------------------
     def forward(
@@ -208,37 +251,49 @@ class PhysFormeriGT(nn.Module):
         portfolio_ids=None,
         x_load_hist=None,
         x_component_hist=None,
+        mask_indices=None,
     ):
+        """Forward pass.
+
+        Args:
+            x_component_hist: (B, seq_len, 5) component history [load,pv,wind,batt_p,batt_soc].
+            x_weather_future:  (B, pred_len, 3) future weather [temp,irrad,wind_speed].
+            mask_indices:      Optional list of component indices [0..3] to zero-mask
+                               for Masked Component Pretraining. None during finetuning.
+        Returns:
+            dict with pred_net, comp_preds_norm, theory_net, residual, physics_states.
+        """
         B = x_component_hist.shape[0]
         P = self.pred_len
         device = x_component_hist.device
         dtype = x_component_hist.dtype
 
-        # ---- Tokenize components ----
-        comp_tokens = torch.stack([
-            embed(x_component_hist[..., i])
-            for i, embed in enumerate(self.comp_embeddings)
-        ], dim=1)                                          # (B, 5, d_model)
+        # ---- Apply component masking for pretraining ----
+        x_comp = x_component_hist
+        if mask_indices is not None:
+            x_comp = x_component_hist.clone()
+            for idx in mask_indices:
+                x_comp[:, :, idx] = 0.0
 
-        # ---- Tokenize weather ----
+        # ---- Tokenize components (single batched GRU call) ----
+        comp_tokens = self.comp_embedding(x_comp)  # (B, 5, d_model)
+
+        # ---- Tokenize weather (single batched MLP call) ----
         if x_weather_future is None:
             x_weather_future = torch.zeros(B, P, 3, device=device, dtype=dtype)
-        weather_tokens = torch.stack([
-            embed(x_weather_future[..., i])
-            for i, embed in enumerate(self.weather_embeddings)
-        ], dim=1)                                          # (B, 3, d_model)
+        weather_tokens = self.weather_embedding(x_weather_future)  # (B, 3, d_model)
 
-        # ---- Combine tokens ----
+        # ---- Combine: 8 tokens (5 comp + 3 weather) ----
         tokens = torch.cat([comp_tokens, weather_tokens], dim=1)  # (B, 8, d_model)
 
         # ---- Inverted self-attention ----
-        tokens = self.encoder(tokens)                       # (B, 8, d_model)
+        tokens = self.encoder(tokens)  # (B, 8, d_model)
 
-        # ---- Per-component projection (first 4 tokens: load, pv, wind, batt_p) ----
+        # ---- Per-component FFN projection (4 independent decoders) ----
         comp_preds_norm = torch.stack([
             proj(tokens[:, i, :])
             for i, proj in enumerate(self.component_projectors)
-        ], dim=-1)                                         # (B, 96, 4)
+        ], dim=-1)  # (B, 96, 4)
 
         # ---- Denorm component predictions to real MW ----
         comp_preds_real = (
@@ -259,13 +314,14 @@ class PhysFormeriGT(nn.Module):
             self.target_std.view(1, 1, -1) + 1e-6
         )
 
-        # ---- Output dict (compatible with PhysLoss) ----
+        # ---- Output dict (compatible with PhysLoss / PhysFormerExperiment) ----
         zeros_1 = torch.zeros(B, P, 1, device=device, dtype=dtype)
         zeros_4 = torch.zeros(B, P, 4, device=device, dtype=dtype)
         zeros_5 = torch.zeros(B, P, 5, device=device, dtype=dtype)
 
         return {
             "pred_net": pred_net,
+            "comp_preds_norm": comp_preds_norm,
             "theory_net": zeros_1,
             "residual": zeros_5,
             "component_residual": zeros_5,

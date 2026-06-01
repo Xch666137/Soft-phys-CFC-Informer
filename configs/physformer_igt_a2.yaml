@@ -1,0 +1,13 @@
+# PhysFormer-iGT P1-2 (Ablation A2): A1 + 1 physics token
+# 9 tokens: 5 component + 3 weather + 1 theory_net (last-step power balance)
+# Tests whether physics-as-peer-token adds value beyond pure inverted attention.
+#
+# Gate: MAE improvement vs A1 on >=2/3 seeds
+#
+_base_: physformer_igt_a1.yaml
+model:
+  name: PhysFormer-iGT
+training:
+  seed: 2025
+checkpoint:
+  name: physformer_igt_a2

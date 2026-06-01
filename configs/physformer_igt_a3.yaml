@@ -1,0 +1,13 @@
+# PhysFormer-iGT P2-1 (Ablation A3): A2 + Physics-Twin + Constraint tokens
+# 16 tokens: 5 comp + 3 weather + 5 physics twin + 3 constraint
+# Tests whether component-level physics twins add value beyond single theory_net token (A2).
+#
+# Gate: MAE improvement vs A1 on >=2/3 seeds
+#
+_base_: physformer_igt_a1.yaml
+model:
+  name: PhysFormer-iGT
+training:
+  seed: 2025
+checkpoint:
+  name: physformer_igt_a3
