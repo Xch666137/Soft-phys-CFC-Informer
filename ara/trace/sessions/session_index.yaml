@@ -1,0 +1,6 @@
+sessions:
+  - date: "2026-06-02"
+    files:
+      - "ara/trace/sessions/2026-06-02_001.yaml"
+    summary: "Strict EPSR-style review of the English PhysFormer manuscript."
+

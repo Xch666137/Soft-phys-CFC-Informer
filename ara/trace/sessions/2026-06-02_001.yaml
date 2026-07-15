@@ -1,0 +1,16 @@
+turns:
+  - timestamp: "2026-06-02T00:00"
+    user_request: "Strict EPSR-style review of the English manuscript."
+    ai_actions:
+      - "Inspected EPSR submission LaTeX source and compiled PDF text."
+      - "Inspected figures, declarations, references, configs, dataset loader, baseline experiment code, PhysFormer implementation, PGCC, physical layer, and loss/metric code."
+      - "Prepared reviewer-style findings with recommendation and prioritized revision actions."
+    routed_events:
+      direct:
+        - "N01 opened as EPSR-readiness review question."
+      staged:
+        - "O01 baseline future-weather fairness risk."
+        - "O02 manuscript-method implementation mismatch risk."
+        - "O03 BPAR necessity weakened by Informer-Post result table."
+        - "O04 reproducibility and multi-seed validation risk."
+

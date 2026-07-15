@@ -1,0 +1,61 @@
+\documentclass[preprint,review,12pt]{elsarticle}
+
+\usepackage[T1]{fontenc}
+\usepackage[protrusion=true,expansion=false,final]{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage[table]{xcolor}
+\usepackage{algorithmic}
+\usepackage{float}
+\usepackage[section]{placeins}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{Visualization_output/}}
+
+\sisetup{
+  detect-all,
+  per-mode    = symbol,
+  range-phrase = {--},
+  range-units = single,
+}
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+
+\journal{Electric Power Systems Research}
+
+\hypersetup{
+  pdftitle={PhysFormer: A Physics-Guided Transformer for Physically Consistent Virtual Power Plant Forecasting},
+  pdfauthor={},
+  pdfsubject={},
+  pdfcreator={},
+  pdfproducer={}
+}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{PhysFormer: A Physics-Guided Transformer for Physically Consistent Virtual Power Plant Forecasting}
+
+\input{sections/sec0_abstract}
+
+\begin{keyword}
+\input{sections/sec0_keywords}
+\end{keyword}
+
+\end{frontmatter}
+
+\input{sections/sec1_intro}
+\input{sections/sec3_method}
+\input{sections/sec5_exp}
+\input{sections/sec6_conclusion}
+
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+
+\end{document}

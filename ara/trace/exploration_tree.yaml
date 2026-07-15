@@ -1,0 +1,10 @@
+tree:
+  - id: N01
+    type: question
+    title: "EPSR readiness of English PhysFormer manuscript"
+    provenance: user
+    timestamp: "2026-06-02T00:00"
+    description: "User requested a strict EPSR-style review of the English manuscript."
+    status: open
+    children: []
+

@@ -1,6 +1,6 @@
 This is BibTeX, Version 0.99e (TeX Live 2026)
 Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
-The top-level auxiliary file: Physformer_en.aux
+The top-level auxiliary file: Physformer_en_epsr_anonymous.aux
 The style file: elsarticle-num.bst
 Database file #1: references.bib
 Warning--can't use both volume and number fields in Zhou2021informer
@@ -8,7 +8,7 @@ Warning--empty pages in Nie2023patchtst
 Warning--empty pages in Liu2023itransformer
 You've used 21 entries,
             2952 wiz_defined-function locations,
-            853 strings with 11507 characters,
+            853 strings with 11537 characters,
 and the built_in function-call counts, 8476 in all, are:
 = -- 828
 > -- 306

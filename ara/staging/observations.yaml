@@ -1,0 +1,30 @@
+observations:
+  - id: O01
+    content: "EPSR-readiness review found that the manuscript's claim that all baselines receive future-weather covariates may be unsupported by the current baseline code path."
+    context: "Manuscript states equal future-weather access; PhysFormerDataset returns x_weather_future, while baseline decoder construction zeroes the prediction-horizon decoder input."
+    potential_type: claim
+    provenance: ai-executed
+    bound_to: [N01]
+    promoted: false
+  - id: O02
+    content: "Method equations in the manuscript may not match current implementation for BPAR, PGCC gate bounds, temporal smoothing, PV efficiency parameterization, and wind activity masking."
+    context: "Cross-checked paper/en/epsr_latex_submission/*.tex against physformer/models/physformer.py, physical_layer.py, and causal_coupling.py."
+    potential_type: constraint
+    provenance: ai-executed
+    bound_to: [N01]
+    promoted: false
+  - id: O03
+    content: "The current result table weakens the necessity argument for BPAR because Informer-Post reports zero BVR with lower MSE and NET MAE than PhysFormer."
+    context: "Table 3 reports Informer-Post MSE 0.0121, BVR 0.00%, NET MAE 0.1471 versus PhysFormer MSE 0.0128, BVR 0.00%, NET MAE 0.1527."
+    potential_type: claim
+    provenance: ai-executed
+    bound_to: [N01]
+    promoted: false
+  - id: O04
+    content: "Reproducibility and EPSR review risk are high because the dataset is confidential, local data/results/checkpoints are absent, and the manuscript reports no multi-seed uncertainty."
+    context: "Submission declarations state data are not publicly available; workspace contains no data/vpp_dataset_3years.csv or experiment result arrays."
+    potential_type: constraint
+    provenance: ai-executed
+    bound_to: [N01]
+    promoted: false
+
