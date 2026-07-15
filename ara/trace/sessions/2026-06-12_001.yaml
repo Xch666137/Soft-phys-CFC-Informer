@@ -1,0 +1,51 @@
+session:
+  id: "2026-06-12_001"
+  date: "2026-06-12"
+  started: "2026-06-12T14:00"
+  last_turn: "2026-06-12T14:13"
+  turn_count: 2
+  summary: "Completed the repaired B1/R0/R1/R1-reg/R2 remote rerun chain, verified protocol integrity, and analyzed the aggregate/component implications."
+
+events_logged:
+  - turn: 1
+    type: experiment
+    id: "N132"
+    routing: direct
+    provenance: ai-executed
+    summary: "Repaired B1 protocol rerun completed: canonical lam10 pretrain checkpoints, R0 direct, R1 low-LR 3 seeds, R1-reg 3 seeds, and R2 few-shot 5/10/20% metrics collected."
+  - turn: 1
+    type: observation
+    id: "O64"
+    routing: staged
+    provenance: ai-executed
+    summary: "Clean repaired evidence suggests R1-reg is the best B1 downstream arm but still above A1 aggregate MAE; R2 few-shot adaptation degrades aggregate performance."
+
+ai_actions:
+  - turn: 1
+    action: "Verified remote AutoDL state on connect.westc.seetacloud.com:52613, parsed R2 configs, ran scripts/train/launch_b1_r2_fewshot.sh for 5/10/20%, pulled metrics.json files into tmp/remote_metrics, checked logs for canonical checkpoint loading/backend policy/scaler diff, and updated ARA."
+    provenance: ai-executed
+    files_changed:
+      - "configs/physformer_igt_b1_r1_low_lr_finetune_s2026.yaml"
+      - "configs/physformer_igt_b1_r1_low_lr_finetune_s2027.yaml"
+      - "scripts/train/launch_b1_r1_low_lr_3seed.sh"
+      - "scripts/train/launch_b1_r1_reg_3seed.sh"
+      - "scripts/train/launch_b1_r2_fewshot.sh"
+      - "ara/trace/exploration_tree.yaml"
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-12_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+
+claims_touched: [C08, C11, C13]
+
+key_context:
+  - turn: 1
+    excerpt: "User said 'continue' after interruption; AI resumed the repaired B1 experiment chain from R2 few-shot validation onward."
+  - turn: 2
+    excerpt: "User asked to analyze the repaired B1/R0/R1/R1-reg/R2 results."
+
+open_threads:
+  - "Decide whether O64 should crystallize into a revised B1 claim after the researcher accepts the repaired-run interpretation."
+  - "If B1 remains in the thesis, report aggregate MAE together with the four learned component MAEs and keep SOC placeholder out of learned component evidence."
+
+ai_suggestions_pending: []

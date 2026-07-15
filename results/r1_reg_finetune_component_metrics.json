@@ -1,0 +1,61 @@
+{
+  "2025": {
+    "error": "[Errno 2] No such file or directory: 'configs/physformer_igt_b1_r1_reg_finetune_s2025.yaml'"
+  },
+  "2026": {
+    "mae": 0.005433443933725357,
+    "mse": 5.140485882293433e-05,
+    "rmse": 0.007169718388468027,
+    "net_ramp_violation": 0.18108277652962973,
+    "theory_mae": 0.004777793772518635,
+    "theory_rmse": 0.006606701295822859,
+    "residual_std_real_mw": 0.0020759201142936945,
+    "residual_mean_real_mw": -0.0005625434569083154,
+    "net_ramp_limit": 0.010404652118355777,
+    "soc_min": 0.0,
+    "soc_max": 0.0,
+    "soc_bound_violation": 0.0,
+    "component_load_mae": 0.0030137202702462673,
+    "component_pv_mae": 0.006196934264153242,
+    "component_wind_mae": 0.0006955207791179419,
+    "component_battery_power_mae": 0.0025121779181063175,
+    "component_battery_soc_mae": 0.020549625158309937,
+    "_units": {
+      "mse": "MW\u00b2",
+      "mae": "MW",
+      "rmse": "MW",
+      "theory_mae": "MW",
+      "theory_rmse": "MW",
+      "residual_std_real_mw": "MW",
+      "residual_mean_real_mw": "MW"
+    }
+  },
+  "2027": {
+    "mae": 0.0060189394280314445,
+    "mse": 5.684236020897515e-05,
+    "rmse": 0.007539387326687574,
+    "net_ramp_violation": 0.12044831208239723,
+    "theory_mae": 0.004777793772518635,
+    "theory_rmse": 0.006606701295822859,
+    "residual_std_real_mw": 0.0027482297737151384,
+    "residual_mean_real_mw": -0.0020805681124329567,
+    "net_ramp_limit": 0.010404652118355777,
+    "soc_min": 0.0,
+    "soc_max": 0.0,
+    "soc_bound_violation": 0.0,
+    "component_load_mae": 0.002937125042080879,
+    "component_pv_mae": 0.00685570202767849,
+    "component_wind_mae": 0.0007531542796641588,
+    "component_battery_power_mae": 0.002548317890614271,
+    "component_battery_soc_mae": 0.020549625158309937,
+    "_units": {
+      "mse": "MW\u00b2",
+      "mae": "MW",
+      "rmse": "MW",
+      "theory_mae": "MW",
+      "theory_rmse": "MW",
+      "residual_std_real_mw": "MW",
+      "residual_mean_real_mw": "MW"
+    }
+  }
+}

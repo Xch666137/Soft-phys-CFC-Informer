@@ -1,81 +1,116 @@
 # Architecture
 
-PhysFormer is a physics-conditioned Transformer for VPP aggregated net power forecasting.
-It decomposes the forecasting problem into theory-driven and residual components across
-four asset types (Load, PV, Wind, Battery).
+## Current Mainline: PhysFormer-iGT
 
-## Component Graph
+PhysFormer-iGT is the current thesis mainline. It replaces the historical
+shared-encoder FiLM PhysFormer with an inverted-token Transformer for DVPP net
+forecasting and decomposable component prediction.
 
-### Input Layer
-- **Historical net injection**: (B, L_in, 1) — past aggregated net power
-- **Physics features**: (B, L_in, F_phys) — irradiance, temperature, wind speed, calendar
-- **Time marks**: (B, L_in + L_out, F_time) — hour, weekday, month, holiday flags
-- **Portfolio ID**: (B,) — which VPP portfolio (for ID embedding)
+The central design choice is component-token separation: each DER component has
+its own token before attention. This removes the shared-encoder cancellation
+channel documented in C08-C10, while preserving the real-unit power-balance
+decoder.
 
-### Encoder (Shared Transformer)
-- **Inputs**: Historical net injection + physics features + time marks, projected to d_model
-- **Operation**: N_enc layers of self-attention + FiLM conditioning
-  - FiLM: γ, β = MLP(physics_features); h_out = γ ⊙ h + β
-  - Applies per-channel affine transformation conditioned on physics
-- **Outputs**: (B, L_in, d_model) encoded representations
+## A1 Aggregate Forecaster
 
-### Theory Branches (Per-Component, Physics-Driven)
-Four independent theory heads, each computing a physics-based estimate:
+### Inputs
 
-- **PV Theory**: P_pv ≈ η * G * (1 + α(T - T_ref)) * N_panels
-  - Where G = irradiance, T = temperature, η = efficiency, α = temp coefficient
-- **Wind Theory**: P_wind ≈ 0.5 * ρ * A * v³ * Cp
-  - Where v = wind speed, simplified as learnable cubic fit
-- **Battery Theory**: P_batt = f(SOC_t, SOC_{t-1}, efficiency, capacity)
-  - SOC accumulation constraint: SOC_t = SOC_{t-1} + η_ch * P_ch * Δt - (1/η_dis) * P_dis * Δt
-- **Load Theory**: P_load = f(calendar_features) — essentially a learned temporal model
+- **Component history**: `(B, L_in, 5)` for Load, PV, Wind, Battery Power, Battery SOC.
+- **Future weather**: `(B, L_out, 3)` for temperature, irradiance, and wind speed.
+- **Time marks / portfolio metadata**: available in the data pipeline, but A1 does not add
+  fixed physics tokens, graph priors, or a separate horizon decoder.
 
-Each theory branch outputs: (B, L_out, 1) scalar per-timestep component prediction.
+### Tokenization
 
-### Temporal Decoder (Time-Conditioned)
-- **Inputs**: Encoded representations + time_proj(y_mark)
-- **Operation**: Time-aware decoding of encoder outputs to prediction horizon
-  - time_proj: Linear projection of future time marks → decoder conditioning
-- **Outputs**: (B, L_out, d_dec) decoded representations
+- **5 component tokens**: a single batched one-layer bidirectional GRU encodes all five
+  component histories as `(B, 5, d_model)`.
+- **3 weather tokens**: a batched MLP encodes the three future weather channels as
+  `(B, 3, d_model)`.
+- **8-token contract**: component tokens and weather tokens are concatenated into
+  `(B, 8, d_model)`.
 
-### Residual Heads (Per-Component, Data-Driven)
-Five independent residual heads (one per component + Battery SOC):
-- **Operation**: MLP(decoded_representation) → scalar residual per timestep
-- **Initialization**: Small std (0.01–0.05) so residuals start near zero
-- **Outputs**: (B, L_out, 1) per-component residual correction
+This 8-token contract is preserved across pretraining, finetuning, and testing after
+the N131 repair. The token-encoder enhancement path is closed by N135: the A0 BiGRU
+readout fix and hidden=128 capacity expansion did not beat the A1 baseline.
 
-### Aggregation (Power Balance)
+### Inverted Attention Encoder
+
+The encoder applies self-attention across tokens, not across time steps. Each token is a
+domain-semantic variable representation rather than a time-position representation.
+
+This is the architectural mechanism behind C11:
+
+- it prevents the shared temporal encoder from mixing all components into one latent stream;
+- it blocks the encoder-depth -> cancellable-covariance channel identified in C10;
+- it avoids fixed physics priors, which C12 shows to be overfitting amplifiers.
+
+### Component Decoders
+
+A1 uses independent FFN projectors for the four learned dispatch-relevant components:
+
+- Load
+- PV
+- Wind
+- Battery Power
+
+Battery SOC is not a learned output in the current iGT evidence chain. It is excluded
+from the learned decomposable-forecasting claim and should be treated as placeholder
+diagnostics only.
+
+### Real-Unit Power-Balance Decoder
+
+Predicted components are denormalized into MW and aggregated by the sign convention:
+
+```text
+P_net = P_load - P_pv - P_wind + P_batt
 ```
-pred_net = (load_theory + load_res)
-         - (pv_theory + pv_res)
-         - (wind_theory + wind_res)
-         + (batt_theory + batt_res)
-```
-This preserves the VPP power balance identity: Net = Load - Generation + Battery.
 
-### Output
-- **pred_net**: (B, L_out, 1) — aggregated net injection forecast
-- **pred_components**: (B, L_out, 5) — per-component forecasts (for loss computation)
-- **theory_components**: (B, L_out, 5) — theory-only estimates (for monitoring)
+This gives A1 a hard architectural power-balance identity without using explicit PV,
+wind, or battery physics equations as model inputs.
 
-## Model Dimensionality
+## Phase B: Masked Component Pretraining
 
-| Parameter | V4 | V5 |
-|-----------|-----|-----|
-| d_model | 512 | 512 |
-| n_encoder_layers | 3 | 3 |
-| n_decoder_layers | 1 | 2 |
-| n_heads | 8 | 8 |
-| d_ff | 2048 | 2048 |
-| input_len | 96 | 96 |
-| output_len | 96 | 96 |
-| residual_dim | 1 (scalar) | 5 (per-component) |
-| ~params | ~3M | ~3.5M |
+B1 keeps the same A1 8-token architecture and changes only the training signal.
 
-## Key Design Choices
+### MCP Pretraining
 
-- **Shared encoder + separate heads**: Shared representation captures cross-component interactions; separate theory/residual heads maintain independent gradient paths per component.
-- **FiLM over concatenation**: FiLM provides multiplicative + additive conditioning, more expressive than feature concatenation at the input.
-- **Identity shortcut for residual**: No gate — gradient flows unimpeded from component loss to theory branches.
-- **MAE for component loss**: Linear penalty in kW space prevents Load from dominating component gradient (cf. H02).
-- **Time conditioning on decoder**: Calendar features projected into decoder so residuals are time-aware.
+- Randomly mask one or more component history channels among Load/PV/Wind/Battery Power.
+- Replace masked channels with a learnable mask token before GRU tokenization.
+- Predict masked future components through component MAE in auxiliary-scaler space.
+- Add a net-MSE anchor with `lambda_net=1.0` so the checkpoint remains compatible with
+  aggregate forecasting.
+
+### Downstream Arms
+
+- **R0**: direct test of the repaired pretrained checkpoint.
+- **R1**: low-LR net-MSE finetuning.
+- **R1-reg**: low-LR finetuning with a tiny component anchor; currently the best repaired
+  B1 downstream arm in N132.
+- **R2**: few-shot target-prefix adaptation; N132 shows this degrades aggregate MAE.
+
+## Historical Architecture Context
+
+The earlier PhysFormer line used:
+
+- shared Transformer encoder;
+- FiLM-conditioned physics branches;
+- theory + residual decomposition;
+- component-consistent residual heads;
+- component-loss curriculum.
+
+Those designs remain important historical evidence for C01-C07, but they are no longer
+the current thesis mainline. The final narrative uses them as a research path that
+revealed the shared-encoder cancellation problem and motivated PhysFormer-iGT.
+
+## Dispatch Proxy Layer
+
+C13 does not claim that the model is already a dispatch optimizer. It claims that
+component-decomposable forecasts are the information layer needed for dispatch preparation.
+
+Operational dispatch value must be tested by E14:
+
+- compare R1-reg component-aware allocation against A1 net-only allocation;
+- evaluate realized net deviation, infeasible-command rate, and dispatch cost under the
+  same constraints;
+- treat any result as proxy-only unless real asset headroom, SOC bounds, and cost curves
+  are available.

@@ -34,6 +34,7 @@ class Informer(nn.Module):
         super().__init__()
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
+        self.time_feat_dim = getattr(configs, "time_feat_dim", 10)
 
         # 根据 attn 参数决定使用哪一个类
         AttnClass = ProbAttention if configs.attn == 'prob' else FullAttention
@@ -45,7 +46,8 @@ class Informer(nn.Module):
             d_model=configs.d_model,
             embed_type=configs.embed,
             freq=configs.freq,
-            dropout=configs.dropout
+            dropout=configs.dropout,
+            time_enc_in=self.time_feat_dim
         )
         # 解码器嵌入
         self.dec_embedding = DataEmbedding(
@@ -53,7 +55,8 @@ class Informer(nn.Module):
             d_model=configs.d_model,
             embed_type=configs.embed,
             freq=configs.freq,
-            dropout=configs.dropout
+            dropout=configs.dropout,
+            time_enc_in=self.time_feat_dim
         )
 
         # --- 2. Encoder ---

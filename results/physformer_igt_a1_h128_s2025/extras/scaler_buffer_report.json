@@ -1,0 +1,9 @@
+{
+  "source": "test checkpoint",
+  "max_abs_diff": {
+    "target_mean": 0.0,
+    "target_std": 0.0,
+    "aux_mean": 0.0,
+    "aux_std": 0.0
+  }
+}

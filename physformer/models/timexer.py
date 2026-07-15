@@ -44,7 +44,7 @@ class TimeXer(nn.Module):
         self.known_future_num = len(
             getattr(configs, "known_future_covariate_cols", getattr(configs, "covariate_cols", [])) or []
         )
-        self.time_dim = 8
+        self.time_dim = getattr(configs, "time_feat_dim", 10)
 
         self.history_proj = nn.Linear(self.enc_in + self.time_dim, self.d_model)
         encoder_layer = nn.TransformerEncoderLayer(

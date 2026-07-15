@@ -1,6 +1,6 @@
 # Phase B1: Masked Component Pretraining (MCP)
-# Pretrains on train U val data with random component masking.
-# Output: pretrained_checkpoint.pth for downstream finetuning.
+# Pretrains on train-only data with random component masking.
+# Output: pretrained_checkpoint.pth + best_val_net_checkpoint.pth
 #
 _base_: base/v5_base.yaml
 model:
@@ -11,8 +11,9 @@ training:
   batch_size: 256
   seed: 2025
   val_interval: 1
+  use_compile: false
   # Pretraining-specific
-  pretrain_lambda_net: 0.3
+  pretrain_lambda_net: 1.0
   save_best_val_net_checkpoint: true
 hardware:
   num_workers: 4

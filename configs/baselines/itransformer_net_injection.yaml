@@ -43,4 +43,4 @@ hardware:
   num_workers: 8
 
 checkpoint:
-  name: itransformer_net_injection
+  name: itransformer_exog_net_injection

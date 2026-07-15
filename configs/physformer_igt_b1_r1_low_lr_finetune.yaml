@@ -8,10 +8,12 @@ training:
   patience: 3
   early_stop_start_epoch: 2
   learning_rate: 1.0e-5
+  schedule_type: constant
   batch_size: 256
   seed: 2025
   val_interval: 1
   grad_angle_interval: 999
+  use_compile: false
   component_loss_weight: 0.0
   theory_loss_weight: 0.0
   soc_weight: 0.0
@@ -26,7 +28,7 @@ training:
   phase_2_rr: 0.0
   phase_1_tw: 0.0
   phase_2_tw: 0.0
-  pretrained_path: results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth
+  pretrained_path: results/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth
   load_pretrained_scaler_buffers: false
   l2sp_weight: 0.0
 hardware:

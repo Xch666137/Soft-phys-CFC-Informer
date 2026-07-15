@@ -6,6 +6,7 @@ model:
 
 data:
   data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+  target: null
   time_col: date
   id_col: portfolio_id
   region_col: region_id

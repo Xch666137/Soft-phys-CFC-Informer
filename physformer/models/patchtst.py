@@ -31,14 +31,19 @@ class PatchTST(nn.Module):
         self.pred_len = configs.pred_len
         self.enc_in = configs.enc_in
         self.c_out = configs.c_out
+        self.target_dim = len(getattr(configs, "target_cols", [])) or self.c_out
+        self.known_future_num = len(
+            getattr(configs, "known_future_covariate_cols", getattr(configs, "covariate_cols", [])) or []
+        )
+        self.time_dim = getattr(configs, "time_feat_dim", 10)
 
-        # Patch 参数 (论文推荐配置)
-        self.patch_len = 16
-        self.stride = 8
-        self.d_model = 128
-        self.n_heads = 4
-        self.e_layers = 3
-        self.dropout = 0.2
+        # Patch parameters. Defaults match the previous implementation.
+        self.patch_len = getattr(configs, "patch_len", 16)
+        self.stride = getattr(configs, "stride", 8)
+        self.d_model = getattr(configs, "d_model", 128)
+        self.n_heads = getattr(configs, "n_heads", 4)
+        self.e_layers = getattr(configs, "e_layers", 3)
+        self.dropout = getattr(configs, "dropout", 0.2)
 
         # 计算 Patch 数量
         self.patch_num = int((self.seq_len - self.patch_len) / self.stride + 1)
@@ -70,6 +75,8 @@ class PatchTST(nn.Module):
             self.channel_projection = nn.Linear(self.enc_in, self.c_out)
         else:
             self.channel_projection = None
+        self.future_cov_projection = nn.Linear(self.known_future_num, self.c_out) if self.known_future_num > 0 else None
+        self.future_time_projection = nn.Linear(self.time_dim, self.c_out) if self.time_dim > 0 else None
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         # 采用 Channel Independence 策略
@@ -109,5 +116,15 @@ class PatchTST(nn.Module):
         # 6. 通道对齐 (如果需要)
         if self.channel_projection is not None:
             x = self.channel_projection(x)  # [Batch, Pred_Len, C_Out]
+
+        if self.future_cov_projection is not None and x_dec is not None:
+            cov_start = self.target_dim
+            cov_end = cov_start + self.known_future_num
+            future_cov = x_dec[:, -self.pred_len :, cov_start:cov_end]
+            x = x + self.future_cov_projection(future_cov)
+
+        if self.future_time_projection is not None and x_mark_dec is not None:
+            future_marks = x_mark_dec[:, -self.pred_len :, : self.time_dim]
+            x = x + self.future_time_projection(future_marks)
 
         return x

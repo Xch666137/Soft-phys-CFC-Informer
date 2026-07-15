@@ -40,41 +40,35 @@ conda activate "$ENV_NAME"
 cd "$PROJECT_DIR"
 mkdir -p "$LOG_DIR" "$RUN_ROOT"
 
-if [[ ! -f results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth ]]; then
-  echo "Missing pretrained checkpoint: results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth" >&2
+if [[ ! -f results/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth ]]; then
+  echo "Missing pretrained checkpoint: results/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth" >&2
   exit 1
 fi
 
 printf "session_tag\t%s\n" "$SESSION_TAG" | tee "$LOG_DIR/jobs.tsv"
 printf "started_at\t%s\n" "$(date -Is)" | tee -a "$LOG_DIR/jobs.tsv"
 
-pids=()
+status=0
 for i in "${!RUNS[@]}"; do
   run="${RUNS[$i]}"
   config="${CONFIGS[$i]}"
   if [[ -d "$RUN_ROOT/$run" ]]; then
     mv "$RUN_ROOT/$run" "$RUN_ROOT/${run}.bak_${SESSION_TAG}"
   fi
-  (
+  printf "%s\t%s\t%s\n" "$run" "$config" "$LOG_DIR/${run}.launcher.log" | tee -a "$LOG_DIR/jobs.tsv"
+  if (
     set -euo pipefail
     python run.py train --config "$config"
     python run.py test --config "$config"
-  ) >"$LOG_DIR/${run}.launcher.log" 2>&1 &
-  pid=$!
-  pids+=("$pid")
-  printf "%s\t%s\t%s\t%s\n" "$run" "$config" "$pid" "$LOG_DIR/${run}.launcher.log" | tee -a "$LOG_DIR/jobs.tsv"
-done
-
-echo "Launched ${#RUNS[@]} B1-R1-reg seeds. Logs: $LOG_DIR"
-echo "Monitor with:"
-echo "  python scripts/train/monitor_b1_3seed_epochs.py --project-dir '$PROJECT_DIR' --session-tag '$SESSION_TAG'"
-
-status=0
-for pid in "${pids[@]}"; do
-  if ! wait "$pid"; then
+  ) >"$LOG_DIR/${run}.launcher.log" 2>&1; then
+    printf "%s\tfinished\t0\t%s\n" "$run" "$(date -Is)" | tee -a "$LOG_DIR/jobs.tsv"
+  else
     status=1
+    printf "%s\tfailed\t1\t%s\n" "$run" "$(date -Is)" | tee -a "$LOG_DIR/jobs.tsv"
   fi
 done
+
+echo "Finished ${#RUNS[@]} B1-R1-reg seeds. Logs: $LOG_DIR"
 
 printf "finished_at\t%s\n" "$(date -Is)" | tee -a "$LOG_DIR/jobs.tsv"
 exit "$status"

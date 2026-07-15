@@ -2243,3 +2243,596 @@ tree:
     - "Crossref public metadata queries; no full-text PDFs downloaded"
   status: resolved
   also_depends_on: [C11, C12, O56]
+
+# ============================================================
+# N117: Applied Energy PDF distillation v0.1 completed (decision, 2026-06-01)
+# ============================================================
+
+- id: N117
+  type: decision
+  title: "Applied Energy PDF distillation v0.1: extraction matrix and journal profile"
+  provenance: ai-executed
+  timestamp: "2026-06-01T00:55"
+  choice: >
+    Process the user-downloaded AE01-AE15 PDFs from
+    C:\Users\Xch\Desktop\Text\Applied Energy using local pypdf extraction. All 15
+    files were mapped to the core list and verified as readable text PDFs. The
+    output artifacts are a per-paper extraction matrix and a journal-profile v0.1
+    for Applied Energy submission strategy.
+  evidence:
+    - "docs/analysis/applied_energy_pdf_extraction_matrix.md: 15-paper mapping, extraction matrix, keyword signals"
+    - "docs/analysis/applied_energy_journal_profile.md: Applied Energy journal profile, PhysFormer framing, experiment gaps, ARS reviewer prompt seed"
+    - "tmp/applied_energy_distill/applied_energy_extracted_sections.json: extracted metadata/snippets"
+    - "tmp/applied_energy_distill/applied_energy_extraction_summary.md: automated extraction summary"
+  status: resolved
+  also_depends_on: [N116, C11, C12]
+
+# ============================================================
+# N118: Applied Energy Scheme A ARS trial completed (decision, 2026-06-01)
+# ============================================================
+
+- id: N118
+  type: decision
+  title: "Scheme A trial: journal_profile + ARA source pack + ARS pre-submission review"
+  provenance: ai-executed
+  timestamp: "2026-06-01T01:20"
+  choice: >
+    Execute Scheme A as a lightweight Applied Energy trial without building a formal
+    ARA-ARS bridge. The workflow used the 15-paper Applied Energy journal_profile,
+    built an ARA-derived paper_source_pack with safe claims and do-not-claim
+    boundaries, then ran an ARS academic-paper-reviewer-style pre-submission evidence
+    review. Because no manuscript exists yet, this was explicitly a pre-submission
+    evidence review rather than a line-by-line peer review.
+  evidence:
+    - "docs/analysis/applied_energy_paper_source_pack.md: source facts, safe claims, do-not-claim boundaries, gaps, ARS reviewer prompt seed"
+    - "docs/analysis/applied_energy_ars_presubmission_review.md: EIC/methodology/domain/cross-disciplinary/devil's advocate review and editorial synthesis"
+  result: >
+    Scheme A successfully exposed concrete pain points. Applied Energy fit is
+    medium-high only after reframing around VPP aggregate forecasting and component-token
+    separation. Immediate submission would have high desk-reject risk because the
+    current evidence package lacks Applied Energy-style operational metrics and
+    stronger simple/modern baseline closure. The next recommended gate is an
+    Applied Energy補強 experiment package: A1/c23/core baselines on MAE/MSE/RMSE plus
+    ramp-event MAE, peak/valley MAE, deviation penalty proxy, and reserve requirement proxy.
+  status: resolved
+  also_depends_on: [N116, N117, O57, C08, C11, C12]
+
+# ============================================================
+# N119: Applied Energy ARS writing adapter created (decision, 2026-06-01)
+# ============================================================
+
+- id: N119
+  type: decision
+  title: "Scheme A corrected: Applied Energy ARS writing adapter"
+  provenance: ai-executed
+  timestamp: "2026-06-01T20:55"
+  choice: >
+    User corrected the Scheme A objective: the 15 Applied Energy papers are not
+    merely for ARS reviewer simulation, but for distilling an ARS academic-paper
+    writing adapter that can produce target-journal-matched manuscript plans,
+    outlines, argument blueprints, abstracts, and eventually full drafting after
+    evidence gates are satisfied. Created a dedicated writing-facing adapter that
+    maps AE01-AE15 + ARA claims into ARS academic-paper phases and enforces ARA
+    as fact layer, Applied Energy papers as journal-style layer, and ARS as
+    writing layer.
+  alternatives:
+    - "Continue treating Scheme A mainly as ARS academic-paper-reviewer simulation"
+    - "Build a full formal ARA-ARS bridge before trying target-journal writing"
+    - "Let ARS write a full Applied Energy manuscript immediately from the source pack"
+  evidence:
+    - "docs/analysis/applied_energy_ars_writing_adapter.md: Applied Energy-specific ARS academic-paper phase overrides, AE-Gate-0/1/2, claim-evidence map, writing constraints, and ars-plan/outline/full/abstract prompt templates"
+    - "docs/analysis/applied_energy_journal_profile.md: journal style and evidence-gap basis"
+    - "docs/analysis/applied_energy_paper_source_pack.md: ARA fact layer and safe/do-not-claim boundaries"
+  result: >
+    Scheme A now has the intended writing adapter. Current allowed ARS outputs
+    are Applied Energy plan, detailed outline, argument blueprint, provisional
+    abstract, and experiment-section scaffold. Full submission drafting remains
+    blocked until AE-Gate-1 is satisfied: operational metrics, strong baseline
+    closure, multi-seed reporting, and single-dataset defense.
+  status: resolved
+  also_depends_on: [N116, N117, N118, C08, C11, C12]
+
+# ============================================================
+# N120: Applied Energy outline + argument blueprint created (decision, 2026-06-01)
+# ============================================================
+
+- id: N120
+  type: decision
+  title: "Applied Energy detailed outline and argument blueprint"
+  provenance: ai-executed
+  timestamp: "2026-06-01T21:21"
+  choice: >
+    Used the Applied Energy ARS writing adapter to generate the next writing
+    artifact: a detailed outline and argument blueprint for a target-journal
+    Applied Energy research article. The artifact keeps full manuscript drafting
+    blocked because AE-Gate-1 is still incomplete, but it fixes the paper's
+    working title, mainline, contribution statement, section-by-section outline,
+    claim-evidence map, figure/table plan, and AE-Gate-1 experiment TODO.
+  evidence:
+    - "docs/analysis/applied_energy_ars_outline_blueprint.md: Paper Configuration Record, working title, contribution statement, detailed outline, C08/C11/C12 claim-evidence map, figure/table plan, and AE-Gate-1 experiment TODO"
+    - "docs/analysis/applied_energy_ars_writing_adapter.md: phase-level writing constraints and AE-Gate full-draft block"
+  result: >
+    Scheme A now has a usable writing path: ARS can proceed with Applied Energy
+    outline refinement, introduction skeleton, argument stress test, and
+    provisional abstract. The next empirical work remains AE-Gate-1 supplement:
+    A1/c23/core-baseline comparison on aggregate metrics plus ramp, peak/valley,
+    deviation-penalty, and reserve proxies with mean ± std reporting.
+  status: resolved
+  also_depends_on: [N119, N118, C08, C11, C12]
+
+# ============================================================
+# N121: B1 protocol repair locally verified (experiment, 2026-06-01)
+# ============================================================
+
+- id: N121
+  type: experiment
+  title: "B1 protocol repair: local code/config verification"
+  provenance: ai-executed
+  timestamp: "2026-06-01T22:45"
+  hypothesis: >
+    The B1 rescue should first remove protocol confounds before any new GPU run:
+    per-sample MCP masks, deterministic masked validation in the pretrain scaler
+    space, physical-zero masking, best-Val-Net downstream checkpoint selection,
+    explicit pretrained direct-test loading, and resume-gated stale state loading.
+  result: >
+    Local implementation and verification passed. py_compile succeeded for the
+    modified loss/model/train/config modules under the PhysFormer conda environment.
+    CPU smoke test passed for tensor boolean masks, legacy list masks, finite
+    PretrainLoss values, and target/aux/component/weather re-normalization into
+    pretrain scaler space. --print-config confirmed B1 pretrain saves
+    best_val_net_checkpoint, R0 uses test_pretrained_direct=True, and all B1 R1/R2
+    configs resolve pretrained_path to results/physformer_igt_b1_pretrain/
+    best_val_net_checkpoint.pth with scaler buffers skipped except the oldload
+    control. The local results directory still only contains the old
+    pretrained_checkpoint.pth, so the repaired protocol requires rerunning B1
+    pretraining before R0/R1/R2 can be judged.
+  evidence:
+    - "physformer/loss.py: PretrainLoss accepts boolean per-sample masks"
+    - "physformer/models/physformer/igt_model.py: masked inputs use physical-zero values in aux z-score space"
+    - "physformer/train/pretrain_exp.py: masked validation and scaler-space re-normalization"
+    - "physformer/train/physformer_exp.py: resume-gated training_state load and test_pretrained_direct"
+    - "configs/physformer_igt_b1_*.yaml: downstream checkpoint paths target best_val_net_checkpoint.pth"
+    - "Verification: conda run -n PhysFormer python -m py_compile ... passed"
+    - "Verification: CPU smoke test printed smoke_ok"
+    - "Verification: all B1 config inheritance resolved to the repaired checkpoint/loading policy"
+  status: resolved
+  also_depends_on: [N113, N114, N115, O58, C08, C11, C12]
+
+# ============================================================
+# N122: B1 five-layer root cause analysis (decision, 2026-06-03)
+# ============================================================
+
+- id: N122
+  type: decision
+  title: "B1 five-layer root cause analysis and rescue design"
+  provenance: ai-suggested
+  timestamp: "2026-06-03T12:00"
+  choice: >
+    B1 lags A1 due to 5 independent layers: L1 (λ_net=0.3 gradient imbalance
+    77% comp vs 23% net), L2 (checkpoint selects total-loss-best not net-best),
+    L3 (scaler train+val vs train-only mismatch), L4 (OneCycleLR lr=1e-4
+    destroys pretrained basin), L5 (no learnable mask token + no calendar
+    features). Fix L2-L5 code, then ablate L1 via λ_net ∈ {0.3, 1.0, 3.0}.
+  alternatives:
+    - "Remove comp_loss entirely (Masked Net Prediction) — rejected by user: destroys physical interpretability"
+    - "Only tune λ_net without fixing L2-L5 — rejected: confounds would mask λ effect"
+    - "Close Phase B and write thesis around A1 — deferred: DVPP cross-portfolio adaptation has real deployment value"
+  evidence:
+    - "docs/plans/2026-06-03-b1-five-layer-rescue.md: full design doc"
+    - "O53: B1 finetune dead end analysis"
+    - "C08: cancellation structure mechanism"
+  status: resolved
+  also_depends_on: [N113, N114, C08, C11, C12, O53, O54, O55]
+
+# ============================================================
+# N123: L2-L5 code fixes implemented (experiment, 2026-06-03)
+# ============================================================
+
+- id: N123
+  type: experiment
+  title: "L2-L5 code fixes + L1 λ configs + L4 constant LR implemented"
+  provenance: ai-executed
+  timestamp: "2026-06-03T14:00"
+  hypothesis: >
+    Fixing L2 (checkpoint selection), L3 (scaler), L4 (constant LR), L5
+    (mask_token + calendar_proj) and adding λ_net ablation configs will enable
+    clean B1 rescue experiments.
+  result: >
+    All changes implemented and verified: data.py (removed train+val extension),
+    igt_model.py (mask_token parameter + calendar_proj + conditional calendar
+    token for pretrain), pretrain_exp.py (best_val_net loading fix + time_feat_dim
+    passthrough), physformer_exp.py (schedule_type:constant branch), config.py
+    (new keys), 6 new/modified configs. py_compile passed, CPU smoke test passed
+    (8-token finetune mode, 9-token pretrain mode, mask_token gradient, calendar_proj
+    gradient). Pushed to AutoDL.
+  evidence:
+    - "physformer/data.py: removed 3 pretraining_mode train+val extensions"
+    - "physformer/models/physformer/igt_model.py: mask_token + calendar_proj + conditional 9-token"
+    - "physformer/train/pretrain_exp.py: best_val_net load + time_feat_dim passthrough"
+    - "physformer/train/physformer_exp.py: schedule_type constant branch"
+    - "physformer/config.py: schedule_type key"
+    - "configs/physformer_igt_b1_pretrain_lam{03,10,30}.yaml: λ ablation configs"
+    - "Verification: py_compile passed for all modified files"
+    - "Verification: CPU smoke test passed (mask_token grad, calendar_proj grad)"
+  status: resolved
+  also_depends_on: [N122, C08, C11, C12]
+
+# ============================================================
+# N124: autodl.sh train vs pretrain command bug (dead_end, 2026-06-03)
+# ============================================================
+
+- id: N124
+  type: dead_end
+  title: "autodl.sh train command used instead of pretrain — wrong experiment class"
+  provenance: ai-executed
+  timestamp: "2026-06-03T16:40"
+  hypothesis: >
+    autodl.sh `train` command always uses `python run.py train` which routes to
+    PhysFormerExperiment (finetune), not PretrainExperiment. All 3 λ ablation
+    pretrain experiments initially ran as finetune with PhysLoss, making λ_net
+    ineffective.
+  failure_mode: >
+    The CLI has separate `train` and `pretrain` commands routing to different
+    experiment classes. autodl.sh only supports `train`. The pretrain configs
+    were launched with `train` command, producing identical metrics across all
+    3 λ values (confirmed by identical Val Loss/Val Net at same epochs).
+  lesson: >
+    Pretrain experiments must use `python run.py pretrain --config ...`, not
+    `python run.py train`. Need to either extend autodl.sh or use direct
+    nohup commands for pretrain.
+  evidence:
+    - "physformer/cli.py: separate train and pretrain subcommands"
+    - "Remote logs: all 3 λ experiments showed identical metrics at same epochs"
+    - "After fix (nohup with pretrain command): metrics diverged as expected"
+  status: resolved
+  also_depends_on: [N123]
+
+# ============================================================
+# N125: time_feat_dim mismatch in pretrain_exp.py (dead_end, 2026-06-03)
+# ============================================================
+
+- id: N125
+  type: dead_end
+  title: "pretrain_exp.py missing time_feat_dim → calendar_proj shape mismatch"
+  provenance: ai-executed
+  timestamp: "2026-06-03T17:00"
+  hypothesis: >
+    pretrain_exp.py _build_model does not pass time_feat_dim to PhysFormeriGT,
+    defaulting to 8. Config has time_feat_dim: 10. calendar_proj nn.Linear(8, 256)
+    receives input of shape (B, 1, 10) → matmul error (256×10 and 8×256).
+  failure_mode: >
+    Missing one parameter in _build_model kwargs. The v5_base config defines
+    time_feat_dim: 10 but pretrain_exp.py didn't forward it.
+  lesson: >
+    When adding new model parameters, all _build_model call sites must be updated.
+    Check both pretrain_exp.py and physformer_exp.py.
+  evidence:
+    - "RuntimeError: mat1 and mat2 shapes cannot be multiplied (256x10 and 8x256)"
+    - "Fix: added time_feat_dim=getattr(self.args, 'time_feat_dim', 8) to _build_model"
+  status: resolved
+  also_depends_on: [N123, N124]
+
+# ============================================================
+# N126: λ_net ablation pretraining completed (experiment, 2026-06-03)
+# ============================================================
+
+- id: N126
+  type: experiment
+  title: "λ_net ablation pretraining: lam03/lam10/lam30 on train-only data"
+  provenance: ai-executed
+  timestamp: "2026-06-05T23:20"
+  hypothesis: >
+    Adjusting λ_net from 0.3 to 1.0 or 3.0 will shift pretraining gradient
+    balance toward aggregate accuracy, producing a checkpoint with better
+    direct-test MAE.
+  result: >
+    All 3 completed on AutoDL RTX 4080 SUPER (train-only, L3 fix, mask_token,
+    calendar_proj, best_val_net checkpoint). lam03: 50 epochs (no early stop),
+    Val Net 0.394. lam10: Epoch 28 early stop, Val Net 0.388 (best). lam30:
+    Epoch 38 early stop, Val Net 0.386. Direct test MAE: lam03=0.004277,
+    lam10=0.002173, lam30=0.004222. lam10 (λ=1.0) best but still 20% above A1
+    (0.001811). Note: lam03/lam30 tests initially failed due to torch.compile
+    key prefix bug (N127); after fix, results confirmed similar pattern.
+  evidence:
+    - "results/physformer_igt_b1_pretrain_lam{03,10,30}_pretrained_checkpoint.pth"
+    - "Remote train.log files for all 3 experiments"
+    - "Direct test metrics.json for lam10 (MAE=0.002173)"
+  status: resolved
+  also_depends_on: [N122, N123, N124, N125, C08]
+
+# ============================================================
+# N127: torch.compile _orig_mod. key prefix bug (dead_end, 2026-06-06)
+# ============================================================
+
+- id: N127
+  type: dead_end
+  title: "torch.compile _orig_mod. prefix breaks checkpoint loading into uncompiled model"
+  provenance: ai-executed
+  timestamp: "2026-06-06T12:00"
+  hypothesis: >
+    torch.compile wraps modules in OptimizedModule, adding _orig_mod. prefix to
+    state_dict keys. Checkpoints saved from compiled models have keys like
+    comp_embedding._orig_mod.gru.weight_ih_l0. Loading into uncompiled model
+    expects comp_embedding.gru.weight_ih_l0. Even with key stripping fix,
+    if the loading model is ALSO compiled, the stripped keys don't match the
+    compiled model's _orig_mod. keys.
+  failure_mode: >
+    Symmetric mismatch: checkpoint has _orig_mod. keys, model also has _orig_mod.
+    keys (from its own compile). Stripping checkpoint keys → model's _orig_mod.
+    keys don't match stripped keys. Both sides must agree on compile state.
+  lesson: >
+    Disable torch.compile for BOTH pretrain (checkpoint saving) and finetune/test
+    (checkpoint loading). The speed benefit is not worth the key compatibility
+    headaches. If compile is needed, must compile both sides identically.
+  evidence:
+    - "Remote test log: missing keys with _orig_mod. prefix after stripping"
+    - "Fix: disabled torch.compile in both pretrain_exp.py and physformer_exp.py"
+    - "After fix: GRU weights loaded correctly, MAE improved from 0.004+ to 0.002"
+  status: resolved
+  also_depends_on: [N123, N126]
+
+# ============================================================
+# N128: B1 Phase 3 finetune with fixed code — MARGINAL (experiment, 2026-06-06)
+# ============================================================
+
+- id: N128
+  type: experiment
+  title: "B1 lam10 finetune (fixed): 3-seed mean MAE 0.001894, MARGINAL"
+  provenance: ai-executed
+  timestamp: "2026-06-06T16:30"
+  hypothesis: >
+    With torch.compile disabled (clean checkpoint loading), constant LR=1e-5,
+    and lam10 (λ=1.0) pretrained weights, finetuning for 10 epochs on net MSE
+    should approach or surpass A1's MAE 0.001811.
+  result: >
+    3-seed finetune completed: s2025 MAE=0.001888 (Epoch 7 early stop),
+    s2026 MAE=0.001886 (Epoch 10 early stop), s2027 MAE=0.001907 (Epoch 7 early
+    stop). Mean MAE=0.001894 ± 0.000012. All seeds below 0.001830 (MARGINAL
+    threshold) but above A1 gate 0.001811. Pretrain+finetune direction is viable
+    but 4.6% gap remains. Compared to broken finetune (MAE 0.004+, +119%),
+    torch.compile fix recovered most of the gap.
+  evidence:
+    - "runs/physformer_igt_b1_finetune_lam10_s{2025,2026,2027}/metrics.json"
+    - "3-seed mean: 0.001894, std: 0.000012"
+    - "Gate: 0.001811 (A1 mean), Status: MARGINAL"
+  status: resolved
+  also_depends_on: [N122, N126, N127, C08, C11, C12]
+
+# ============================================================
+# N129: B1 evaluation framework reframed (decision, 2026-06-10)
+# ============================================================
+
+- id: N129
+  type: decision
+  title: "B1 evaluation reframed: component dispatchability over aggregate MSE"
+  provenance: user
+  timestamp: "2026-06-10T00:00"
+  choice: >
+    B1 success should NOT be judged solely on aggregate net MAE vs A1.
+    In DVPP operations, the goal is dispatchable per-component schedules —
+    net injection forecast is a means, not an end. MCP pretrain+finetune
+    trades <5% aggregate MAE for 4-dimensional component-level decomposability,
+    enabling operators to answer "which DER to adjust?" for peak shaving,
+    ancillary market bidding, and penalty avoidance. This reframes the thesis
+    narrative from "B1 vs A1" to "component-accuracy vs aggregate-accuracy
+    Pareto tradeoff in DVPP dispatch context."
+  alternatives:
+    - "Continue judging B1 by aggregate MAE alone — rejected: ignores DVPP operational reality"
+    - "Abandon pretrain+finetune because it doesn't beat A1 on net MAE — rejected: misses the point of component dispatchability"
+    - "Separate forecasting and dispatch into two-stage pipeline (forecast net → optimize dispatch) — viable but orthogonal; MCP integrates both"
+  evidence:
+    - "N128: B1 3-seed MAE=0.001894 (+4.6% vs A1)"
+    - "C08: component error cancellation structure — pure net MSE hides component inaccuracy"
+    - "O62: DVPP dispatch argument (user)"
+    - "C13: component-dispatchability value proposition"
+  status: resolved
+  also_depends_on: [N128, C08, C11, C12]
+
+# ============================================================
+# N130: B1 lam10 pretraining interrupted and code re-audited (experiment, 2026-06-11)
+# ============================================================
+
+- id: N130
+  type: experiment
+  title: "B1 lam10 remote pretraining stopped before pretrained export"
+  provenance: ai-executed
+  timestamp: "2026-06-11T22:30"
+  hypothesis: >
+    The remote AutoDL container may still be running a B1 lam10 pretraining job
+    after the latest experiment iteration.
+  result: >
+    User provided the active SSH endpoint (connect.westc.seetacloud.com:52613).
+    Remote process audit found a nohup-launched
+    `python run.py pretrain --config configs/physformer_igt_b1_pretrain_lam10.yaml`
+    with torch.compile workers and DataLoader workers. The job was stopped by
+    SIGTERM followed by SIGKILL for remaining listed PIDs. A second audit showed
+    no PhysFormer/run.py/compile_worker/pt_data_worker processes and no active
+    GPU compute apps. Because the job was interrupted, the run directory had
+    `best_val_net_checkpoint.pth` but no final `pretrained_checkpoint.pth`.
+  evidence:
+    - "Remote ps audit: PID 13700 run.py pretrain configs/physformer_igt_b1_pretrain_lam10.yaml"
+    - "Post-stop remote audit: no matching project processes; nvidia-smi compute-app list empty"
+    - "Remote checkpoint audit: runs/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth exists; pretrained_checkpoint.pth missing"
+  status: resolved
+  also_depends_on: [N126, N128, N129]
+
+# ============================================================
+# N131: B1 experiment protocol repair implemented (decision, 2026-06-11)
+# ============================================================
+
+- id: N131
+  type: decision
+  title: "B1/R1/R2 rerun protocol repaired before new evidence collection"
+  provenance: ai-executed
+  timestamp: "2026-06-11T21:57"
+  choice: >
+    Implement the B1 experiment-integrity repair plan before rerunning B1/R1/R2:
+    canonicalize downstream checkpoints to
+    `results/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth`,
+    make configured missing pretrained checkpoints fatal, remove the pretrain-only
+    calendar token from mainline MCP so pretrain/finetune/test share the 8-token
+    A1 encoder contract, mark iGT SOC MAE as placeholder-not-learned, and gate
+    fused RNN backend disabling to ROCm or explicit compatibility mode.
+  alternatives:
+    - "Keep mixed checkpoint paths and warning-only loading — rejected because it can silently turn finetune/test into from-scratch evidence"
+    - "Keep pretrain-only calendar token in B1 mainline — rejected because it confounds MCP task change with architecture/input change"
+    - "Continue reporting iGT SOC as component_battery_soc_mae — rejected because no learned SOC head exists"
+  evidence:
+    - "py_compile passed for config/data/loss/iGT/base/finetune/pretrain/cli/run.py"
+    - "--print-config passed for B1 pretrain lam10, R0, R1, R1-reg, and R2; downstream pretrained_path is canonical and use_compile=false"
+    - "scripts/smoke_test_l1_l5.py passed: 8-token masked/unmasked forward, PretrainLoss backward, missing-pretrained failure, scaler-buffer skip load"
+  status: resolved
+  also_depends_on: [N121, N126, N127, N128, N129, N130, O63]
+
+# ============================================================
+# N132: Repaired B1/R0/R1/R2 remote rerun completed (experiment, 2026-06-12)
+# ============================================================
+
+- id: N132
+  type: experiment
+  title: "Repaired B1 protocol rerun: R1-reg best aggregate, R2 few-shot degrades"
+  provenance: ai-executed
+  timestamp: "2026-06-12T14:15"
+  hypothesis: >
+    After N131 repairs, B1 lam10 MCP pretraining followed by R0 direct test,
+    R1 low-LR finetune, R1-reg tiny component-anchor finetune, and R2
+    few-shot target adaptation should produce interpretable evidence using one
+    canonical checkpoint and the same 8-token iGT encoder contract.
+  result: >
+    Remote AutoDL run on connect.westc.seetacloud.com:52613 completed under
+    repaired protocol. B1 lam10 pretrain early-stopped at epoch 40 with best
+    Val Net=0.398197 at epoch 28 and exported both canonical checkpoints to
+    `results/physformer_igt_b1_pretrain_lam10/`. R0 direct test MAE=0.001882.
+    R1 low-LR 3-seed mean MAE=0.001834672 +/- 0.000003128; 4-component MAE
+    means: Load=0.001814825, PV=0.000943461, Wind=0.000301731,
+    BatteryPower=0.001184180. R1-reg 3-seed mean MAE=0.001829685 +/-
+    0.000002955; 4-component MAE means: Load=0.001808796, PV=0.000898363,
+    Wind=0.000230729, BatteryPower=0.001185496. R2 few-shot adaptation did
+    not improve aggregate performance: 5%=0.002283812, 10%=0.002255859,
+    20%=0.002310723 MAE. All B1/R0/R1/R2 logs show use_compile=false,
+    cudnn.enabled=true on NVIDIA, canonical pretrained checkpoint loading, and
+    scaler-buffer max diff=0. iGT SOC remains unavailable and only reported as
+    placeholder, not as learned component evidence.
+  evidence:
+    - "Remote pretrain outputs: /root/autodl-tmp/physformer/results/physformer_igt_b1_pretrain_lam10/{best_val_net_checkpoint.pth,pretrained_checkpoint.pth}"
+    - "R0 metrics: runs/physformer_igt_b1_r0_pretrained_direct_test/metrics.json"
+    - "R1 low-LR metrics: runs/physformer_igt_b1_r1_low_lr_finetune_s{2025,2026,2027}/metrics.json"
+    - "R1-reg metrics: runs/physformer_igt_b1_r1_reg_finetune_s{2025,2026,2027}/metrics.json"
+    - "R2 metrics: runs/physformer_igt_b1_r2_fewshot_adapt_f{05,10,20}_s2025/metrics.json"
+    - "Local pulled copies: tmp/remote_metrics/*"
+    - "R2 logs: logs/b1_r2_fewshot_repaired_20260612_140219/*.launcher.log"
+  status: resolved
+  also_depends_on: [N129, N131, C08, C11, C13]
+
+# ============================================================
+# N133: A0 BiGRU readout fix — 3-seed experiment (2026-06-14)
+# ============================================================
+# provenance: ai-suggested (design), ai-executed (code + experiment), user (decision)
+# Code: physformer/models/physformer/igt_model.py:BatchedComponentEmbedding.forward()
+#       out[:, -1, :] → torch.cat([h_n[0], h_n[1]], dim=-1)
+
+- id: N133
+  type: experiment
+  title: "A0: BiGRU readout fix — out[:,-1,:] → h_n concat (0-param bug fix)"
+  provenance: ai-executed
+  timestamp: "2026-06-14T16:35"
+  hypothesis: >
+    BiGRU's out[:, -1, :] gives backward direction only 1/672 of the sequence context.
+    Switching to h_n concat lets both forward and backward paths see full 672-step
+    history, improving token quality with zero parameter increase.
+  result: >
+    3-seed mean MAE = 0.001824 ± 2.6e-5 vs A1 baseline 0.001811 ± 6e-6.
+    Gate FAILED (1/3 seeds, mean +0.7% above baseline).
+
+    Per-seed results:
+      s2025: MAE 0.001794 (−0.9% vs A1), best Val 0.371820
+      s2026: MAE 0.001837 (+1.4%), best Val 0.368755 (BEST Val but second-worst Test)
+      s2027: MAE 0.001841 (+1.7%), best Val 0.376493
+
+    Mean MSE/RMSE slightly improved (6.735e-06 / 0.002595 vs A1 6.766e-06 / 0.002601),
+    suggesting readout fix reduces some large errors but increases ordinary-sample
+    absolute error (MAE-worse). Cross-seed stability degraded (std 2.6e-5 vs A1 6e-6).
+    Val→Test rank reversal: best-Val seed was worst-Test seed.
+  status: resolved
+  also_depends_on: [C11, C12, N100]
+  children:
+    - id: N134
+      type: dead_end
+      title: "A1: BiGRU hidden=128 — capacity expansion degrades MAE (C12 pattern)"
+      provenance: ai-executed
+      timestamp: "2026-06-14T21:37"
+      hypothesis: >
+        Expanding BiGRU hidden dim from 64 to 128 (+108K params) improves token
+        representation quality and aggregate accuracy.
+      failure_mode: >
+        Single-seed s2025 MAE = 0.001845 — worse than ALL A0 seeds and A1 baseline.
+        10.8GB GPU memory (2× default). Even solo-running, the extra capacity led
+        to overfitting (C12 pattern): more parameters → worse generalization.
+        Not tested on s2026/s2027 because s2025 was clearly worse than any A0 run.
+      lesson: >
+        Token encoder capacity is NOT the bottleneck. Increasing GRU hidden dim
+        from 64→128 adds parameters without improving aggregate MAE — consistent
+        with the broader Phase A finding (C12) that architectural complexity
+        additions beyond minimal component-token separation degrade performance.
+        Single-layer BiGRU hidden=64 appears to be the sweet spot for this
+        dataset's information content.
+      status: resolved
+      also_depends_on: [N133, C12]
+
+- id: N135
+  type: decision
+  title: "Token encoder exploration closed — bottleneck is NOT temporal encoding"
+  provenance: user-revised
+  timestamp: "2026-06-14T22:00"
+  choice: >
+    Accept A1 (single-layer BiGRU hidden=64, readout unchanged) as the aggregate
+    accuracy baseline. Close the token-encoder enhancement direction. The evidence
+    chain N133+N134 shows:
+    (1) Zero-parameter readout fix (A0) improves single seed but cross-seed unstable.
+    (2) Capacity expansion (A1 hidden=128) strictly degrades (C12 pattern).
+    (3) The performance gain of iGT comes from component-token SEPARATION (C11),
+        not from richer temporal encoding.
+  alternatives:
+    - "Test TCN/Patch Encoder — rejected: no evidence temporal encoding is bottleneck"
+    - "Reduce attention (e_layers=1, n_heads=4) — possible but low priority"
+    - "Expand inverted attention or decoder — rejected: A2-A5 already proved harmful"
+  rationale: >
+    A0/h128 negative results actually STRENGTHEN the thesis narrative: they rule out
+    the alternative hypothesis that "iGT works because of better temporal features."
+    The core contribution is component-token separation (C11 confirmed by exclusion).
+    Thesis mainline should be: A1 = aggregate model, B1/R1-reg = decomposable forecasting
+    tradeoff (C13), with operational dispatch value deferred to E14. No further token
+    encoder or architecture expansion.
+  evidence:
+    - "N133: A0 3-seed MAE=0.001824 (Gate FAILED)"
+    - "N134: A1 h128 s2025 MAE=0.001845 (worst of all)"
+    - "C11: A1 component-token separation −12.5% vs c23"
+    - "C12: fixed physics priors = overfitting amplifiers"
+  status: resolved
+  also_depends_on: [N133, N134, C11, C12, C13]
+
+- id: N136
+  type: decision
+  title: "Applied Energy baseline implementation repair completed"
+  provenance: ai-executed
+  timestamp: "2026-06-15T01:10"
+  choice: >
+    Repair non-TFT baseline implementations for the Applied Energy benchmark
+    before running main-table experiments. The repair keeps the current
+    net-injection schema, preserves all 10 time features including weekend and
+    holiday, fixes Informer-style temporal embedding dimensionality, adds
+    future calendar adapters to GRU/LSTM/PatchTST, and adds net-injection configs
+    plus benchmark driver entries for GRU/LSTM/PatchTST.
+  alternatives:
+    - "Run the existing baseline stack as-is - rejected because Informer can fail on time feature shape and PatchTST/GRU/LSTM were not in the net-injection protocol."
+    - "Create a generic exogenous wrapper around all baselines - rejected as broader than needed and risky for the standard iTransformer comparator."
+  evidence:
+    - "physformer/models/informer.py: DataEmbedding now receives time_feat_dim."
+    - "physformer/models/gru.py and lstm.py: future time projection added; e_layers/dropout now have safe fallbacks."
+    - "physformer/models/patchtst.py: config-driven patch hyperparameters plus future weather/time adapters."
+    - "physformer/models/tide.py and timexer.py: time_dim now follows time_feat_dim instead of fixed 8."
+    - "configs/baselines/gru_net_injection.yaml, lstm_net_injection.yaml, patchtst_net_injection.yaml created."
+    - "configs/drivers/benchmark_net_injection.yaml includes GRU/LSTM/PatchTST jobs."
+    - "Verification: py_compile passed; print-config shows enc_in=6, c_out=1, time_feat_dim=10; dummy forward passed for Informer/GRU/LSTM/PatchTST/TiDE/TimeXer/Autoformer."
+  status: resolved
+  also_depends_on: [C11, C12, C13, N135]

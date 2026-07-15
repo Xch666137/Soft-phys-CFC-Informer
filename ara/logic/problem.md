@@ -29,17 +29,17 @@
 
 ## Gaps
 
-### G1: No mechanism to prevent cross-component error propagation in aggregated forecast
-- **Statement**: When a single scalar residual corrects the aggregate net injection, an error in one component (e.g., Load under-prediction) can be "compensated" by the residual in a way that corrupts the predictions of other components (e.g., PV over-correction).
-- **Caused by**: O2
-- **Existing attempts**: V3/V4 scalar residual — functional but allows cross-contamination.
-- **Why they fail**: A single degree of freedom cannot disentangle corrections for 4 independent error sources.
+### G1: Shared Transformer encoders create a cross-component error covariance cancellation channel
+- **Statement**: Under standard Transformer architectures with a shared encoder, the residual head sends gradient through the encoder to induce cross-component error correlations that cancel under net = load − pv − wind + batt (C08 capacity regime). This masks individual component inaccuracy in aggregate metrics — worse component forecasts can produce better aggregate MAE through signed error cancellation. Neither per-component residual corrections (V5, symptom treatment) nor gradient-side detaching (C10 detach, gradient hack) addresses the architectural root cause: the shared representation space enables the cancellation channel.
+- **Caused by**: O2, O4
+- **Existing attempts**: V3/V4 scalar residual (allows cross-contamination), V5 per-component residual (symptom treatment — reduces but doesn't eliminate), c23 selective gradient detach (blocks residual→theory gradient but leaves shared encoder intact).
+- **Why they fail**: All operate within a shared-encoder architecture. The encoder's shared FFN layer mixes component representations by design; any auxiliary loss or gradient modification can only constrain the mixing, not prevent it.
 
-### G2: No principled method to set the physics-vs-data trade-off
-- **Statement**: The optimal component loss weight varies with architecture, data distribution, and training stage. There is no theoretical guidance for setting this weight.
-- **Caused by**: O3, O4
-- **Existing attempts**: Manual grid search (0.01, 0.05, 0.1) — heuristic, not principled.
-- **Why they fail**: The optimal weight is non-stationary during training (early training benefits from more physics guidance; late training benefits from more data freedom).
+### G2: Fixed architectural priors (physics tokens, graph bias, richer decoders) amplify overfitting on heterogeneous multi-portfolio data
+- **Statement**: While component-token separation (C11) provides a clean architectural prior, the ablation chain A2-A5 shows that ANY additional fixed prior — physics tokens, graph-biased attention, richer decoders, weather conditioning — systematically degrades Test MAE while improving Val MSE (C12). The root mechanism: fixed priors impose uniform coupling forms across heterogeneous portfolios, memorizing training-distribution-specific patterns rather than learning transferable structure.
+- **Caused by**: O2 (heterogeneous portfolio coupling), O3 (physics equations are incomplete)
+- **Existing attempts**: A2 (+physics token), A3 (+twin+constraint tokens), A4 (+graph bias), A5 (+horizon decoder) — all degrade Test MAE. Phase B MCP replaces fixed priors with data-driven coupling discovery via self-supervised pretraining.
+- **Why they fail**: Fixed priors provide training-set-specific guidance that fails to generalize across portfolios with different DER compositions, weather regimes, and load behaviors. The Val-better → Test-worse divergence (C12) is a universal pattern across 4 architecture variants.
 
 ### G3: Load component has no effective physics prior
 - **Statement**: Unlike PV/Wind/Battery which have clear physical equations, Load has no first-principles model. The "Load physics" branch is essentially a learned function with calendar features — not true physics guidance.
@@ -49,9 +49,9 @@
 
 ## Key Insight
 
-- **Insight**: Embed physics equations as learnable FiLM conditioning (not hard constraints) with per-component residual corrections (not scalar), and use curriculum training to progressively shift from physics-driven to data-driven optimization. This gives each component its own gradient path, prevents cross-contamination, and lets the model discover when to trust physics vs. when to override it.
-- **Derived from**: O1, O2, O3, O4
-- **Enables**: A forecasting model that is (a) physically consistent at the component level, (b) accurate at the aggregate level, (c) honest about which components benefit from physics and which don't.
+- **Insight**: Tokenize each DER component independently and apply self-attention across component tokens rather than time steps. Under standard Transformer architectures, a shared encoder mixes all component representations — the residual head can send gradient through the encoder to induce cross-component error correlations that cancel under net = load − pv − wind + batt (C08 capacity regime) and mask individual component inaccuracy. Component-token separation (inverted attention, iTransformer paradigm) gives each DER its own representation space, preventing this cancellation at the architecture level rather than through gradient hacks (C10 detach) or fixed physics priors (C12). The real-unit power balance decoder preserves physical consistency without requiring explicit physics equations as model inputs.
+- **Derived from**: O1, O2, O4 (shared-encoder cross-component error contamination), O3 (physics equations exist but are incomplete — motivating data-driven over physics-guided approaches)
+- **Enables**: A forecasting model that is (a) architecturally free of shared-encoder cancellation (C10→C11), (b) accurate at the aggregate level with dramatically smaller cross-seed variance (C11), (c) decomposable into learned per-component forecasts for dispatch preparation when augmented with self-supervised component pretraining (C13).
 
 ## Assumptions
 

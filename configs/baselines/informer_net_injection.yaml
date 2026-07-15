@@ -13,6 +13,7 @@ model:
   attn: prob
   embed: custom
   activation: gelu
+  time_feat_dim: 10
   use_rope: true
   rope_base: 10000
   distil: true
@@ -39,12 +40,13 @@ data:
 
 training:
   seed: 2024
-  batch_size: 32
+  batch_size: 128
   train_epochs: 100
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5
   patience: 10
-  use_amp: false
+  use_amp: true
+  use_compile: false
 
 hardware:
   use_gpu: true

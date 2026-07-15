@@ -9,6 +9,61 @@ import torch.nn as nn
 warnings.filterwarnings("ignore")
 
 
+def _unwrap_state_dict(model):
+    """Return a clean state_dict with torch.compile _orig_mod. prefixes removed.
+
+    Compatible with both compiled and uncompiled models (no-op if not compiled).
+    Ensures checkpoints are always portable across compile states.
+    """
+    state = model.state_dict()
+    if any("_orig_mod." in k for k in state.keys()):
+        state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
+    return state
+
+
+def _strip_orig_mod_prefix(state_dict):
+    """Strip _orig_mod. prefix from state_dict keys if present.
+
+    Handles checkpoints saved by torch.compile models.
+    """
+    if any("_orig_mod." in k for k in state_dict.keys()):
+        return {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+    return state_dict
+
+
+def _align_state_dict_keys(checkpoint_state, model_state):
+    """Align checkpoint keys to match model's expected keys.
+
+    Handles torch.compile prefix mismatch in both directions.
+    Returns aligned checkpoint state_dict.
+    """
+    ckpt_has_orig = any("_orig_mod." in k for k in checkpoint_state.keys())
+    model_has_orig = any("_orig_mod." in k for k in model_state.keys())
+    
+    if ckpt_has_orig == model_has_orig:
+        # Both same style, no conversion needed
+        return checkpoint_state
+    elif ckpt_has_orig and not model_has_orig:
+        # Checkpoint compiled, model not → strip prefix
+        return {k.replace("_orig_mod.", ""): v for k, v in checkpoint_state.items()}
+    else:
+        # Checkpoint clean, model compiled → add prefix back
+        # We need to map clean keys to compiled keys
+        # Build mapping from model's state_dict
+        clean_to_compiled = {}
+        for mk in model_state.keys():
+            clean = mk.replace("_orig_mod.", "")
+            clean_to_compiled[clean] = mk
+        
+        aligned = {}
+        for ck, cv in checkpoint_state.items():
+            if ck in clean_to_compiled:
+                aligned[clean_to_compiled[ck]] = cv
+            else:
+                aligned[ck] = cv
+        return aligned
+
+
 def set_seed(seed=2024):
     import random
     random.seed(seed)
@@ -44,6 +99,7 @@ class BaseExperiment:
 
         self.logger = self._setup_logger()
         self.device = self._setup_device()
+        self._log_backend_policy()
         self.model = None
 
     def _setup_logger(self):
@@ -78,6 +134,29 @@ class BaseExperiment:
             return device
         self.logger.info('Use CPU')
         return torch.device('cpu')
+
+    def _backend_enabled(self, name):
+        backend = getattr(torch.backends, name, None)
+        if backend is None or not hasattr(backend, "enabled"):
+            return None
+        return bool(backend.enabled)
+
+    def _device_name(self):
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            try:
+                return torch.cuda.get_device_name(self.device)
+            except Exception:
+                return str(self.device)
+        return str(self.device)
+
+    def _log_backend_policy(self):
+        self.logger.info(
+            "Backend policy | use_compile=%s | cudnn.enabled=%s | miopen.enabled=%s | device=%s",
+            bool(getattr(self.args, "use_compile", True)),
+            self._backend_enabled("cudnn"),
+            self._backend_enabled("miopen"),
+            self._device_name(),
+        )
 
     def save_config(self, cfg):
         import json
@@ -214,7 +293,7 @@ class EarlyStopping:
             )
         elif self.verbose:
             print(f'{self.metric_name} improved ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model ...')
-        torch.save(model.state_dict(), checkpoint_path)
+        torch.save(_unwrap_state_dict(model), checkpoint_path)
         if optimizer is not None:
             state = {
                 'optimizer': optimizer.state_dict(),

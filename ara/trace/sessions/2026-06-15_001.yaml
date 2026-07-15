@@ -1,0 +1,103 @@
+session:
+  id: "2026-06-15_001"
+  date: "2026-06-15"
+  started: "2026-06-15T00:00"
+  last_turn: "2026-06-15T01:30"
+  turn_count: 4
+  summary: "Applied Energy baseline plan, non-TFT baseline repairs, and Deepseek driver/fairness-contract review completed. Baseline configs are aligned, but benchmark CLI execution remains a gap."
+
+events_logged:
+  - turn: 1
+    type: observation
+    id: "O68"
+    routing: staged
+    provenance: ai-suggested
+    summary: "Tier 1+2 baseline plan accepted with priority reordered: standard iTransformer first, then Persistence/DLinear/PatchTST/GRU-or-LSTM/Informer, then TiDE/TFT."
+  - turn: 2
+    type: observation
+    id: "O69"
+    routing: staged
+    provenance: ai-executed
+    summary: "Non-TFT baseline implementation audit found Informer time-feature break, missing GRU/PatchTST net configs, PatchTST future-covariate unfairness, and PINN naming risk."
+  - turn: 3
+    type: decision
+    id: "N136"
+    routing: direct
+    provenance: ai-executed
+    summary: "Implemented baseline repair: 10-d time features, Informer embedding fix, GRU/LSTM/PatchTST adapters/configs, and benchmark driver entries."
+  - turn: 4
+    type: observation
+    id: "O70"
+    routing: staged
+    provenance: ai-executed
+    summary: "Deepseek driver/fairness-contract review: iTransformer framing is sound with precise naming, but run.py lacks benchmark/ablation CLI subcommands."
+
+ai_actions:
+  - turn: 1
+    action: "Used brainstorm workflow for Applied Energy baseline experiment design; read ARA context and Applied Energy journal profile; staged O68 as a baseline-priority constraint."
+    provenance: ai-executed
+    files_changed:
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-15_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+  - turn: 2
+    action: "Reviewed non-TFT baseline model implementations, baseline experiment/data/config plumbing, net-injection YAMLs, and benchmark driver; staged O69 as implementation-readiness constraint."
+    provenance: ai-executed
+    files_changed:
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-15_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+  - turn: 3
+    action: "Fixed non-TFT baseline implementation readiness issues and verified py_compile, print-config, YAML driver parsing, and dummy forward shapes."
+    provenance: ai-executed
+    files_changed:
+      - "physformer/config.py"
+      - "physformer/models/informer.py"
+      - "physformer/models/autoformer.py"
+      - "physformer/models/gru.py"
+      - "physformer/models/lstm.py"
+      - "physformer/models/patchtst.py"
+      - "physformer/models/tide.py"
+      - "physformer/models/timexer.py"
+      - "configs/baselines/dlinear_net_injection.yaml"
+      - "configs/baselines/gru_net_injection.yaml"
+      - "configs/baselines/lstm_net_injection.yaml"
+      - "configs/baselines/patchtst.yaml"
+      - "configs/baselines/patchtst_net_injection.yaml"
+      - "configs/baselines/informer_net_injection.yaml"
+      - "configs/baselines/tide.yaml"
+      - "configs/baselines/tide_net_injection.yaml"
+      - "configs/baselines/timexer.yaml"
+      - "configs/baselines/timexer_net_injection.yaml"
+      - "configs/drivers/benchmark_net_injection.yaml"
+      - "ara/trace/exploration_tree.yaml"
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-15_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+  - turn: 4
+    action: "Reviewed Deepseek benchmark driver changes, iTransformer exog/canonical configs, data/config column plumbing, remote_run.sh benchmark calls, and cli.py parser; staged O70 as a benchmark execution/naming constraint."
+    provenance: ai-executed
+    files_changed:
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-15_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+
+claims_touched: [C11, C12, C13]
+
+key_context:
+  - turn: 1
+    excerpt: "User proposed Tier 1+2 = 8 baselines and argued standard iTransformer should be first priority."
+  - turn: 4
+    excerpt: "User asked whether Deepseek's benchmark-driver update and iTransformer fairness-contract judgment were reasonable."
+
+open_threads:
+  - "Fix or replace the benchmark/ablation CLI launcher before relying on configs/drivers/benchmark_net_injection.yaml for GPU batch runs."
+  - "Run repaired baseline jobs on GPU and compare Tier 1 metrics before manuscript table construction."
+
+ai_suggestions_pending:
+  - "Use iTransformer-exog in the main table and iTransformer-canonical in appendix/discussion; call exog a future-weather-adapter variant, not pure standard iTransformer."
+  - "Treat N136 as code-readiness repair only; GPU metrics are still required before claiming benchmark strength."

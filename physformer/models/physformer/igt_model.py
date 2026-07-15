@@ -7,7 +7,7 @@ P1-1 (Ablation A1): 8-token inverted Transformer PoC.
   -> net MSE only.
 
 Phase B (B1): mask_indices parameter for Masked Component Pretraining.
-  Zeroes out masked component history channels before GRU tokenization.
+  Replaces masked component history channels before GRU tokenization.
   Returns comp_preds_norm for pretraining component MAE loss.
 """
 
@@ -39,9 +39,10 @@ class BatchedComponentEmbedding(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B = x.shape[0]
         x = x.permute(0, 2, 1).reshape(B * self.num_components, -1)  # (B*C, seq_len)
-        out, _ = self.gru(x.unsqueeze(-1))                             # (B*C, seq_len, 2*hidden)
-        last = out[:, -1, :]                                           # (B*C, 2*hidden)
-        tok = self.proj(last)                                          # (B*C, d_model)
+        out, h_n = self.gru(x.unsqueeze(-1))                           # out (B*C, seq, 2*hid), h_n (2, B*C, hid)
+        # h_n[0]=forward last (seen full history), h_n[1]=backward last (seen full reversed history)
+        h_cat = torch.cat([h_n[0], h_n[1]], dim=-1)                   # (B*C, 2*hidden)
+        tok = self.proj(h_cat)                                          # (B*C, d_model)
         return tok.reshape(B, self.num_components, -1)                  # (B, C, d_model)
 
 
@@ -137,8 +138,8 @@ class PhysFormeriGT(nn.Module):
     no horizon decoder. 5 component tokens + 3 weather tokens + self-attention
     + shared FFN decoder + real-unit power balance + net MSE.
 
-    Phase B: mask_indices parameter zeroes component history channels for
-    Masked Component Pretraining.
+    Phase B: mask_indices replaces component history channels for Masked
+    Component Pretraining while preserving A1's 8-token input contract.
     """
 
     def __init__(
@@ -184,6 +185,7 @@ class PhysFormeriGT(nn.Module):
         load_temp_model="mlp",
         detach_scale=0.0,
         use_horizon_decoder=False,
+        comp_gru_hidden=None,  # None → fallback to max(32, d_model//4)
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -194,7 +196,7 @@ class PhysFormeriGT(nn.Module):
         self.register_buffer("aux_mean", self._to_buffer(aux_mean, 5, 0.0))
         self.register_buffer("aux_std", self._to_buffer(aux_std, 5, 1.0))
 
-        gru_hidden = max(32, d_model // 4)
+        gru_hidden = comp_gru_hidden if comp_gru_hidden is not None else max(32, d_model // 4)
 
         self.comp_embedding = BatchedComponentEmbedding(
             seq_len, d_model, gru_hidden=gru_hidden, num_components=5,
@@ -212,6 +214,10 @@ class PhysFormeriGT(nn.Module):
             nn.Sequential(nn.Linear(d_model, d_ff // 2), nn.GELU(), nn.Linear(d_ff // 2, pred_len))
             for _ in range(4)
         ])
+
+        # Phase B: learnable mask token for MCP (keeps the 8-token A1 contract)
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, 1))
+        nn.init.normal_(self.mask_token, mean=0.0, std=0.02)
 
     @staticmethod
     def _to_buffer(value, dim, default):
@@ -258,8 +264,8 @@ class PhysFormeriGT(nn.Module):
         Args:
             x_component_hist: (B, seq_len, 5) component history [load,pv,wind,batt_p,batt_soc].
             x_weather_future:  (B, pred_len, 3) future weather [temp,irrad,wind_speed].
-            mask_indices:      Optional list of component indices [0..3] to zero-mask
-                               for Masked Component Pretraining. None during finetuning.
+            mask_indices:      Optional list/tensor of component indices [0..3] to mask
+                               with the learnable MCP mask token. None during finetuning.
         Returns:
             dict with pred_net, comp_preds_norm, theory_net, residual, physics_states.
         """
@@ -268,12 +274,24 @@ class PhysFormeriGT(nn.Module):
         device = x_component_hist.device
         dtype = x_component_hist.dtype
 
-        # ---- Apply component masking for pretraining ----
+        # ---- Apply component masking for pretraining (learnable mask token) ----
         x_comp = x_component_hist
         if mask_indices is not None:
             x_comp = x_component_hist.clone()
-            for idx in mask_indices:
-                x_comp[:, :, idx] = 0.0
+            if torch.is_tensor(mask_indices):
+                mask = mask_indices.to(device=device, dtype=torch.bool)
+                if mask.dim() == 1:
+                    mask = mask.view(1, -1).expand(B, -1)
+                mask = mask[:, :4].unsqueeze(1)
+                x_first4 = x_comp[:, :, :4]
+                x_comp[:, :, :4] = torch.where(
+                    mask,
+                    self.mask_token.expand_as(x_first4),
+                    x_first4,
+                )
+            else:
+                for idx in mask_indices:
+                    x_comp[:, :, int(idx)] = self.mask_token.squeeze()
 
         # ---- Tokenize components (single batched GRU call) ----
         comp_tokens = self.comp_embedding(x_comp)  # (B, 5, d_model)
@@ -283,7 +301,7 @@ class PhysFormeriGT(nn.Module):
             x_weather_future = torch.zeros(B, P, 3, device=device, dtype=dtype)
         weather_tokens = self.weather_embedding(x_weather_future)  # (B, 3, d_model)
 
-        # ---- Combine: 8 tokens (5 comp + 3 weather) ----
+        # ---- Combine tokens: MCP pretrain, finetune, and test all keep A1's 8-token structure ----
         tokens = torch.cat([comp_tokens, weather_tokens], dim=1)  # (B, 8, d_model)
 
         # ---- Inverted self-attention ----

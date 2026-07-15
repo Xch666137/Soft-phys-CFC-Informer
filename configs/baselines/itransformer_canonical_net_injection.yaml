@@ -1,0 +1,53 @@
+# iTransformer canonical — pure variate-token, NO future weather forecasts
+# Historical weather is retained via history_state_cols so the model can embed
+# past weather patterns, but there is no future_cov_projection add-in.
+# This is the closest reproduction of the published iTransformer paradigm:
+# multivariate history → attention across variates → direct prediction.
+#
+# Compare with: itransformer_net_injection.yaml (exogenous variant with
+# future weather additive correction — identical information access as A1).
+model:
+  name: iTransformer
+  enc_in: 6
+  c_out: 1
+  d_model: 512
+  n_heads: 8
+  e_layers: 3
+  d_ff: 2048
+  dropout: 0.10
+  activation: gelu
+data:
+  root_path: ./
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+  features: M
+  time_col: date
+  id_col: portfolio_id
+  region_col: region_id
+  split_col: split
+  split_strategy: portfolio_manifest
+  task_mode: net_injection
+  target_cols: [p_vpp_mw]
+  known_future_covariate_cols: []
+  history_state_cols: [p_battery_mw, e_battery_soc_mwh, temperature, irradiance, wind_speed]
+  aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
+  seq_len: 672
+  label_len: 96
+  pred_len: 96
+  freq: t
+
+training:
+  seed: 2024
+  batch_size: 32
+  train_epochs: 100
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  patience: 10
+  use_amp: false
+
+hardware:
+  use_gpu: true
+  gpu: 0
+  num_workers: 8
+
+checkpoint:
+  name: itransformer_canonical_net_injection

@@ -4,7 +4,13 @@
 # (topic abandonment, verbal affirmation, empirical resolution, or artifact commitment).
 # The Research Manager (/research-manager) writes to this file at end of turn.
 
+observations:
   - id: O53
+    # CONFLICT: see N128/O60 (2026-06-06). B1 finetune with fully fixed code
+    # (torch.compile disabled, L2-L5 repairs, λ=1.0) produced MAE=0.001894
+    # (MARGINAL, +4.6% above A1), not the +119% seen in broken runs. The
+    # "dead end" verdict applies only to the broken-code runs, not to the
+    # approach itself.
     timestamp: "2026-05-31T15:40"
     provenance: ai-executed
     content: >
@@ -53,7 +59,6 @@
     crystallized_via: null
     stale: false
 
-observations:
   - id: O47
     timestamp: "2026-05-27T23:00"
     provenance: ai-executed
@@ -1421,4 +1426,423 @@ observations:
     promoted: true
     promoted_to: "trace/exploration_tree.yaml:N116; docs/analysis/applied_energy_literature_screen.md"
     crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O57
+    timestamp: "2026-06-01T00:55"
+    provenance: ai-suggested
+    content: >
+      Applied Energy PDF distillation v0.1 suggests PhysFormer has medium-high
+      fit only if reframed from a model-accuracy paper into an energy-system
+      generalization paper. The safest mainline is: in VPP aggregate net-power
+      forecasting, component-token separation improves generalization stability,
+      while fixed physics-prior additions can amplify validation-test overfitting
+      under heterogeneous portfolio coupling. The unsafe mainline is claiming
+      that adding stronger fixed physics priors generally improves VPP forecasting.
+
+      The 15-paper profile indicates Applied Energy forecasting papers typically
+      connect MAE/RMSE to operational value: scheduling, dispatch, market
+      participation, reserve/flexibility, ramping, risk, CRPS/probabilistic
+      quality, or cost. Therefore PhysFormer likely needs at least one operational
+      proxy metric (ramp/peak/deviation penalty/reserve) and stronger simple
+      baselines (persistence, DLinear/NLinear, PatchTST/TFT or equivalent) before
+      safe Applied Energy submission.
+    context: >
+      User downloaded AE01-AE15 PDFs locally. AI extracted all 15 PDFs with pypdf,
+      verified text quality, created docs/analysis/applied_energy_pdf_extraction_matrix.md
+      and docs/analysis/applied_energy_journal_profile.md. The profile is grounded
+      in AE01-AE15 plus ARA C11/C12. This observation is staged because it is an
+      AI-suggested submission strategy and still needs user affirmation or
+      downstream adoption before becoming a formal constraint.
+    potential_type: constraint
+    bound_to: [N116, C11, C12]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N118; docs/analysis/applied_energy_ars_presubmission_review.md"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O58
+    timestamp: "2026-06-01T21:43"
+    provenance: ai-executed
+    content: >
+      B1 Pretraining + finetune chain audit found that the rescue target should
+      remain narrowed to implementation-clean R0/R1 checks and deployment-style
+      few-shot target adaptation, not re-opening the already failed high-LR pure
+      net_mse static-split finetune claim. Main unresolved chain risks: pretrain
+      validation compares model outputs trained with train+val scaler buffers
+      against val data normalized with train-only scalers; pretrain validation
+      also evaluates unmasked forward while scoring all components as if masked;
+      the current local pretrained checkpoint is selected by total Val Loss and
+      has no local best_val_net_checkpoint artifact; iGT masking zeroes z-score
+      histories to mean values rather than physical missing/zero values; iGT
+      ignores y_mark/calendar features despite the MCP design relying on calendar
+      context for masked load inference; train/test paths can silently load stale
+      run checkpoints when a run directory already exists, bypassing pretrained
+      direct-test intent.
+    context: >
+      User asked to review the goal of rescuing B1 and audit the full
+      pretraining-to-finetune chain for errors. AI read ARA N106-N115/O54-O55,
+      Phase B design doc, B1 configs, data.py, igt_model.py, loss.py,
+      pretrain_exp.py, physformer_exp.py, run/CLI wiring, launcher/monitor scripts,
+      and local B1 logs/checkpoint files.
+    potential_type: constraint
+    bound_to: [N106, N107, N110, N113, N114, N115, O54, O55, C08, C11, C12]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O59
+    timestamp: "2026-06-01T22:45"
+    provenance: ai-executed
+    content: >
+      The B1 protocol repair has been implemented locally for the concrete chain
+      confounds that can be fixed before GPU experiments: MCP masks are now
+      per-sample boolean tensors, masked components are replaced with physical-zero
+      values in aux z-score space, pretrain validation uses deterministic
+      single-component masks, validation forward inputs and labels are converted
+      into the pretrain scaler space, R0 direct test can force loading
+      pretrained_path, stale training_state is ignored unless resume=True, and
+      downstream B1 configs now target best_val_net_checkpoint.pth. This does not
+      rescue B1 empirically by itself; the old local results directory lacks
+      best_val_net_checkpoint.pth, so B1 must be rerun from pretraining before
+      R0/R1/R2 evidence is valid under the repaired protocol.
+    context: >
+      User confirmed the protocol-repair-first plan. AI edited loss.py,
+      igt_model.py, pretrain_exp.py, physformer_exp.py, config.py, B1 configs,
+      and the R1 launcher. Local verification passed with py_compile,
+      --print-config for B1 pretrain/R0/R1/R2, all-B1 config inheritance checks,
+      and a CPU smoke test for tensor/list masks plus scaler-space re-normalization.
+    potential_type: constraint
+    bound_to: [N114, N115, N121, O58, C08, C11, C12]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O60
+    timestamp: "2026-06-06T16:30"
+    provenance: ai-executed
+    content: >
+      B1 Phase 3 finetune with fully fixed code (torch.compile disabled, L2-L5
+      repairs, λ=1.0 pretrained checkpoint) produces 3-seed mean MAE=0.001894
+      (s2025=0.001888, s2026=0.001886, s2027=0.001907). This is MARGINAL: all
+      seeds below 0.001830 but above A1 gate 0.001811. The 4.6% gap to A1
+      persists despite all five identified confounds being resolved. The
+      pretrain+finetune direction is viable (improvement from +119% broken to
+      +4.6% fixed) but does not yet surpass from-scratch A1. The remaining gap
+      may stem from: (a) train-only data losing 12% of pretraining samples vs
+      old train+val, (b) λ=1.0 may not be optimal (lam03/lam30 had worse direct
+      test but different convergence dynamics), (c) constant LR=1e-5 may not be
+      optimal, (d) the fundamental tension between component-level pretraining
+      objective and aggregate-level evaluation (C08 cancellation).
+    context: >
+      Five-layer fix implemented and tested end-to-end. torch.compile disabled
+      for both pretrain and finetune. λ_net ablation showed lam10 (λ=1.0) has
+      best direct-test MAE (0.002173) vs lam03 (0.004277) and lam30 (0.004222).
+      Finetune with constant LR=1e-5 for 10 epochs further improved to 0.001886-
+      0.001907. The torch.compile fix alone recovered ~115 percentage points
+      (from +119% to +4.6%).
+    potential_type: claim
+    bound_to: [N122, N126, N127, N128, C08, C11, C12]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O61
+    timestamp: "2026-06-06T16:30"
+    provenance: ai-executed
+    content: >
+      torch.compile state must agree between checkpoint saving and loading. If
+      pretrain saves with compile (keys have _orig_mod. prefix) and finetune
+      loads without compile (keys expect no prefix), even stripping the prefix
+      fails when the loading model is also compiled (model keys have _orig_mod.
+      but stripped checkpoint keys don't). The only reliable solution: disable
+      compile on both sides. This is a general PyTorch 2.x pitfall for any
+      pretrain→finetune pipeline using torch.compile.
+    context: >
+      Discovered during B1 Phase 3 finetune debugging. Initial stripping fix
+      in _load_model_state didn't help because the finetune model was also
+      compiled. After disabling compile in both pretrain_exp.py and
+      physformer_exp.py, checkpoint loading worked correctly and MAE improved
+      from 0.004+ to 0.002-0.0019 range.
+    potential_type: heuristic
+    bound_to: [N127]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O62
+    timestamp: "2026-06-10T00:00"
+    provenance: user
+    content: >
+      B1 evaluation reframed: DVPP dispatch requires per-component schedules,
+      not just net injection forecast. Core argument chain:
+      (1) DVPP调度中心需要向各DER下发调度指令(削峰填谷/辅助市场响应),
+      这要求知道每个分量的预测值; 纯net injection预测无法回答"我应该调哪个组件?"
+      (2) 分量精度→更精确的调度执行→减少惩罚+辅助市场竞价优势。
+      (3) 因此B1的评估指标不应局限于net MAE——component MAE和"调度可用度"
+      同样重要。(4) MCP pretrain+finetune的正确定位不是在聚合预测上打败A1,
+      而是在分量可调度性上补足A1的结构性缺失。论文叙事应从"B1 vs A1"转向
+      "component-accuracy vs aggregate-accuracy的Pareto tradeoff"。
+    context: >
+      User asked "如果抛去内部组件精准数据,直接预测net injection,这不是空中楼阁吗?"
+      This triggered a fundamental reframing of the B1 evaluation framework.
+      The discussion established that net injection accuracy alone is insufficient
+      for DVPP operations — the operator needs per-DER decomposability.
+    potential_type: claim
+    bound_to: [N128, C08, C11, C12]
+    promoted: true
+    promoted_to: "logic/claims.md:C13"
+    crystallized_via: verbal-affirmation
+    stale: false
+
+  - id: O63
+    timestamp: "2026-06-11T22:45"
+    provenance: ai-executed
+    content: >
+      B1 code re-audit found experiment-integrity risks that should be resolved
+      before treating new B1/R1/R2 runs as clean evidence: (1) B1 configs and
+      launch scripts point to inconsistent pretrained checkpoint paths
+      (`results/physformer_igt_b1_pretrain_lam10_pretrained_checkpoint.pth`,
+      `results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth`, and
+      `results/physformer_igt_b1_pretrain/best_val_net_checkpoint.pth`); (2)
+      `PhysFormerExperiment._load_pretrained_weights()` only warns and continues
+      from random initialization when a configured pretrained checkpoint is
+      missing, which can silently turn a finetune arm into a from-scratch run;
+      (3) MCP pretraining uses a 9-token encoder input with calendar token while
+      finetune/test use A1's 8-token structure, making transfer results partly
+      confounded by a pretrain-only architecture/input change; (4)
+      `component_battery_soc_mae` for iGT is computed from zero/theory placeholder
+      values, not a learned SOC prediction; (5) `run.py` globally disables cuDNN
+      and MIOpen for every run, likely hurting NVIDIA GRU throughput and
+      conflicting with the batched-GRU speed assumption.
+    context: >
+      User asked to stop remote processes and re-review current experiment code.
+      AI stopped the remote lam10 pretraining job, read B1 configs, data/model/loss
+      and train/pretrain code, ran py_compile and --print-config checks in the
+      PhysFormer conda environment, and performed remote checkpoint existence
+      checks. No code fixes were applied.
+    potential_type: constraint
+    bound_to: [N121, N126, N127, N128, N129, N130]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N131"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O64
+    timestamp: "2026-06-12T14:20"
+    provenance: ai-executed
+    content: >
+      Under the repaired B1 protocol, the clean evidence is now materially
+      different from the broken-code runs but still does not beat A1 aggregate
+      MAE. R1-reg is the best repaired B1 downstream arm (mean MAE=0.001829685),
+      slightly better than R1 low-LR (0.001834672) and R0 direct (0.001882053),
+      but still above A1's 0.001811 reference. The tiny component anchor mainly
+      improves PV/Wind component MAE versus low-LR while leaving Battery Power
+      essentially unchanged. R2 few-shot target adaptation degrades aggregate
+      MAE to about 0.00226-0.00231 across 5/10/20%, so deployment-style
+      target-prefix adaptation is not currently the aggregate-improvement path.
+      This strengthens the N129/C13 framing: B1 should be interpreted through
+      aggregate MAE plus the four learned component MAEs, not through SOC
+      placeholder or a single net-MAE gate.
+    context: >
+      After user said "continue", AI verified the remote canonical checkpoint
+      and idle GPU, completed R2 few-shot runs, pulled all metrics, and verified
+      R2 logs for canonical pretrained loading, use_compile=false, cuDNN enabled,
+      and zero scaler-buffer diff. Earlier in the same resumed work, B1 lam10
+      pretrain, R0 direct, R1 low-LR 3 seeds, and R1-reg 3 seeds had completed.
+      A transient R1 low-LR s2026 OOM came only from launching three seeds
+      concurrently on one GPU; it was rerun successfully and launchers were
+      changed to sequential execution.
+    potential_type: claim
+    bound_to: [N129, N131, N132, C08, C11, C13]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O65
+    timestamp: "2026-06-14T00:00"
+    provenance: ai-suggested
+    content: >
+      The pure iTransformer component-token operation has medium-to-strong
+      thesis-level innovation only if framed as domain-semantic component
+      tokenization for DVPP forecasting and dispatch, not as a new Transformer
+      mechanism. The inverted variate-token idea itself is already known from
+      iTransformer/channel-token time-series models, so claiming novelty as
+      "we tokenize variables as tokens" would be weak. The stronger novelty is
+      the combination of: (1) mapping tokens to physically meaningful DER
+      components (Load/PV/Wind/Battery plus weather context), (2) showing that
+      this architectural separation removes the shared-encoder cancellation
+      channel behind component/aggregate error paradoxes, (3) preserving real-unit
+      power-balance decoding while avoiding fixed physics priors, and (4) proving
+      via A1-A5 ablation that component-token separation is the useful prior
+      whereas added fixed physics/graph/decoder complexity overfits. For a paper,
+      the claim should be "domain-aligned component-token separation for VPP
+      decomposable forecasting" rather than "a novel iTransformer".
+    context: >
+      User asked whether the current pure-iTransformer component-level token
+      operation has enough innovation. The assessment is grounded in C08-C13,
+      N100/N108/N109/N129/N132, and the repaired B1 results. It is a writing
+      and contribution-boundary judgment, not a new experiment.
+    potential_type: claim
+    bound_to: [N100, N108, N109, N129, N132, C08, C11, C12, C13]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O66
+    timestamp: "2026-06-14T00:00"
+    provenance: ai-suggested
+    content: >
+      If strengthening component tokens is pursued, the first ablation should
+      not simply enlarge the GRU. Current PhysFormer-iGT uses a single shared
+      one-layer bidirectional GRU for all five component histories
+      (hidden=d_model//4, 64 when d_model=256), followed by a shared projection;
+      component identity is mostly implicit in token slot and downstream
+      component projectors. The lowest-risk strengthening is therefore adding
+      explicit learnable token/component type embeddings, or tiny component
+      adapters, while preserving the 8-token A1 contract and simple decoder.
+      A separate GRU-capacity sweep can test whether temporal encoding is a
+      bottleneck, but larger temporal capacity risks repeating C08 capacity
+      cancellation and C12 overfitting patterns. Strong component loss or rich
+      horizon decoders should be avoided as first moves because they overlap
+      with N07/N105 dead ends.
+    context: >
+      User asked whether to consider strengthening component tokens because
+      the current component token uses GRU. AI checked ARA dead ends and
+      physformer/models/physformer/igt_model.py. Subsequently, N133 (A0 readout fix
+      3-seed) and N134 (A1 hidden=128) were executed — both failed to improve
+      aggregate MAE vs A1 baseline. The hypothesis that token encoder is the
+      bottleneck was REFUTED. This observation promoted to N135 as dead_end evidence.
+    potential_type: constraint
+    bound_to: [N07, N100, N105, N109, N133, N134, C08, C11, C12]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N135"
+    crystallized_via: empirical-resolution
+    stale: false
+
+  - id: O67
+    timestamp: "2026-06-14T00:00"
+    provenance: user
+    content: >
+      Token-encoder strengthening appears not to be the main bottleneck for A1.
+      The zero-parameter BiGRU readout fix (A0) produced one improved seed
+      (s2025 MAE=0.001794, -0.9% vs A1) but failed cross-seed: s2026=0.001837
+      and s2027=0.001841, mean MAE=0.001824 +/- 0.000026, about +0.7% above
+      A1's 0.001811 +/- 0.000006. The hidden=128 variant was worse in the first
+      tested seed (MAE=0.001845). A0 slightly improves mean MSE/RMSE
+      (6.735e-06 / 0.002595 vs A1 6.766e-06 / 0.002601) while worsening MAE,
+      suggesting an error-distribution shift rather than a robust aggregate
+      improvement. The h128 result is consistent with C12/C08 capacity-risk:
+      enlarging temporal token capacity increases overfitting/cancellation risk.
+      Current evidence favors keeping the one-layer BiGRU hidden=64 token
+      encoder as the mainline A1 setting.
+    context: >
+      Experiments N133 (A0 BiGRU readout fix, 3-seed) and N134 (A1 hidden=128, 1-seed)
+      executed on AutoDL vGPU-32GB 2026-06-14. Code changes: A0 (igt_model.py out[:,-1,:]
+      → h_n concat), A1 (comp_gru_hidden configurable in igt_model.py, physformer_exp.py,
+      pretrain_exp.py, config.py). User reviewed results and confirmed conclusion
+      with Codex analysis: token-encoder is NOT the bottleneck; accept A1 baseline.
+    potential_type: claim
+    bound_to: [N133, N134, N135, C08, C11, C12, O66]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O68
+    timestamp: "2026-06-15T00:00"
+    provenance: ai-suggested
+    content: >
+      Applied Energy baseline plan should keep Tier 1 + Tier 2 at eight models, but
+      execution priority should be reviewer-risk driven. Standard iTransformer is
+      the first-priority baseline because it isolates whether A1's gain is merely
+      generic inverted variate-token modeling or the domain-specific component-token
+      separation / real-unit power-balance design. The recommended order is:
+      (1) standard iTransformer, (2) Persistence and DLinear, (3) PatchTST, (4) GRU
+      or LSTM, (5) Informer, then Tier 2 TiDE and TFT if budget remains. Autoformer,
+      TimeXer, and PINN are Tier 3 only; PINN is useful rhetorically but can muddy
+      C12 unless tightly scoped as a physics-constrained baseline rather than a new
+      mainline.
+    context: >
+      User proposed an Applied Energy baseline stack: Tier 1 Persistence, DLinear,
+      GRU/LSTM, Informer, standard iTransformer, PatchTST; Tier 2 TiDE and TFT;
+      Tier 3 Autoformer, TimeXer, PINN. AI used brainstorm workflow, ARA C11-C13,
+      N105/C12, N135, and the Applied Energy journal profile to assess priority.
+      No code or experiments were run.
+    potential_type: constraint
+    bound_to: [C11, C12, C13, N105, N135, O57]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
+    stale: false
+
+  - id: O69
+    timestamp: "2026-06-15T00:30"
+    provenance: ai-executed
+    content: >
+      Baseline implementation audit for the Applied Energy model stack found that
+      the current code is not yet ready to launch all non-TFT baselines as a clean
+      main-table benchmark. Persistence, DLinear, standard iTransformer, and TiDE
+      have net-injection configs aligned with the current target/known-future/state
+      column schema. Informer has a likely forward-time dimension break: VPPDataset
+      emits 10 time features, while DataEmbedding defaults to time_enc_in=8 and
+      Informer does not pass a configured time_feat_dim. GRU/LSTM and PatchTST do
+      not have net-injection configs or benchmark driver entries; their existing
+      configs target legacy c_out=3 data. PatchTST also ignores x_dec/x_mark_dec,
+      so it does not use future weather/time covariates while other baselines do.
+      TiDE and TimeXer intentionally slice only the first 8 of 10 calendar features,
+      dropping weekend/holiday unless made configurable. PINN is currently a plain
+      MLP without physics residual/constraint loss and should not be presented as
+      a physics-informed baseline without redesign. Standard iTransformer is a
+      useful first-priority comparator because it uses ordinary variate tokens over
+      net/weather/state variables, but its future-covariate projection should be
+      named/documented as an exogenous adapter rather than a pure canonical
+      iTransformer implementation.
+    context: >
+      User asked to carefully inspect all model implementations in the recommended
+      execution order except TFT. AI read train-review instructions, ARA context,
+      baseline model files, BaselineExperiment, data/config plumbing, baseline YAMLs,
+      and benchmark_net_injection.yaml. A small conda dummy-forward check could not
+      be completed because the requested Soft-phys-CFC-Informer conda environment
+      is not registered on this machine; static code review was completed instead.
+    potential_type: constraint
+    bound_to: [O68, C11, C12, C13]
+    promoted: true
+    promoted_to: "trace/exploration_tree.yaml:N136"
+    crystallized_via: artifact-commitment
+    stale: false
+
+  - id: O70
+    timestamp: "2026-06-15T01:30"
+    provenance: ai-executed
+    content: >
+      Review of the Deepseek benchmark-driver and iTransformer fairness-contract
+      changes found the experimental framing mostly sound but not yet execution-safe.
+      The driver YAML now separates PhysFormer-iGT A1, c23 predecessor, iTransformer
+      exog, iTransformer canonical, and repaired non-TFT baselines. The iTransformer
+      contract is reviewer-defensible if phrased precisely: iTransformer-exog is a
+      variate-token iTransformer with a future-weather adapter and comparable input
+      information to A1; iTransformer-canonical is a no-future-weather historical
+      multivariate iTransformer, not a no-weather model. However, current run.py CLI
+      does not register benchmark or ablation subcommands even though remote_run.sh
+      calls `python run.py benchmark ...`, so the driver is a structural plan rather
+      than a proven executable batch launcher until that CLI/pipeline gap is fixed
+      or jobs are launched explicitly one config at a time.
+    context: >
+      User asked whether Deepseek's summary and judgment were reasonable after it
+      modified benchmark_net_injection.yaml and added the canonical iTransformer
+      config. AI inspected the driver, iTransformer exog/canonical configs, config/data
+      column plumbing, iTransformer future-covariate adapter, remote_run.sh benchmark
+      calls, and cli.py parser. No training code or configs were edited in this turn.
+    potential_type: constraint
+    bound_to: [O68, O69, N136, C11, C12, C13]
+    promoted: false
+    promoted_to: null
+    crystallized_via: null
     stale: false

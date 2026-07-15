@@ -1,0 +1,36 @@
+{
+  "theory_mae": 0.004777793772518635,
+  "residual_std_real_mw": 0.005732364021241665,
+  "residual_mean_real_mw": 0.00025365655892528594,
+  "soc_bound_violation": 0.0,
+  "component_battery_soc_mae_available": false,
+  "test_loss_terms": {
+    "net_mse": 0.20861860114469458,
+    "net_mae_norm": 0.32093073416556883,
+    "net_mae_real": 0.0018451351728012314,
+    "net_mse_real": 6.895833806409618e-06,
+    "theory_mse": 1.3197783438572244,
+    "theory_mae_real": 0.004776341745059993,
+    "residual_std_real": 0.004873627004449937,
+    "soc_bounds_loss": 0.0,
+    "battery_power_mae": 0.90578436584615,
+    "component_load_mae": 0.8619998764635911,
+    "component_pv_mae": 0.617539143606798,
+    "component_wind_mae": 1.0437873383956169,
+    "res_reg": 0.0,
+    "load_theory_mean": 0.0,
+    "pv_theory_mean": 0.0,
+    "wind_theory_mean": 0.0,
+    "batt_power_theory_mean": 0.0,
+    "batt_soc_theory_mean": 0.0
+  },
+  "scaler_buffer_report": {
+    "source": "test checkpoint",
+    "max_abs_diff": {
+      "target_mean": 0.0,
+      "target_std": 0.0,
+      "aux_mean": 0.0,
+      "aux_std": 0.0
+    }
+  }
+}

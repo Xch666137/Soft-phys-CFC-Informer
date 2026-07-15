@@ -6,6 +6,7 @@ model:
   d_ff: 1024
   e_layers: 2
   dropout: 0.10
+  time_feat_dim: 10
 
 data:
   root_path: ./

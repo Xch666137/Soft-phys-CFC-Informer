@@ -11,8 +11,10 @@ training:
   seed: 2025
   val_interval: 1
   grad_angle_interval: 999
-  pretrained_path: results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth
+  use_compile: false
+  pretrained_path: results/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth
   load_pretrained_scaler_buffers: false
+  test_pretrained_direct: true
 hardware:
   num_workers: 4
   persistent_workers: true

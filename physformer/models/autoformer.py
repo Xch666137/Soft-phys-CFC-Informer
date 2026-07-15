@@ -128,12 +128,12 @@ class TimeFeatureEmbedding(nn.Module):
     """
     线性模式：用于 Float 输入 (Sin/Cos 编码)
     """
-    def __init__(self, d_model, freq='h'):
+    def __init__(self, d_model, freq='h', time_enc_in=None):
         super(TimeFeatureEmbedding, self).__init__()
         # 根据 freq 决定输入维度
         # t -> 8 (4个特征 x 2 Sin/Cos)
         freq_map = {'h': 4, 't': 8, 's': 6, 'm': 1, 'a': 1, 'w': 2, 'd': 3, 'b': 3}
-        d_inp = freq_map[freq]
+        d_inp = time_enc_in or freq_map[freq]
         self.embed = nn.Linear(d_inp, d_model, bias=False)
 
     def forward(self, x):
@@ -141,7 +141,7 @@ class TimeFeatureEmbedding(nn.Module):
 
 
 class DataEmbedding_wo_pos(nn.Module):
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1, time_enc_in=10):
         super(DataEmbedding_wo_pos, self).__init__()
 
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
@@ -149,7 +149,7 @@ class DataEmbedding_wo_pos(nn.Module):
         if embed_type == 'timeF':
             self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
         else:
-            self.temporal_embedding = TimeFeatureEmbedding(d_model=d_model, freq=freq)
+            self.temporal_embedding = TimeFeatureEmbedding(d_model=d_model, freq=freq, time_enc_in=time_enc_in)
 
         self.dropout = nn.Dropout(p=dropout)
 
@@ -457,6 +457,7 @@ class Autoformer(nn.Module):
         self.label_len = configs.label_len
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
+        self.time_feat_dim = getattr(configs, "time_feat_dim", 10)
 
         # Decomp
         kernel_size = configs.moving_avg
@@ -466,9 +467,9 @@ class Autoformer(nn.Module):
         # The series-wise connection inherently contains the sequential information.
         # Thus, we can discard the position embedding of transformers.
         self.enc_embedding = DataEmbedding_wo_pos(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                                  configs.dropout)
+                                                  configs.dropout, time_enc_in=self.time_feat_dim)
         self.dec_embedding = DataEmbedding_wo_pos(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                                  configs.dropout)
+                                                  configs.dropout, time_enc_in=self.time_feat_dim)
 
         # Encoder
         self.encoder = Encoder(

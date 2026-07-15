@@ -1,16 +1,29 @@
 benchmark:
   jobs:
-    - name: physformer_net_injection
-      run_name: physformer_net_injection
-      config: configs/physformer_default.yaml
+    - name: physformer_igt_net_injection
+      run_name: physformer_igt_net_injection
+      config: configs/physformer_igt_a1.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 256
+      lr: 1.0e-4
+      patience: 12
+      early_stop_metric: net_mse
+      early_stop_start_epoch: 12
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+      val_interval: 1
+    - name: physformer_c23_net_injection
+      run_name: physformer_c23_net_injection
+      config: configs/physformer_c23_baseline.yaml
       seeds: [2024, 2025, 2026]
       batch_size: 128
       lr: 1.0e-4
-      patience: 25
-      warmup_epochs: 5
-      warmup_start_factor: 0.2
+      patience: 12
       early_stop_metric: net_mse
-      early_stop_start_epoch: 10
+      early_stop_start_epoch: 12
       num_workers: 12
       pin_memory: true
       persistent_workers: true
@@ -26,9 +39,19 @@ benchmark:
       persistent_workers: true
       prefetch_factor: 4
       log_interval: 50
-    - name: itransformer_net_injection
-      run_name: itransformer_net_injection
+    - name: itransformer_exog_net_injection
+      run_name: itransformer_exog_net_injection
       config: configs/baselines/itransformer_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 128
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: itransformer_canonical_net_injection
+      run_name: itransformer_canonical_net_injection
+      config: configs/baselines/itransformer_canonical_net_injection.yaml
       seeds: [2024, 2025, 2026]
       batch_size: 128
       num_workers: 12
@@ -41,6 +64,36 @@ benchmark:
       config: configs/baselines/dlinear_net_injection.yaml
       seeds: [2024, 2025, 2026]
       batch_size: 512
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: gru_net_injection
+      run_name: gru_net_injection
+      config: configs/baselines/gru_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 64
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: lstm_net_injection
+      run_name: lstm_net_injection
+      config: configs/baselines/lstm_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 64
+      num_workers: 12
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
+      log_interval: 50
+    - name: patchtst_net_injection
+      run_name: patchtst_net_injection
+      config: configs/baselines/patchtst_net_injection.yaml
+      seeds: [2024, 2025, 2026]
+      batch_size: 128
       num_workers: 12
       pin_memory: true
       persistent_workers: true

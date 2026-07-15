@@ -44,7 +44,7 @@ class TiDE(nn.Module):
         self.known_future_num = len(
             getattr(configs, "known_future_covariate_cols", getattr(configs, "covariate_cols", [])) or []
         )
-        self.time_dim = 8
+        self.time_dim = getattr(configs, "time_feat_dim", 10)
 
         history_dim = self.seq_len * self.enc_in
         self.history_proj = nn.Sequential(

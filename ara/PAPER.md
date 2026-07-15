@@ -25,40 +25,41 @@ claims_summary:
   - "Selective gradient detach produces robust aggregate-accuracy gains across seeds with the smallest cross-seed variance (C09); mechanism = disabling encoder-depth→cancellation channel (C10)."
   - "Component-token separation via inverted attention eliminates the shared-encoder cancellation channel, achieving −12.5% aggregate MAE vs PhysFormer c23 baseline with 20× smaller cross-seed variance (C11)."
   - "Fixed physics priors (tokens, graph bias, weather conditioning, horizon decoder) are monotonic overfitting amplifiers — every architectural addition beyond component-token separation systematically degrades Test MAE (C12)."
-abstract: "Virtual power plant (VPP) aggregated net power forecasting is critical for dispatch and market participation, yet pure deep-learning approaches produce physically inconsistent predictions. We propose PhysFormer, a physics-guided Transformer that embeds domain equations via FiLM-conditioned theory branches for photovoltaic, wind, and battery components while modeling load with behavioral/temporal structure. A component-consistent residual mechanism preserves per-asset-type gradient isolation, and curriculum training improves robustness to component-loss weight choice. Experiments on real VPP data demonstrate improved component-level physical consistency, while variance decomposition reveals that aggregate accuracy can improve through signed component-error cancellation even when physical component forecasts degrade."
-status: "in-progress"
-phase: "Phase B rescue implementation (2026-05-31): N113 remains a dead end only for MCP pretrain -> high-LR pure net_mse finetune on the static split. N114 implemented scaler-buffer repair, best-Val-Net checkpointing, low-LR/regularized finetune arms, and a DVPP target-portfolio few-shot adaptation gate. Next: run B1-R0 old-vs-fixed scaler direct test, B1-R1 3-seed rescue arms, then B1-R2 5/10/20% target adaptation vs A1 scratch."
+  - "DVPP dispatch preparation requires per-component decomposability; pure net injection accuracy is a means, not an end. Repaired MCP pretrain+finetune trades about +1% aggregate MAE for learned Load/PV/Wind/Battery-Power forecasts, while operational dispatch value remains pending E14 (C13)."
+abstract: "Distributed Virtual Power Plant (DVPP) aggregated net power forecasting is critical for dispatch and ancillary market participation, yet pure end-to-end deep learning approaches collapse 4-dimensional component information (load, PV, wind, battery) into a scalar net injection prediction that cannot answer the operator's fundamental question: 'which DER should I adjust to meet the grid requirement?' We propose PhysFormer-iGT, an inverted Transformer that tokenizes each component independently through self-attention across 8 tokens (5 components + 3 weather), eliminating the shared-encoder cross-component error cancellation channel that masks individual component inaccuracy in aggregate metrics. Phase A establishes that component-token separation achieves -12.5% aggregate MAE vs shared-encoder baselines with 20x smaller variance, while fixed physics priors monotonically degrade Test MAE. Phase B introduces Masked Component Pretraining (MCP) to learn data-driven component coupling from partially observed DER histories, then finetunes on net injection to obtain decomposable Load/PV/Wind/Battery-Power forecasts at about +1% aggregate MAE relative to A1. The contribution is twofold: (1) architectural proof that component-token separation outperforms physics guidance for VPP forecasting (Phase A, validated across 3 seeds for each claim); (2) a self-supervised pretraining paradigm that preserves component-level information needed for downstream DVPP dispatch preparation. The actual dispatch cost or feasibility benefit is hypothesized, not yet proven, and is assigned to the pending E14 proxy validation."
+status: "in-progress; B1/R1-reg component metrics obtained; C13 scoped to decomposable forecasting, with dispatch optimizer value pending E14"
+phase: "Phase B rescue (2026-06-10). N135 (2026-06-14): Token encoder exploration closed: A0 (BiGRU readout fix, 3-seed mean MAE=0.001824) and A1 (hidden=128, MAE=0.001845) both FAILED to beat A1 baseline 0.001811. Bottleneck is NOT temporal encoding; iGT gain comes from component-token separation (C11 strengthened by exclusion). Thesis mainline: A1 = aggregate model, B1/R1-reg = decomposable forecasting tradeoff (C13), E14 = dispatch proxy validation."
 ---
 # PhysFormer: Physics-Guided Transformer for VPP Aggregated Net Power Forecasting
 
 ## Overview
 
-PhysFormer addresses the VPP aggregated net power forecasting problem by combining
-physics equations for DER components (PV, Wind, Battery) with behavioral/temporal
-load modeling inside a Transformer architecture. Unlike pure black-box approaches,
-PhysFormer decomposes the forecast into theory-driven and residual components, with
-per-asset-type FiLM conditioning and a component-consistent residual mechanism that
-prevents cross-component gradient contamination. Curriculum training is currently
-interpreted as improving robustness to component-loss weight choice rather than as
-evidence for a strict Phase1-to-Phase2 refinement path.
+PhysFormer-iGT addresses DVPP aggregated net power forecasting by replacing the
+historical shared-encoder physics-guided Transformer with an inverted-token
+architecture. The current mainline tokenizes Load, PV, Wind, Battery Power, Battery
+SOC, and future weather as semantic tokens, applies self-attention across tokens, and
+aggregates learned Load/PV/Wind/Battery-Power predictions through the real-unit power
+balance identity. This removes the shared-encoder cancellation channel behind the
+component/aggregate paradox (C08-C11) without adding fixed physics priors, which Phase A
+showed to be overfitting amplifiers (C12).
 
-This artifact captures the research journey from baseline (V3) through V7/P1 and
-Phase A, including dead ends (sigmoid gate, excessive component loss, invalid
-curriculum Phase 3, AMD ROCm training instability) and key design decisions
-(identity over gated residual, MAE over MSE for component loss, per-component over
-scalar residual, behavioral Load modeling, NVIDIA-only formal training).
+This artifact captures both the historical PhysFormer path (FiLM theory branches,
+component-consistent residuals, curriculum training, and their dead ends) and the current
+PhysFormer-iGT path. Phase B adds Masked Component Pretraining (MCP) to recover
+component-level decomposability at a small aggregate-MAE cost, with direct operational
+dispatch value left to the pending E14 proxy validation.
 
 ## Layer Index
 
 ### Cognitive Layer (`/logic`)
 | File | Description |
 |------|-------------|
-| [problem.md](logic/problem.md) | Observations on VPP forecasting gaps, physics-data integration challenges |
-| [claims.md](logic/claims.md) | Falsifiable claims on physics guidance, residual learning, curriculum training |
-| [concepts.md](logic/concepts.md) | Formal definitions: FiLM conditioning, component-consistent residual, theory/aggregate net |
-| [experiments.md](logic/experiments.md) | Declarative experiment plans (E01–E06) |
-| [solution/architecture.md](logic/solution/architecture.md) | Component graph: encoder, FiLM, theory branches, temporal decoder, residual heads |
-| [solution/algorithm.md](logic/solution/algorithm.md) | Math formulation of net power decomposition and residual correction |
+| [problem.md](logic/problem.md) | Shared-encoder cancellation, fixed-prior overfitting, and component-token separation gap framing |
+| [claims.md](logic/claims.md) | Falsifiable claims from historical PhysFormer through C13 decomposable forecasting |
+| [concepts.md](logic/concepts.md) | Formal definitions for net power, historical physics guidance, and component-token forecasting |
+| [experiments.md](logic/experiments.md) | Declarative experiments E01-E14, including Phase A/B and pending dispatch proxy |
+| [solution/architecture.md](logic/solution/architecture.md) | Current PhysFormer-iGT architecture, MCP pretraining, and dispatch proxy layer |
+| [solution/algorithm.md](logic/solution/algorithm.md) | A1/B1/R1-reg forward and loss algorithms plus E14 dispatch proxy algorithm |
 | [solution/constraints.md](logic/solution/constraints.md) | Power balance, SOC accumulation, dimension matching |
 | [solution/heuristics.md](logic/solution/heuristics.md) | Design heuristics (identity over gated residual, MAE for component loss, warmup, etc.) |
 | [related_work.md](logic/related_work.md) | Typed dependency graph: physics-guided DL, VPP forecasting, Transformer variants |

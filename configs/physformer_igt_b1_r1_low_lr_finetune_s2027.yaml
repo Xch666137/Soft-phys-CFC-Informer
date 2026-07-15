@@ -1,0 +1,5 @@
+_base_: physformer_igt_b1_r1_low_lr_finetune.yaml
+training:
+  seed: 2027
+checkpoint:
+  name: physformer_igt_b1_r1_low_lr_finetune_s2027

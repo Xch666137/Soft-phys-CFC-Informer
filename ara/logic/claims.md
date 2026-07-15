@@ -4,7 +4,7 @@
 - **Statement**: PhysFormer with FiLM-conditioned physics branches achieves lower theory deviation (Theory MAE) than black-box Transformer baselines (Informer, iTransformer, LSTM) on VPP aggregated net power forecasting, without sacrificing aggregate accuracy.
 - **Status**: supported
 - **Provenance**: user
-- **Falsification criteria**: A black-box baseline trained under identical data/hardware conditions achieves equal or lower Theory MAE than PhysFormer V4 or V5.
+- **Falsification criteria**: A black-box Transformer baseline (Informer, iTransformer, LSTM) trained on multi-portfolio VPP data with ≥4 DER components (Load, PV, Wind, Battery) at ≤15-min resolution achieves equal or lower Theory MAE than PhysFormer V4 or V5.
 - **Proof**: [E01]
 - **Evidence basis**: V3 baseline comparison; benchmark configs in `configs/legacy/baselines/`. V4 Theory MAE = 3.811 kW vs V3 = 4.874 kW (-21.8%).
 - **Interpretation**: Physics provides a meaningful inductive bias, but the magnitude of improvement varies by component (largest for Battery/SOC, smallest for Load).
@@ -164,7 +164,30 @@
   | A4 | +graph bias annealing (B_phys + B_learned) | 0.001863 | +2.9% | 0.890 (−11.0%) |
   | A5 | +per-step CrossAttention decoder + weather | 0.001947 | +7.5% | ~0.43 (best) |
   Monotonic Val→Test divergence: stronger Val improvement predicts worse Test degradation. A1's shared FFN (Linear 256→96) acts as an implicit regularizer — compressing 96-step prediction into a single token representation. All complexity additions (more tokens, graph bias, richer decoder, weather conditioning) are overfitting amplifiers.
+	  **Caveat**: A3 adds two simultaneous changes (twin tokens + constraint tokens). Individual contributions of each addition are not isolated — the compound degradation could be driven by one component.
 - **Interpretation**: This is the NEGATIVE complement of C11. The iTransformer's value lies SOLELY in component-token separation (eliminating the C10 cancellation channel), NOT in richer decoders, physics priors, or graph constraints. The finding that stronger Val improvement predicts worse Test degradation (monotonic across 4 architecture variants) suggests that fixed physics priors provide training-set-specific guidance that fails to generalize across portfolios. The simplest architecture (8 tokens, 2 encoder layers, shared FFN decoder, no physics) is the global optimum for this dataset. Phase B's self-supervised pretraining is a direct response to this finding — replacing FIXED priors with DATA-DRIVEN coupling discovery.
 - **Dependencies**: C11 (A1 baseline), C10 (cancellation channel), N102, N103, N104, N105
 - **Tags**: physics-priors, overfitting, monotonic-degradation, val-test-divergence, architecture-simplicity, phase-a, ablation-chain
 - **From staging**: O49, O50
+
+## C13: Component-level decomposable forecasting supports DVPP dispatch preparation
+- **Statement**: Pure end-to-end net injection predictors (A1) optimize a scalar target and can achieve low aggregate error through signed component-error cancellation (C08). Such component values are useful diagnostics but should not be treated as trustworthy DER-level schedules. Masked Component Pretraining (MCP) followed by repaired low-LR / tiny-anchor finetuning preserves the A1 8-token architecture while adding component-level supervision, producing decomposable Load/PV/Wind/Battery-Power forecasts at a small aggregate-MAE cost. The supported claim is therefore decomposable forecasting for dispatch preparation: aggregate MAE alone is insufficient, and the evaluation frame should be the Pareto frontier of aggregate accuracy vs. learned component accuracy.
+- **Limitation**: Direct operational dispatch value is not yet proven. It requires a downstream dispatch proxy or optimizer that converts component forecasts into DER adjustment decisions and measures realized cost, infeasibility, or residual net deviation. This is specified as E14 and remains pending.
+- **Status**: supported for decomposable forecasting; dispatch optimizer value pending
+- **Provenance**: user
+- **Crystallized via**: verbal-affirmation
+- **Falsification criteria**: (1) Under the repaired B1/R1-reg protocol, component-level forecasts fail to improve learned 4-component MAE over A1 cancellation artifacts while keeping aggregate MAE within a small degradation band (<5% relative to A1). (2) In the pending E14 dispatch proxy, a net-only A1 baseline plus simple allocation matches or beats B1/R1-reg component-aware allocation on realized dispatch cost/deviation across multiple scenarios.
+- **Proof**: [E13, N129, N132; E14 pending for operational dispatch value]
+- **Evidence basis**: |
+  | Model / arm | Net MAE (MW) | Component Load MAE | Component PV MAE | Component Wind MAE | Component Batt P MAE | Evidence status |
+  |---|---:|---:|---:|---:|---:|---|
+  | A1 (pure net MSE) | **0.001811** | 0.00552 | 0.00482 | 0.000829 | 0.00225 | Best aggregate; component values treated as C08 cancellation artifacts |
+  | R0 direct (repaired MCP checkpoint) | 0.001882 | n/a | n/a | n/a | n/a | Direct transfer; aggregate +3.9% vs A1 |
+  | R1 low-LR (repaired, 3 seeds) | 0.001834672 +/- 0.000003128 | 0.001814825 | 0.000943461 | 0.000301731 | 0.001184180 | Clean repaired finetune |
+  | R1-reg tiny component anchor (repaired, 3 seeds) | 0.001829685 +/- 0.000002955 | **0.001808796** | **0.000898363** | **0.000230729** | 0.001185496 | Best repaired B1 downstream arm |
+
+  Relative to A1, repaired R1-reg is about +1.0% aggregate MAE while improving the learned 4-component MAEs substantially (Load/PV/Wind/Battery-Power). Battery SOC is excluded from the decomposable-forecasting claim because iGT does not learn a SOC head; SOC values are placeholders and must not be used as learned component evidence.
+- **Interpretation**: C11/C12 show that A1 is the clean aggregate forecaster: component-token separation beats shared-encoder physics priors for scalar net accuracy. C13 adds a different operational criterion: DVPP dispatch needs per-DER information, not only net injection. The repaired B1/R1-reg evidence supports the existence of a low-cost aggregate/component Pareto tradeoff, with R1-reg as the current best decomposable forecasting arm. The stronger claim "component forecasts improve actual dispatch decisions" is deliberately left to E14 rather than inferred from MAE alone.
+- **Dependencies**: C08 (cancellation structure), C11 (component-token separation), C12 (fixed-prior overfitting), N129 (evaluation reframing), N132 (repaired B1/R1/R1-reg/R2 evidence)
+- **Tags**: dvpp-dispatch, component-accuracy, pareto-tradeoff, pretrain-finetune, decomposable-forecasting, evaluation-framework
+- **From staging**: O62, O64

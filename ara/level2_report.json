@@ -1,0 +1,148 @@
+{
+  "artifact": "PhysFormer-iGT ARA",
+  "artifact_dir": "C:\\Users\\Xch\\.codex\\worktrees\\7c57\\Physformer\\ara",
+  "review_version": "3.0.0",
+  "prerequisite": "Level 1 passed",
+  "overall": {
+    "grade": "Accept",
+    "mean_score": 4.17,
+    "one_line_summary": "The ARA is now substantially aligned around the PhysFormer-iGT mainline, with C07-C13 covered by declarative experiments and C13 scoped to decomposable forecasting while dispatch value remains pending.",
+    "strengths_summary": [
+      "Problem, claim, experiment, and solution layers now consistently identify component-token separation as the current mainline rather than the superseded FiLM/curriculum architecture.",
+      "E07-E13 provide declarative experiment coverage for C07-C13, closing the previous claim-to-experiment traceability gap.",
+      "C13 is now calibrated: repaired R1-reg evidence supports decomposable forecasting, while operational dispatch value is left to E14 instead of inferred from component MAE alone."
+    ],
+    "weaknesses_summary": [
+      "E14 is still a planned dispatch proxy, so the operational dispatch benefit is not yet empirically validated.",
+      "Some early V3-V7 historical comparisons are less controlled than the later multi-seed Phase A/B experiments."
+    ]
+  },
+  "dimensions": {
+    "D1_evidence_relevance": {
+      "score": 4,
+      "strengths": [
+        "C07-C13 now have matching experiment entries E07-E13 with relevant setups, metrics, results, and dependencies.",
+        "C11 and C12 are supported by directly relevant multi-seed A1-A5 ablation evidence.",
+        "C13's evidence now uses the repaired N132 protocol rather than the older conflicting R1-reg numbers."
+      ],
+      "weaknesses": [
+        "The operational portion of C13 depends on E14, which is specified but not run."
+      ],
+      "suggestions": [
+        "Run E14 before claiming actual dispatch cost or feasibility gains.",
+        "Keep the Phase A/B evidence map synchronized with any future reruns or pulled metrics."
+      ]
+    },
+    "D2_falsifiability_quality": {
+      "score": 4,
+      "strengths": [
+        "Most claims include quantitative falsification criteria and named baselines.",
+        "E14 includes a predeclared pass/fail protocol for C13's operational dispatch value.",
+        "C12 now explicitly caveats the compound A3 ablation."
+      ],
+      "weaknesses": [
+        "Some early historical claims still rely on dataset comparability rather than public external replication.",
+        "C13's decomposable-forecasting status is supported, but its operational claim remains pending by design."
+      ],
+      "suggestions": [
+        "Keep C13 split into supported decomposable forecasting and pending dispatch validation until E14 is executed.",
+        "Where possible, specify public-dataset analogues or data-property requirements for early claims."
+      ]
+    },
+    "D3_scope_calibration": {
+      "score": 4,
+      "strengths": [
+        "C13 is now downscoped from proven dispatch value to proven decomposable forecasting plus pending operational validation.",
+        "PAPER.md and problem.md now distinguish the historical PhysFormer path from the current PhysFormer-iGT mainline.",
+        "solution/architecture.md and solution/algorithm.md now describe the actual A1/B1/R1-reg mechanism."
+      ],
+      "weaknesses": [
+        "The abstract and C13 now mark dispatch value as pending, but manuscript-facing text must preserve that split until E14 is executed.",
+        "Battery SOC remains excluded from learned component evidence and must stay clearly separated from decomposable-forecasting claims."
+      ],
+      "suggestions": [
+        "In manuscript-facing text, phrase MCP as a decomposable-forecasting tradeoff unless E14 passes.",
+        "Keep SOC marked as placeholder wherever component metrics are summarized."
+      ]
+    },
+    "D4_argument_coherence": {
+      "score": 4,
+      "strengths": [
+        "The narrative now flows from shared-encoder cancellation (C08-C10) to component-token separation (C11), fixed-prior rejection (C12), and decomposable forecasting (C13).",
+        "The solution layer no longer contradicts the current iGT claims.",
+        "The problem layer now identifies per-component residuals and selective detach as partial/historical attempts rather than final answers."
+      ],
+      "weaknesses": [
+        "Related work still mostly reflects the older physics-guided framing rather than the final iGT/MCP contribution boundary.",
+        "The transition from historical PhysFormer evidence to current iGT evidence could still benefit from a compact roadmap figure or table."
+      ],
+      "suggestions": [
+        "Add a historical-to-current architecture map linking V3-V7, c23, A1, B1, and R1-reg.",
+        "Optionally add iTransformer/channel-token and self-supervised forecasting references to related_work.md."
+      ]
+    },
+    "D5_exploration_integrity": {
+      "score": 5,
+      "strengths": [
+        "The exploration tree remains a strong record of genuine failures, repairs, and pivots.",
+        "N131-N135 document protocol repair, repaired evidence, and token-encoder closure without hiding negative results.",
+        "Staging preserves unresolved or pending observations rather than forcing premature crystallization."
+      ],
+      "weaknesses": [
+        "The tree is long enough that reviewers need an index to navigate dead ends and decisions efficiently."
+      ],
+      "suggestions": [
+        "Add a compact dead-end / decision index for N06, N07, N12, N22, N113, N127, N132, N135."
+      ]
+    },
+    "D6_methodological_rigor": {
+      "score": 4,
+      "strengths": [
+        "Phase A/B results use multi-seed means, standard deviations, and explicit gates.",
+        "N131 repaired major checkpoint/token-contract/SOC-placeholder confounds before N132 was interpreted.",
+        "E14 defines a proper operational test rather than treating component MAE as dispatch proof."
+      ],
+      "weaknesses": [
+        "E14 has not been executed, so operational cost/feasibility claims are still unvalidated.",
+        "Some early V3-V7 historical comparisons are less controlled than the later A/B experiments."
+      ],
+      "suggestions": [
+        "Prioritize E14 if the thesis or paper needs a strong DVPP dispatch claim.",
+        "If E14 is not run, keep the final contribution wording at decomposable forecasting, not dispatch optimization."
+      ]
+    }
+  },
+  "findings": [
+    {
+      "finding_id": "F01",
+      "dimension": "D6_methodological_rigor",
+      "severity": "major",
+      "target_file": "logic/experiments.md",
+      "target_entity": "E14",
+      "observation": "E14 is specified but not executed.",
+      "reasoning": "C13's operational dispatch value requires realized dispatch outcomes, not just component forecast MAE.",
+      "suggestion": "Run the E14 dispatch proxy or keep operational dispatch value explicitly pending."
+    }
+  ],
+  "questions_for_authors": [
+    "Will E14 be run before thesis/paper writing, or should C13 remain a decomposable-forecasting claim only?",
+    "Which dispatch target should E14 prioritize first: peak shaving, ramp smoothing, or reserve tracking?"
+  ],
+  "read_order": [
+    "PAPER.md",
+    "logic/claims.md",
+    "logic/experiments.md",
+    "logic/problem.md",
+    "logic/concepts.md",
+    "logic/solution/architecture.md",
+    "logic/solution/algorithm.md",
+    "logic/solution/constraints.md",
+    "logic/solution/heuristics.md",
+    "logic/related_work.md",
+    "trace/exploration_tree.yaml",
+    "evidence/README.md",
+    "evidence/tables/version_comparison.md",
+    "evidence/tables/v5_component_metrics.md",
+    "staging/observations.yaml"
+  ]
+}

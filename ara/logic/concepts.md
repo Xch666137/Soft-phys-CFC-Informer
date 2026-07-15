@@ -45,3 +45,26 @@
 - **Definition**: When a scalar residual corrects the aggregate net injection, an error in one component's prediction can be compensated by adjusting the residual in a way that corrupts other components' effective predictions, without the loss function being aware of the contamination.
 - **Boundary conditions**: Occurs only with scalar residual (V3, V4). Component-consistent residual (V5) eliminates this by giving each component its own correction pathway.
 - **Related concepts**: Gradient interference, disentangled optimization, component-level supervision
+
+## C09: Shared-Encoder Cancellation Channel
+- **Notation**: $e_{\text{net}} = e_{\text{load}} - e_{\text{pv}} - e_{\text{wind}} + e_{\text{batt}}$
+- **Definition**: A shared temporal encoder can learn cross-component error correlations that reduce aggregate net error through signed cancellation, even when individual component forecasts are inaccurate. This explains why a model can improve aggregate MAE while degrading component MAE.
+- **Boundary conditions**: Applies when multiple DER components share a representation space and the training objective mainly supervises aggregate net injection. It is diagnosed through component-error covariance rather than aggregate error alone.
+- **Related concepts**: Component-aggregate paradox, covariance cancellation, C08, C10
+
+## C10: Component-Token Separation
+- **Notation**: $T = [T_{\text{load}}, T_{\text{pv}}, T_{\text{wind}}, T_{\text{batt}}, T_{\text{soc}}, T_{\text{temp}}, T_{\text{irr}}, T_{\text{windspd}}]$
+- **Definition**: An inverted-token formulation where each DER component and weather variable is encoded as a semantic token before self-attention. Attention operates across variables rather than across time positions.
+- **Boundary conditions**: In the current A1 contract, five component-history tokens and three future-weather tokens form an 8-token encoder input. Fixed physics tokens, graph bias, twin tokens, and horizon cross-attention are excluded from the mainline because C12 shows they overfit.
+- **Related concepts**: Inverted attention, iTransformer, component-token forecasting, cancellation-channel removal
+
+## C11: Masked Component Pretraining (MCP)
+- **Notation**: $\mathcal{L}_{\text{MCP}} = \mathcal{L}_{\text{masked-comp-mae}} + \lambda_{\text{net}}\mathcal{L}_{\text{net-mse}}$
+- **Definition**: A self-supervised pretraining objective that masks selected component histories and trains the model to reconstruct future component trajectories while retaining a net-MSE anchor. It keeps the A1 architecture unchanged and changes only the training signal.
+- **Boundary conditions**: The repaired B1 protocol uses the same 8-token contract for pretraining, finetuning, and testing; missing pretrained checkpoints are fatal; Battery SOC is not treated as a learned output component.
+- **Related concepts**: Self-supervised learning, component decomposability, B1, R1-reg
+
+## C12: Decomposable Forecasting vs. Dispatchability
+- **Definition**: Decomposable forecasting means the model outputs learned Load/PV/Wind/Battery-Power trajectories that can be aggregated by the real-unit power-balance identity. Dispatchability, in the operational sense, requires a further step: converting forecasts into feasible DER adjustment commands and measuring realized deviation, cost, and infeasibility.
+- **Boundary conditions**: C13 currently supports decomposable forecasting for dispatch preparation. It does not prove dispatch cost reduction or field-ready optimizer performance until E14 or a stronger optimizer validation is executed.
+- **Related concepts**: Dispatch proxy, Pareto frontier, aggregate-vs-component tradeoff, E14

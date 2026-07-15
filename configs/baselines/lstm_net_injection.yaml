@@ -1,0 +1,45 @@
+model:
+  name: LSTM
+  enc_in: 6
+  c_out: 1
+  d_model: 512
+  d_ff: 2048
+  e_layers: 2
+  dropout: 0.05
+  time_feat_dim: 10
+
+data:
+  root_path: ./
+  data_path: data_processed/multi_portfolio/portfolio_dataset_for_training.csv
+  features: M
+  time_col: date
+  id_col: portfolio_id
+  region_col: region_id
+  split_col: split
+  split_strategy: portfolio_manifest
+  task_mode: net_injection
+  target_cols: [p_vpp_mw]
+  known_future_covariate_cols: [temperature, irradiance, wind_speed]
+  history_state_cols: [p_battery_mw, e_battery_soc_mwh]
+  aux_target_cols: [p_load_mw, p_pv_mw, p_wind_mw, p_battery_mw, e_battery_soc_mwh]
+  seq_len: 672
+  label_len: 96
+  pred_len: 96
+  freq: t
+
+training:
+  seed: 2024
+  batch_size: 32
+  train_epochs: 50
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  patience: 5
+  use_amp: false
+
+hardware:
+  use_gpu: true
+  gpu: 0
+  num_workers: 8
+
+checkpoint:
+  name: lstm_net_injection

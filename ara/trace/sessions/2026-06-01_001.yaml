@@ -2,9 +2,9 @@ session:
   id: "2026-06-01_001"
   date: "2026-06-01"
   started: "2026-06-01T00:00"
-  last_turn: "2026-06-01T00:20"
-  turn_count: 2
-  summary: "Applied Energy Plan A started: Crossref metadata search produced a 15-paper core download list plus reserve pool and extraction template for journal-profile distillation."
+  last_turn: "2026-06-01T22:45"
+  turn_count: 8
+  summary: "Applied Energy writing path exists; B1 protocol repair was locally implemented and verified; the next valid B1 evidence requires rerunning pretrain to produce best_val_net_checkpoint.pth, then R0/R1/R2."
 
 events_logged:
   - turn: 1
@@ -25,6 +25,60 @@ events_logged:
     routing: crystallized
     provenance: ai-suggested
     summary: "O56 crystallized via artifact-commitment after user asked to start next step and the literature screen artifact was created"
+  - turn: 3
+    type: decision
+    id: N117
+    routing: direct
+    provenance: ai-executed
+    summary: "AE01-AE15 PDFs extracted and distilled into docs/analysis/applied_energy_pdf_extraction_matrix.md and docs/analysis/applied_energy_journal_profile.md"
+  - turn: 3
+    type: observation
+    id: O57
+    routing: staged
+    provenance: ai-suggested
+    summary: "Applied Energy fit assessment: medium-high if reframed around VPP generalization and supplemented with operational metrics plus stronger baselines"
+  - turn: 4
+    type: decision
+    id: N118
+    routing: direct
+    provenance: ai-executed
+    summary: "Scheme A completed with paper_source_pack and ARS-style pre-submission review; immediate Applied Energy submission judged high risk without operational metrics and stronger baselines"
+  - turn: 4
+    type: observation
+    id: O57
+    routing: crystallized
+    provenance: ai-suggested
+    summary: "O57 crystallized via artifact-commitment after the ARS pre-submission review adopted the Applied Energy fit/gap judgment"
+  - turn: 5
+    type: decision
+    id: N119
+    routing: direct
+    provenance: ai-executed
+    summary: "User corrected Scheme A objective from reviewer simulation to target-journal writing adaptation; docs/analysis/applied_energy_ars_writing_adapter.md created with ARS academic-paper phase overrides and AE-Gate-1 full-draft block"
+  - turn: 6
+    type: decision
+    id: N120
+    routing: direct
+    provenance: ai-executed
+    summary: "Applied Energy detailed outline and argument blueprint created; full manuscript remains blocked until AE-Gate-1 supplement evidence is available"
+  - turn: 7
+    type: observation
+    id: O58
+    routing: staged
+    provenance: ai-executed
+    summary: "B1 rescue chain audit found unresolved pretrain validation/scaler/masking/checkpoint-selection risks and confirmed the rescue target is R0/R1 cleanup plus R2 few-shot adaptation, not high-LR pure net_mse static finetune."
+  - turn: 8
+    type: experiment
+    id: N121
+    routing: direct
+    provenance: ai-executed
+    summary: "B1 protocol repair implemented and locally verified: per-sample masks, physical-zero masking, validation scaler-space repair, best-Val-Net paths, direct pretrained test flag, and resume-gated stale state loading."
+  - turn: 8
+    type: observation
+    id: O59
+    routing: staged
+    provenance: ai-executed
+    summary: "The repaired protocol invalidates judging old pretrained_checkpoint-only B1 artifacts; B1 must rerun pretraining to produce best_val_net_checkpoint.pth before clean R0/R1/R2 evaluation."
 
 ai_actions:
   - turn: 1
@@ -35,28 +89,105 @@ ai_actions:
     action: "Queried Crossref public metadata for Applied Energy candidates; screened results into a core download list, reserve pool, and extraction template."
     provenance: ai-executed
     files_changed: ["docs/analysis/applied_energy_literature_screen.md", "ara/staging/observations.yaml", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 3
+    action: "Read local AE01-AE15 PDFs from the user-provided directory; extracted text with pypdf; generated a per-paper extraction matrix, Applied Energy journal profile v0.1, and staged the resulting submission-strategy observation."
+    provenance: ai-executed
+    files_changed: ["tmp/extract_applied_energy_pdfs.py", "tmp/applied_energy_distill/applied_energy_extracted_sections.json", "tmp/applied_energy_distill/applied_energy_extraction_summary.md", "docs/analysis/applied_energy_pdf_extraction_matrix.md", "docs/analysis/applied_energy_journal_profile.md", "ara/staging/observations.yaml", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 4
+    action: "Built an ARA-derived paper_source_pack and ran an ARS academic-paper-reviewer-style pre-submission evidence review for Applied Energy."
+    provenance: ai-executed
+    files_changed: ["docs/analysis/applied_energy_paper_source_pack.md", "docs/analysis/applied_energy_ars_presubmission_review.md", "ara/staging/observations.yaml", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 5
+    action: "Created the Applied Energy ARS writing adapter that maps AE01-AE15 distillation and ARA claims into ARS academic-paper writing phases, prompt templates, claim-evidence boundaries, and AE-Gate-1 full-draft criteria."
+    provenance: ai-executed
+    files_changed: ["docs/analysis/applied_energy_ars_writing_adapter.md", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 6
+    action: "Generated the Applied Energy detailed outline and argument blueprint from the writing adapter, including section structure, claim-evidence map, figure/table plan, and AE-Gate-1 experiment TODO."
+    provenance: ai-executed
+    files_changed: ["docs/analysis/applied_energy_ars_outline_blueprint.md", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 7
+    action: "Audited the B1 Pretraining + finetune chain across ARA state, design docs, configs, data/scaler handling, iGT masking, pretrain loss/checkpointing, finetune loading, direct-test behavior, and launcher scripts."
+    provenance: ai-executed
+    files_changed: ["ara/staging/observations.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
+  - turn: 8
+    action: "Implemented the B1 protocol repair and verified it locally under the PhysFormer conda environment with py_compile, print-config checks, all-B1 inheritance checks, and a CPU smoke test for masks plus scaler re-normalization."
+    provenance: ai-executed
+    files_changed: ["physformer/loss.py", "physformer/models/physformer/igt_model.py", "physformer/train/pretrain_exp.py", "physformer/train/physformer_exp.py", "physformer/config.py", "configs/physformer_igt_b1_pretrain.yaml", "configs/physformer_igt_b1_finetune.yaml", "configs/physformer_igt_b1_r0_pretrained_direct_test.yaml", "configs/physformer_igt_b1_r1_low_lr_finetune.yaml", "configs/physformer_igt_b1_r2_fewshot_adapt.yaml", "scripts/train/launch_b1_r1_reg_3seed.sh", "ara/staging/observations.yaml", "ara/trace/exploration_tree.yaml", "ara/trace/sessions/2026-06-01_001.yaml", "ara/trace/sessions/session_index.yaml", "ara/trace/pm_reasoning_log.yaml"]
 
 claims_touched:
+  - id: C08
+    action: used_as_problem_formulation_constraint
+    turn: 5
+  - id: C08
+    action: used_as_outline_problem_formulation_and_claim_evidence
+    turn: 6
   - id: C11
     action: used_as_positioning_constraint
     turn: 1
+  - id: C11
+    action: used_as_primary_positive_claim_constraint
+    turn: 5
+  - id: C11
+    action: used_as_outline_main_result
+    turn: 6
   - id: C12
     action: used_as_framing_constraint
     turn: 1
+  - id: C12
+    action: used_as_safe_negative_claim_constraint
+    turn: 5
+  - id: C12
+    action: used_as_outline_ablation_result_and_safe_claim_boundary
+    turn: 6
+  - id: C08
+    action: used_as_b1_objective_alignment_constraint
+    turn: 7
+  - id: C11
+    action: used_as_static_split_baseline_constraint
+    turn: 7
+  - id: C12
+    action: used_as_do_not_reopen_fixed_prior_constraint
+    turn: 7
+  - id: C08
+    action: used_as_b1_protocol_repair_constraint
+    turn: 8
+  - id: C11
+    action: used_as_static_split_baseline_constraint
+    turn: 8
+  - id: C12
+    action: used_as_do_not_reopen_fixed_prior_constraint
+    turn: 8
 
 key_context:
   - turn: 1
     excerpt: "Start with Plan A: distill 10-15 Applied Energy core papers into a journal_profile, then run ARS reviewer mode against an ARA source pack."
   - turn: 2
     excerpt: "Core list created: AE01-AE15 cover VPP forecasting, VPP uncertainty/operation, net-load forecasting, Transformer renewable forecasting, physics-informed forecasting, and operational uncertainty."
+  - turn: 3
+    excerpt: "Applied Energy forecasting papers usually connect MAE/RMSE to scheduling, dispatch, market, reserve, ramping, risk, probabilistic quality, or cost; PhysFormer needs operational metrics and stronger baselines before safe submission."
+  - turn: 4
+    excerpt: "Scheme A trial result: ARA and ARS can work together through a source pack; the exposed pain points are operational metrics and baseline closure, not writing style."
+  - turn: 5
+    excerpt: "User corrected the direction: the 15 Applied Energy papers should distill ARS academic-paper writing for the target journal, not stop at reviewer simulation. The new adapter enforces ARA=facts, AE01-AE15=journal style, ARS=writing layer."
+  - turn: 6
+    excerpt: "The outline blueprint fixes the Applied Energy article path: robust VPP aggregate net-power forecasting via component-token separation, with operational-value claims held pending AE-Gate-1."
+  - turn: 7
+    excerpt: "B1 rescue is not to retry the dead high-LR pure net_mse static finetune path; it is to clean scaler/checkpoint confounds, preserve the pretrained basin, and test DVPP target-portfolio few-shot adaptation value."
+  - turn: 8
+    excerpt: "Protocol repair landed locally, including validation input/label scaler-space repair; old pretrained_checkpoint-only artifacts are not sufficient for clean B1 evidence, so the next valid step is rerunning B1 pretrain to produce best_val_net_checkpoint.pth."
 
 open_threads:
-  - "User downloads PDFs for AE01-AE15, optionally AE16-AE27 if gaps remain"
-  - "Build Applied Energy journal_profile.md"
-  - "Build ARA-derived paper_source_pack.md"
-  - "Run ARS desk-reject risk audit after the profile and source pack exist"
+  - "Design AE-Gate-1 supplement experiment: operational metrics plus strong baseline closure"
+  - "Decide whether to include B1-R2 target adaptation in the Applied Energy experiment package"
+  - "Optionally draft Applied Energy introduction skeleton from the outline blueprint"
+  - "After AE-Gate-1, allow ars-full and rerun Applied Energy pre-submission review"
+  - "For B1, rerun pretraining under the repaired protocol to produce best_val_net_checkpoint.pth, then run/verify R0 old-vs-fixed scaler direct test, R1 low-LR or component-regularized finetune, and R2 few-shot target adaptation against A1 scratch with clean run directories"
 
 ai_suggestions_pending:
   - "Use three paper buckets: VPP/DER forecasting, deep-learning forecasting, and operational/physics-informed energy forecasting"
   - "Use C11/C12 as hard framing constraints: do not sell the work as fixed physics priors always helping"
   - "After PDFs are available, extract problem frame, baselines, metrics, ablation norms, robustness norms, and reviewer objections for each AE paper"
+  - "Operational metric priority: ramp/peak error first, then imbalance/deviation penalty or reserve requirement proxy"
+  - "AE-Gate-1 should compare A1, c23, persistence, DLinear/NLinear, PatchTST/TFT, GRU/LSTM on MAE/MSE/RMSE plus operational proxies"
+  - "ARS full manuscript drafting should remain blocked until the writing adapter's AE-Gate-1 criteria are satisfied"
+  - "Before judging B1, rerun B1 pretraining under the repaired protocol; do not reuse the old pretrained_checkpoint-only artifact as clean evidence"

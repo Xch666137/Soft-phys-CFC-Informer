@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>苏州情侣3天2晚旅行方案 — 刘星雨</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:#0a0f18;color:#fff;overflow:hidden;height:100vh;}
+.progress-bar{position:fixed;top:0;left:0;height:4px;background:linear-gradient(90deg,#ffb703,#8ecae6);transition:width .3s;z-index:1000;}
+.nav-bar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:12px;z-index:1000;background:rgba(0,0,0,.6);padding:10px 20px;border-radius:30px;backdrop-filter:blur(10px);}
+.nav-btn{background:rgba(255,255,255,.1);border:none;color:#fff;padding:10px 20px;border-radius:20px;cursor:pointer;font-size:15px;transition:all .3s;}
+.nav-btn:hover{background:rgba(255,183,3,.3);}
+.nav-btn:disabled{opacity:.3;cursor:default;}
+.slide-counter{color:#8ecae6;font-size:15px;display:flex;align-items:center;gap:5px;}
+.slides-container{height:100vh;overflow:hidden;position:relative;}
+.slide{position:absolute;top:0;left:0;right:0;bottom:0;opacity:0;visibility:hidden;z-index:0;transition:opacity .4s ease;padding:25px 35px 80px 35px;overflow-y:auto;overflow-x:hidden;display:block;}
+.slide.active{opacity:1;visibility:visible;z-index:1;}
+.slide-cover{background:linear-gradient(135deg,#0d1b2a 0%,#1b2838 50%,#2d4a6f 100%);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;min-height:100vh;}
+.slide-blue{background:linear-gradient(135deg,#0d1b2a 0%,#1a365d 100%);}
+.slide-green{background:linear-gradient(135deg,#0d2818 0%,#1a4d2e 100%);}
+.slide-orange{background:linear-gradient(135deg,#2d1810 0%,#4a2c1a 100%);}
+.slide-purple{background:linear-gradient(135deg,#1a0d2e 0%,#2d1a4a 100%);}
+.slide-teal{background:linear-gradient(135deg,#0d2a2a 0%,#1a4d4d 100%);}
+.slide-title{font-size:30px;font-weight:bold;color:#8ecae6;margin-bottom:4px;text-align:center;}
+.slide-subtitle{font-size:15px;color:#ffb703;text-align:center;margin-bottom:18px;}
+.cover-title{font-size:48px;font-weight:bold;background:linear-gradient(135deg,#8ecae6,#ffb703);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:12px;}
+.cover-info{font-size:18px;color:rgba(255,255,255,.7);margin-bottom:25px;}
+.cover-meta{display:flex;justify-content:center;gap:40px;margin-top:20px;}
+.meta-item{text-align:center;}
+.meta-value{font-size:30px;color:#ffb703;font-weight:bold;}
+.meta-label{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:1400px;margin:0 auto;width:100%;}
+.three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:1400px;margin:0 auto;width:100%;}
+.five-col{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;max-width:1500px;margin:0 auto;width:100%;}
+.card{background:rgba(255,255,255,.05);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:16px;}
+.card2{background:rgba(255,255,255,.07);border:2px solid rgba(142,202,230,.15);border-radius:20px;padding:20px;transition:all .3s;}
+.card2:hover{border-color:#ffb703;transform:translateY(-3px);}
+.card-title{font-size:17px;color:#ffb703;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.card-content{font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.85);}
+.cost{display:inline-block;background:linear-gradient(135deg,#ffb703,#fb8500);color:#000;padding:3px 10px;border-radius:12px;font-weight:bold;font-size:15px;}
+.cost-sm{display:inline-block;background:linear-gradient(135deg,#ffb703,#fb8500);color:#000;padding:2px 8px;border-radius:10px;font-weight:bold;font-size:13px;}
+.cost-big{font-size:36px;color:#ffb703;font-weight:bold;}
+.hl{color:#ffb703;font-weight:bold;}
+.route-flow{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:10px;margin:8px 0;font-size:12px;}
+.route-node{background:rgba(142,202,230,.2);padding:4px 10px;border-radius:6px;white-space:nowrap;font-weight:bold;color:#8ecae6;}
+.route-arrow{color:#ffb703;font-size:14px;margin:0 1px;}
+.route-time{font-size:11px;color:rgba(255,255,255,.5);margin-left:2px;}
+.timeline-item{position:relative;padding:10px 15px;margin-bottom:8px;background:rgba(255,255,255,.04);border-radius:10px;border-left:3px solid #8ecae6;}
+.timeline-time{font-size:14px;color:#ffb703;font-weight:bold;margin-bottom:3px;}
+.timeline-title{font-size:15px;color:#8ecae6;margin-bottom:2px;}
+.timeline-desc{font-size:13px;color:rgba(255,255,255,.75);line-height:1.5;}
+.plan-card{background:rgba(255,255,255,.06);border:2px solid rgba(142,202,230,.2);border-radius:18px;padding:16px;text-align:center;transition:all .3s;cursor:default;}
+.plan-card:hover{border-color:#ffb703;transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.3);}
+.plan-card.recommend{border-color:#ffb703;box-shadow:0 0 30px rgba(255,183,3,.1);}
+.plan-name{font-size:19px;color:#8ecae6;font-weight:bold;margin-bottom:6px;}
+.plan-price{font-size:26px;color:#ffb703;font-weight:bold;margin-bottom:8px;}
+.plan-label{font-size:12px;color:rgba(255,255,255,.6);margin-bottom:10px;}
+.plan-badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:bold;margin-bottom:8px;}
+.badge-red{background:rgba(255,100,100,.2);color:#ff6b6b;}
+.badge-orange{background:rgba(255,183,3,.2);color:#ffb703;}
+.badge-green{background:rgba(100,255,150,.2);color:#64ff96;}
+.badge-blue{background:rgba(100,200,255,.2);color:#8ecae6;}
+.badge-purple{background:rgba(180,130,255,.2);color:#c4b5fd;}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,.08);}
+th{background:rgba(142,202,230,.15);color:#8ecae6;font-size:13px;}
+tr.total-row{background:linear-gradient(90deg,rgba(255,183,3,.15),rgba(251,133,0,.1));}
+tr.total-row td{font-weight:bold;color:#ffb703;}
+.tip-box{background:rgba(255,183,3,.08);border-left:3px solid #ffb703;padding:8px 14px;border-radius:0 8px 8px 0;margin:8px 0;font-size:13px;line-height:1.5;}
+.accommodation-card{border-left:3px solid;padding:12px;border-radius:0 10px 10px 0;margin-bottom:8px;background:rgba(255,255,255,.03);}
+.accommodation-card.l1{border-color:#64ff96;}
+.accommodation-card.l2{border-color:#ffb703;}
+.accommodation-card.l3{border-color:#8ecae6;}
+.day-badge{display:inline-block;padding:3px 12px;border-radius:12px;font-size:12px;font-weight:bold;margin-bottom:8px;}
+.day-badge.d1{background:rgba(142,202,230,.25);color:#8ecae6;}
+.day-badge.d2{background:rgba(255,183,3,.25);color:#ffb703;}
+.day-badge.d3{background:rgba(255,140,100,.25);color:#ff8c64;}
+.image-placeholder{width:100%;height:180px;border-radius:12px;overflow:hidden;margin-bottom:15px;position:relative;background:rgba(255,255,255,.05);}
+.image-placeholder img{width:100%;height:100%;object-fit:cover;}
+.image-overlay{position:absolute;bottom:0;left:0;right:0;padding:10px 15px;background:linear-gradient(transparent,rgba(0,0,0,.8));font-size:13px;}
+.legend{display:flex;gap:20px;flex-wrap:wrap;margin:10px 0;font-size:13px;}
+.legend-item{display:flex;align-items:center;gap:6px;}
+.legend-dot{width:10px;height:10px;border-radius:50%;}
+.slide::-webkit-scrollbar{width:5px;}
+.slide::-webkit-scrollbar-track{background:rgba(255,255,255,.03);}
+.slide::-webkit-scrollbar-thumb{background:rgba(142,202,230,.2);border-radius:3px;}
+@media(max-width:900px){
+.slide{padding:15px 20px 80px 20px;}
+.slide-title{font-size:24px;}
+.two-col,.three-col,.five-col{grid-template-columns:1fr;}
+.cover-title{font-size:32px;}
+.cover-meta{gap:15px;}
+.plan-card{padding:12px;}
+}
+.list-none{list-style:none;}
+.list-none li{padding:4px 0;}
+/* debug: make all slides slightly visible */
+</style>
+</head>
+<body>
+<div class="progress-bar" id="bar"></div>
+<div class="slides-container" id="container">
+
+<!-- S0: Cover -->
+<div class="slide slide-cover active" data-idx="0">
+<div class="image-placeholder" style="width:800px;height:220px;margin:0 auto 25px;border-radius:16px;">
+<img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?fm=jpg&q=60&w=1080&auto=format&fit=crop" alt="苏州园林">
+<div class="image-overlay"><span style="font-size:17px;color:#ffb703;">上有天堂，下有苏杭</span></div>
+</div>
+<h1 class="cover-title">苏州情侣3天2晚</h1>
+<p class="cover-info" style="color:rgba(255,255,255,.7);">5套路线 × 学生预算 × 每一步都算好时间</p>
+<div class="cover-meta">
+<div class="meta-item"><div class="meta-value">5套方案</div><div class="meta-label">不同路线玩法</div></div>
+<div class="meta-item"><div class="meta-value">¥1.5K-3.5K</div><div class="meta-label">2人总预算</div></div>
+<div class="meta-item"><div class="meta-value">2人</div><div class="meta-label">情侣出行</div></div>
+</div>
+<div style="margin-top:30px;color:rgba(255,255,255,.45);font-size:15px;">
+策划人：刘星雨 | 出发：上海电力大学杨浦校区 | 6月19日-21日 | 目的地：苏州
+</div>
+</div>
+
+<!-- S1: 5 Plans Overview -->
+<div class="slide slide-blue" data-idx="1">
+<h2 class="slide-title">5套方案速览</h2>
+<p class="slide-subtitle">路线不同 · 玩法不同 · 学生预算友好</p>
+<div class="five-col">
+<div class="plan-card">
+<div class="plan-badge badge-red">方案 A</div>
+<div class="plan-price">¥1,588</div>
+<div class="plan-label">暴走穷游型</div>
+<div style="font-size:13px;color:rgba(255,255,255,.7);line-height:1.6;text-align:left;">
+🏠 7天/汉庭 ~150元/晚<br>
+🎫 1个付费景点<br>
+🚶 主打免费+步行<br>
+🍜 街头小吃为主<br>
+💡 人均仅¥794
+</div>
+</div>
+<div class="plan-card">
+<div class="plan-badge badge-orange">方案 B</div>
+<div class="plan-price">¥2,088</div>
+<div class="plan-label">经典园林型</div>
+<div style="font-size:13px;color:rgba(255,255,255,.7);line-height:1.6;text-align:left;">
+🏠 如家neo ~200元/晚<br>
+🎫 拙政园+虎丘+留园<br>
+🏛️ 苏博必打卡<br>
+🍜 老字号1顿+小吃<br>
+💡 性价比之选
+</div>
+</div>
+<div class="plan-card recommend">
+<div class="plan-badge badge-green">方案 C ⭐</div>
+<div class="plan-price">¥2,588</div>
+<div class="plan-label">水乡古镇型</div>
+<div style="font-size:13px;color:rgba(255,255,255,.7);line-height:1.6;text-align:left;">
+🏠 乐活青旅 ~230元/晚<br>
+🎫 同里古镇+拙政园<br>
+🛶 江南水乡沉浸体验<br>
+🍜 古镇+市区美食<br>
+💡 最有江南味
+</div>
+</div>
+<div class="plan-card">
+<div class="plan-badge badge-blue">方案 D</div>
+<div class="plan-price">¥2,988</div>
+<div class="plan-label">浪漫夜景型</div>
+<div style="font-size:13px;color:rgba(255,255,255,.7);line-height:1.6;text-align:left;">
+🏠 窄遇见大床 ~250元/晚<br>
+🎫 拙政园+虎丘+留园<br>
+🚢 山塘河夜游船<br>
+🎵 评弹茶馆体验<br>
+💡 最适合情侣
+</div>
+</div>
+<div class="plan-card">
+<div class="plan-badge badge-purple">方案 E</div>
+<div class="plan-price">¥3,488</div>
+<div class="plan-label">深度全览型</div>
+<div style="font-size:13px;color:rgba(255,255,255,.7);line-height:1.6;text-align:left;">
+🏠 不二居/熹坞 ~280元/晚<br>
+🎫 四大园林全打卡<br>
+🚢 夜游船+金鸡湖<br>
+🍜 每日老字号<br>
+💡 不留遗憾
+</div>
+</div>
+</div>
+<div class="tip-box" style="max-width:1000px;margin:25px auto 0;">
+<strong>怎么选？</strong> A=极致省钱但只逛免费景点 | B=经典三园林平衡之选 | <span class="hl">C=同里水乡最有江南味（推荐）</span> | D=夜景游船最适合情侣浪漫 | E=全览型一个不落
+</div>
+</div>
+
+<!-- S2: Plan A -->
+<div class="slide slide-green" data-idx="2">
+<h2 class="slide-title">方案 A · 暴走穷游型</h2>
+<p class="slide-subtitle"><span class="cost">2人总计 ¥1,588</span> &nbsp; 人均 ¥794 &nbsp;|&nbsp; 住宿 ¥300 + 交通 ¥210 + 门票 ¥60 + 餐饮 ¥818 + 其他 ¥200</p>
+<div class="two-col">
+<div>
+<div class="day-badge d1">Day 1 · 6月19日（周四）— 老城步行日</div>
+<div class="route-flow">
+<span class="route-node">上海电力大学</span><span class="route-arrow">→🚇12号线30min→</span><span class="route-node">上海站</span><span class="route-arrow">→🚄高铁30min→</span><span class="route-node">苏州站</span>
+</div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:30-12:00</div>
+<div class="timeline-title">苏州博物馆（免费）</div>
+<div class="timeline-desc">苏州站 →🚇4号线1站→北寺塔站，步行10min。必预约！贝聿铭设计，拍照绝美。游玩2.5h</div></div>
+<div class="route-flow"><span class="route-node">苏博</span><span class="route-arrow">→🚶步行2min→</span><span class="route-node">拙政园外围</span><span class="route-arrow">→🚶步行5min→</span><span class="route-node">平江路</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:00-13:00</div><div class="timeline-title">平江路小吃午餐</div>
+<div class="timeline-desc">鸡脚旮旯(15元)+哑巴生煎(20元)+苏式糖粥(10元)。<span class="cost-sm">约45元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">13:00-16:00</div><div class="timeline-title">平江路漫步 + 相门城墙（免费）</div>
+<div class="timeline-desc">沿平江路走到南端相门，登古城墙看全景。整段步行约30min，边逛边拍</div></div>
+<div class="route-flow"><span class="route-node">平江路南端</span><span class="route-arrow">→🚶穿大儒巷10min→</span><span class="route-node">观前街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">16:30-19:00</div><div class="timeline-title">观前街逛吃 + 晚餐</div>
+<div class="timeline-desc">黄天源糕点(20元)+陆稿荐酱鸭(25元)+珍珠饭店便餐(人均50元)。<span class="cost-sm">约120元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">19:00-21:00</div><div class="timeline-title">平江路夜景漫步 → 返回酒店</div>
+<div class="timeline-desc">入住：<span class="hl">7天连锁(观前店) 135元/晚</span> 或 汉庭饮马桥店 169元/晚</div></div>
+</div>
+<div>
+<div class="day-badge d2">Day 2 · 6月20日（周五）— 山塘虎丘日</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚶步行15min→</span><span class="route-node">察院场站</span><span class="route-arrow">→🚇4→火车站→🚇2→山塘街站</span><span class="route-time">共25min 3元</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">08:30-10:00</div><div class="timeline-title">山塘街清晨漫步（免费）</div>
+<div class="timeline-desc">趁游客未到，感受真正的"姑苏第一名街"。早餐：荣阳楼生煎+小馄饨。<span class="cost-sm">约30元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">山塘街</span><span class="route-arrow">→🚌游1路 30min 2元→</span><span class="route-node">虎丘</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">10:30-13:00</div><div class="timeline-title">虎丘（学生票30元×2）</div>
+<div class="timeline-desc">苏州标志，"到苏州不游虎丘，乃憾事也"。虎丘塔、剑池。游玩2.5h。<span class="cost-sm">门票¥60</span></div></div>
+<div class="route-flow"><span class="route-node">虎丘</span><span class="route-arrow">→🚌游2路 30min→</span><span class="route-node">山塘街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">13:30-18:00</div><div class="timeline-title">山塘街午餐 + 深度逛</div>
+<div class="timeline-desc">午餐：山塘街小吃(梅花糕5元+蟹壳黄8元+赵元章肉骨烧20元)。<span class="cost-sm">约60元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">山塘街站</span><span class="route-arrow">→🚇2→火车站→🚇4→察院场 25min 3元→</span><span class="route-node">观前街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">18:30-21:00</div><div class="timeline-title">观前街晚餐 + 采芝斋买伴手礼</div>
+<div class="timeline-desc">晚餐推荐协和菜馆(小巷子本地菜，人均60元)。<span class="cost-sm">约150元/2人含伴手礼</span></div></div>
+</div>
+</div>
+<div class="two-col" style="margin-top:15px;">
+<div>
+<div class="day-badge d3">Day 3 · 6月21日（周六）— 现代苏州</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚶→乐桥站→🚇1号线25min→</span><span class="route-node">东方之门</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:30-12:00</div><div class="timeline-title">金鸡湖景区（免费）+ 东方之门打卡</div>
+<div class="timeline-desc">地铁1号线直达，现代苏州地标。湖边散步、拍照。诚品书店逛1h（免费）</div></div>
+<div class="route-flow"><span class="route-node">东方之门</span><span class="route-arrow">→🚇1号线25min→乐桥→🚇4→🚇2→</span><span class="route-node">苏州站</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">13:00-14:00</div><div class="timeline-title">金鸡湖畔午餐</div>
+<div class="timeline-desc">苏州中心美食广场便餐。<span class="cost-sm">约80元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:30-17:00</div><div class="timeline-title">返程：苏州站→上海站→地铁回校</div>
+<div class="timeline-desc">高铁二等座39.5元×2人=79元。预计17:00抵达学校</div></div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">📊 费用明细</div>
+<table style="font-size:13px;">
+<tr><td>往返交通</td><td>高铁158+地铁30</td><td class="hl">188元</td></tr>
+<tr><td>住宿2晚</td><td>7天观前店 135×2</td><td class="hl">270元</td></tr>
+<tr><td>虎丘门票</td><td>学生票30×2</td><td class="hl">60元</td></tr>
+<tr><td>Day1餐饮</td><td>午餐45+晚餐120</td><td class="hl">165元</td></tr>
+<tr><td>Day2餐饮</td><td>早30+午60+晚150</td><td class="hl">240元</td></tr>
+<tr><td>Day3餐饮</td><td>早30+午80</td><td class="hl">110元</td></tr>
+<tr><td>市内交通</td><td>地铁+公交3天</td><td class="hl">50元</td></tr>
+<tr><td>伴手礼/零食</td><td>采芝斋+小吃</td><td class="hl">100元</td></tr>
+<tr class="total-row"><td><strong>总计</strong></td><td></td><td class="cost">¥1,183起</td></tr>
+</table>
+<div class="tip-box" style="margin-top:12px;"><strong>省钱要点：</strong>苏博免费、平江路/山塘街/金鸡湖/诚品全免费。只买虎丘一张门票，学生证半价。住宿选7天/汉庭。</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S3: Plan B -->
+<div class="slide slide-blue" data-idx="3">
+<h2 class="slide-title">方案 B · 经典园林型</h2>
+<p class="slide-subtitle"><span class="cost">2人总计 ¥2,088</span> &nbsp; 人均 ¥1,044 &nbsp;|&nbsp; 住宿 ¥400 + 交通 ¥210 + 门票 ¥370 + 餐饮 ¥908 + 其他 ¥200</p>
+<div class="two-col">
+<div>
+<div class="day-badge d1">Day 1 · 6月19日 — 东北街园林群</div>
+<div class="route-flow"><span class="route-node">上海电力大学</span><span class="route-arrow">→🚇12号线30min→</span><span class="route-node">上海站</span><span class="route-arrow">→🚄30min→</span><span class="route-node">苏州站</span><span class="route-arrow">→🚇4号线1站→</span><span class="route-node">北寺塔</span><span class="route-time">步行10min到拙政园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">10:00-12:30</div><div class="timeline-title">拙政园（学生票35元×2）</div>
+<div class="timeline-desc">中国四大名园之首，必去！<span class="cost-sm">门票¥70</span></div></div>
+<div class="route-flow"><span class="route-node">拙政园</span><span class="route-arrow">→🚶2min→</span><span class="route-node">苏博</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:30-13:30</div><div class="timeline-title">午餐：朱鸿兴面馆</div>
+<div class="timeline-desc">苏博隔壁，焖肉面+爆鱼面。<span class="cost-sm">约50元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:00-16:30</div><div class="timeline-title">苏州博物馆（免费·预约）</div>
+<div class="timeline-desc">贝聿铭封山之作。游玩2.5h</div></div>
+<div class="route-flow"><span class="route-node">苏博</span><span class="route-arrow">→🚶10min→</span><span class="route-node">平江路</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">17:00-20:00</div><div class="timeline-title">平江路漫步 + 晚餐</div>
+<div class="timeline-desc">晚餐：洪登记(苏帮小馆，人均70元)。<span class="cost-sm">约160元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">平江路</span><span class="route-arrow">→🚶大儒巷10min→</span><span class="route-node">观前街附近酒店</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">20:30</div><div class="timeline-title">入住：如家neo(观前平江路店)</div>
+<div class="timeline-desc"><span class="hl">200元/晚</span>，步行至平江路仅5min，位置极佳</div></div>
+</div>
+<div>
+<div class="day-badge d2">Day 2 · 6月20日 — 虎丘+留园+山塘</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚇4→火车站→🚇2→</span><span class="route-node">山塘街站</span><span class="route-time">20min</span><span class="route-arrow">→🚌游1→</span><span class="route-node">虎丘</span><span class="route-time">30min</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:00-11:30</div><div class="timeline-title">虎丘（学生票30元×2）</div>
+<div class="timeline-desc"><span class="cost-sm">门票¥60</span></div></div>
+<div class="route-flow"><span class="route-node">虎丘</span><span class="route-arrow">→🚖打车15min 15元→</span><span class="route-node">留园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:00-14:30</div><div class="timeline-title">留园（学生票27.5元×2）</div>
+<div class="timeline-desc">四大名园之一，建筑空间艺术典范。<span class="cost-sm">门票¥55</span></div></div>
+<div class="route-flow"><span class="route-node">留园</span><span class="route-arrow">→🚶步行25min / 🚖5min 10元→</span><span class="route-node">山塘街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">15:00-18:00</div><div class="timeline-title">山塘街午餐+漫步+黄昏</div>
+<div class="timeline-desc">午餐五芳斋(人均40元)。<span class="cost-sm">约100元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">18:30-20:00</div><div class="timeline-title">晚餐：山塘街附近小馆</div>
+<div class="timeline-desc"><span class="cost-sm">约120元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">山塘街站</span><span class="route-arrow">→🚇2→火车站→🚇4→察院场</span><span class="route-time">20min→</span><span class="route-node">酒店</span></div>
+</div>
+</div>
+<div class="two-col" style="margin-top:15px;">
+<div>
+<div class="day-badge d3">Day 3 · 6月21日 — 狮子林+返程</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚶步行15min→</span><span class="route-node">狮子林</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:00-11:00</div><div class="timeline-title">狮子林（学生票20元×2）</div>
+<div class="timeline-desc">假山王国，钻迷宫超有趣！<span class="cost-sm">门票¥40</span></div></div>
+<div class="route-flow"><span class="route-node">狮子林</span><span class="route-arrow">→🚶10min→</span><span class="route-node">观前街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">11:30-13:00</div><div class="timeline-title">松鹤楼午餐（唯一一顿老字号）</div>
+<div class="timeline-desc">松鼠鳜鱼(128元)+响油鳝糊(68元)。<span class="cost-sm">约260元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">察院场站</span><span class="route-arrow">→🚇4→火车站→🚇2→</span><span class="route-node">苏州站</span><span class="route-time">20min</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:00-17:00</div><div class="timeline-title">返程：苏州站→上海站→地铁回校</div></div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">📊 费用明细</div>
+<table style="font-size:13px;">
+<tr><td>往返交通</td><td></td><td class="hl">188元</td></tr>
+<tr><td>住宿2晚</td><td>如家neo 200×2</td><td class="hl">400元</td></tr>
+<tr><td>拙政园</td><td>学生票35×2</td><td class="hl">70元</td></tr>
+<tr><td>虎丘</td><td>学生票30×2</td><td class="hl">60元</td></tr>
+<tr><td>留园</td><td>学生票27.5×2</td><td class="hl">55元</td></tr>
+<tr><td>狮子林</td><td>学生票20×2</td><td class="hl">40元</td></tr>
+<tr><td>Day1餐饮</td><td></td><td class="hl">210元</td></tr>
+<tr><td>Day2餐饮</td><td></td><td class="hl">220元</td></tr>
+<tr><td>Day3餐饮(含松鹤楼)</td><td></td><td class="hl">320元</td></tr>
+<tr><td>市内交通</td><td></td><td class="hl">70元</td></tr>
+<tr><td>其他</td><td></td><td class="hl">100元</td></tr>
+<tr class="total-row"><td><strong>总计</strong></td><td></td><td class="cost">¥1,733起</td></tr>
+</table>
+<div class="tip-box" style="margin-top:12px;"><strong>核心思路：</strong>四大园林去其三(拙政园+留园+狮子林)+虎丘，含一顿松鹤楼大餐。住宿如家neo位置极佳。</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S4: Plan C -->
+<div class="slide slide-teal" data-idx="4">
+<h2 class="slide-title">方案 C ⭐ · 水乡古镇型</h2>
+<p class="slide-subtitle"><span class="cost">2人总计 ¥2,588</span> &nbsp; 人均 ¥1,294 &nbsp;|&nbsp; 住宿 ¥460 + 交通 ¥260 + 门票 ¥350 + 餐饮 ¥1,218 + 其他 ¥300</p>
+<div class="two-col">
+<div>
+<div class="day-badge d1">Day 1 · 6月19日 — 狮子林+平江路</div>
+<div class="route-flow"><span class="route-node">上海电力大学</span><span class="route-arrow">→🚇30min→</span><span class="route-node">上海站</span><span class="route-arrow">→🚄30min→</span><span class="route-node">苏州站</span><span class="route-arrow">→🚇4→北寺塔→🚶→</span><span class="route-node">狮子林</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">10:00-11:30</div><div class="timeline-title">狮子林（学生票20元×2）</div>
+<div class="timeline-desc">假山迷宫趣味十足，情侣一起钻假山！<span class="cost-sm">¥40</span></div></div>
+<div class="route-flow"><span class="route-node">狮子林</span><span class="route-arrow">→🚶8min→</span><span class="route-node">平江路北端</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:00-13:00</div><div class="timeline-title">平江路午餐</div>
+<div class="timeline-desc">协和菜馆(小巷本地菜)。<span class="cost-sm">约80元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">平江路</span><span class="route-arrow">→🚶大儒巷10min→</span><span class="route-node">观前街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:00-18:00</div><div class="timeline-title">观前街 + 平江路深度逛</div>
+<div class="timeline-desc">黄天源糕点、采芝斋糖果、潘玉麟糖粥。晚餐：珍珠饭店。<span class="cost-sm">约180元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">19:00</div><div class="timeline-title">入住：乐活青年旅舍(平江路店)</div>
+<div class="timeline-desc"><span class="hl">LOFT大床房229元/晚</span>，平江路旁，工业风设计感强，学生热门</div></div>
+</div>
+<div>
+<div class="day-badge d2" style="background:rgba(255,183,3,.25);color:#ffb703;">Day 2 · 6月20日 — 同里古镇全天</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚶→</span><span class="route-node">察院场站</span><span class="route-arrow">→🚇4号线直达终点</span><span class="route-node">同里站</span><span class="route-time">55min 6元</span><span class="route-arrow">→🚌智轨T1 12min(免费)→</span><span class="route-node">同里古镇</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:00-16:00</div><div class="timeline-title">同里古镇（学生票50元×2）</div>
+<div class="timeline-desc">世界文化遗产退思园+三桥+珍珠塔。比周庄更原生态。<span class="cost-sm">门票¥100</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">午餐</div><div class="timeline-title">同里古镇内</div>
+<div class="timeline-desc">太湖三白(白鱼白虾银鱼)+袜底酥。<span class="cost-sm">约120元/2人</span></div></div>
+<div class="route-flow"><span class="route-node">同里</span><span class="route-arrow">→🚌+🚇55min→</span><span class="route-node">乐桥站</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">17:30-20:00</div><div class="timeline-title">观前街晚餐</div>
+<div class="timeline-desc">得月楼：蟹粉豆腐+碧螺虾仁。<span class="cost-sm">约280元/2人</span></div></div>
+</div>
+</div>
+<div class="two-col" style="margin-top:15px;">
+<div>
+<div class="day-badge d3">Day 3 · 6月21日 — 拙政园+返程</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚶15min→</span><span class="route-node">拙政园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">08:30-10:30</div><div class="timeline-title">拙政园（学生票35元×2）</div>
+<div class="timeline-desc">最后一天把最重要的园子看了。<span class="cost-sm">¥70</span></div></div>
+<div class="route-flow"><span class="route-node">拙政园</span><span class="route-arrow">→🚶2min→</span><span class="route-node">苏博</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">10:30-12:00</div><div class="timeline-title">苏州博物馆（免费·预约）</div></div>
+<div class="route-flow"><span class="route-node">北寺塔站</span><span class="route-arrow">→🚇4→火车站→🚇2→</span><span class="route-node">苏州站</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">13:00-16:30</div><div class="timeline-title">返程：苏州站→上海站→地铁回校</div></div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">📊 费用明细</div>
+<table style="font-size:13px;">
+<tr><td>往返交通</td><td></td><td class="hl">188元</td></tr>
+<tr><td>住宿2晚</td><td>乐活青旅 229×2</td><td class="hl">458元</td></tr>
+<tr><td>狮子林</td><td>学生票20×2</td><td class="hl">40元</td></tr>
+<tr><td>同里古镇</td><td>学生票50×2</td><td class="hl">100元</td></tr>
+<tr><td>拙政园</td><td>学生票35×2</td><td class="hl">70元</td></tr>
+<tr><td>Day1餐饮</td><td></td><td class="hl">260元</td></tr>
+<tr><td>Day2餐饮(含得月楼)</td><td></td><td class="hl">420元</td></tr>
+<tr><td>Day3餐饮</td><td></td><td class="hl">120元</td></tr>
+<tr><td>市内+同里交通</td><td></td><td class="hl">100元</td></tr>
+<tr><td>其他</td><td></td><td class="hl">150元</td></tr>
+<tr class="total-row"><td><strong>总计</strong></td><td></td><td class="cost">¥1,906起</td></tr>
+</table>
+<div class="tip-box" style="margin-top:12px;"><strong>最大亮点：</strong>Day2同里古镇全天——地铁4号线直达，比周庄近、比周庄原生态。江南水乡的精髓在这里。</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S5: Plan D -->
+<div class="slide slide-purple" data-idx="5">
+<h2 class="slide-title">方案 D · 浪漫夜景型</h2>
+<p class="slide-subtitle"><span class="cost">2人总计 ¥2,988</span> &nbsp; 人均 ¥1,494 &nbsp;|&nbsp; 住宿 ¥500 + 交通 ¥240 + 门票 ¥530 + 餐饮 ¥1,318 + 其他 ¥400</p>
+<div class="two-col">
+<div>
+<div class="day-badge d1">Day 1 · 6月19日 — 园林+评弹夜</div>
+<div class="route-flow"><span class="route-node">上海</span><span class="route-arrow">→🚇+🚄1h→</span><span class="route-node">苏州站</span><span class="route-arrow">→🚇4 1站→</span><span class="route-node">北寺塔</span><span class="route-arrow">→🚶→</span><span class="route-node">拙政园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">10:00-12:30</div><div class="timeline-title">拙政园（学生票35元×2）</div><div class="timeline-desc"><span class="cost-sm">¥70</span></div></div>
+<div class="route-flow"><span class="route-node">拙政园</span><span class="route-arrow">→🚶2min→</span><span class="route-node">苏博</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">13:00-15:30</div><div class="timeline-title">苏州博物馆 + 午餐（朱鸿兴）</div><div class="timeline-desc"><span class="cost-sm">餐¥50</span></div></div>
+<div class="route-flow"><span class="route-node">苏博</span><span class="route-arrow">→🚶10min→</span><span class="route-node">平江路</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">16:00-18:00</div><div class="timeline-title">平江路黄昏漫步</div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">18:30-20:00</div><div class="timeline-title">晚餐：吴门人家(老宅苏帮菜)</div><div class="timeline-desc"><span class="cost-sm">约200元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">20:00-21:30</div><div class="timeline-title">🎵 评弹茶馆体验</div>
+<div class="timeline-desc">平江路伏羲会馆/翰尔园，一壶碧螺春+评弹。<span class="cost-sm">约120元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">22:00</div><div class="timeline-title">入住：窄遇见设计师青旅大床房</div>
+<div class="timeline-desc"><span class="hl">约250元/晚</span>，观前街旁，评分9.3，智能马桶+设计感</div></div>
+</div>
+<div>
+<div class="day-badge d2" style="background:rgba(255,183,3,.25);color:#ffb703;">Day 2 · 6月20日 — 虎丘+山塘夜游船</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚇→</span><span class="route-node">山塘街站</span><span class="route-arrow">→🚖15min 15元→</span><span class="route-node">虎丘</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:00-11:30</div><div class="timeline-title">虎丘（学生票30元×2）</div><div class="timeline-desc"><span class="cost-sm">¥60</span></div></div>
+<div class="route-flow"><span class="route-node">虎丘</span><span class="route-arrow">→🚖10min 13元→</span><span class="route-node">留园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:00-14:00</div><div class="timeline-title">留园（学生票27.5元×2）+ 午餐</div><div class="timeline-desc"><span class="cost-sm">门票¥55 + 餐¥80</span></div></div>
+<div class="route-flow"><span class="route-node">留园</span><span class="route-arrow">→🚶25min/🚖5min→</span><span class="route-node">山塘街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:30-17:30</div><div class="timeline-title">山塘街下午深度逛</div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">18:00-19:00</div><div class="timeline-title">晚餐：山塘街苏帮菜馆</div><div class="timeline-desc"><span class="cost-sm">约150元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">19:30-20:30</div><div class="timeline-title">🚢 山塘河夜游船</div>
+<div class="timeline-desc">古运河灯火映水，苏州最美夜景。<span class="cost-sm">¥80×2=160元</span></div></div>
+</div>
+</div>
+<div class="two-col" style="margin-top:15px;">
+<div>
+<div class="day-badge d3">Day 3 · 6月21日 — 金鸡湖+返程</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚇1号线25min→</span><span class="route-node">东方之门</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:30-11:30</div><div class="timeline-title">金鸡湖+东方之门+诚品书店</div>
+<div class="timeline-desc">现代苏州地标打卡，诚品文创伴手礼。<span class="cost-sm">伴手礼¥100</span></div></div>
+<div class="route-flow"><span class="route-node">东方之门</span><span class="route-arrow">→🚇1→乐桥→🚇→</span><span class="route-node">苏州站</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:30-16:00</div><div class="timeline-title">返程</div></div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">📊 费用明细</div>
+<table style="font-size:13px;">
+<tr><td>往返交通</td><td></td><td class="hl">188元</td></tr>
+<tr><td>住宿2晚</td><td>窄遇见 250×2</td><td class="hl">500元</td></tr>
+<tr><td>拙政园+虎丘+留园</td><td>学生票</td><td class="hl">185元</td></tr>
+<tr><td>山塘夜游船</td><td>80×2</td><td class="hl">160元</td></tr>
+<tr><td>评弹茶馆</td><td></td><td class="hl">120元</td></tr>
+<tr><td>Day1餐饮</td><td>含吴门人家</td><td class="hl">320元</td></tr>
+<tr><td>Day2餐饮</td><td></td><td class="hl">270元</td></tr>
+<tr><td>Day3餐饮</td><td></td><td class="hl">120元</td></tr>
+<tr><td>市内交通</td><td></td><td class="hl">80元</td></tr>
+<tr><td>伴手礼</td><td></td><td class="hl">150元</td></tr>
+<tr class="total-row"><td><strong>总计</strong></td><td></td><td class="cost">¥2,093起</td></tr>
+</table>
+<div class="tip-box" style="margin-top:12px;"><strong>浪漫加分项：</strong>评弹茶馆+山塘夜游船是情侣专属体验。苏州最美的是夜晚——灯火古运河、平江路灯笼、评弹声声。</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S6: Plan E -->
+<div class="slide slide-green" data-idx="6">
+<h2 class="slide-title">方案 E · 深度全览型</h2>
+<p class="slide-subtitle"><span class="cost">2人总计 ¥3,488</span> &nbsp; 人均 ¥1,744 &nbsp;|&nbsp; 住宿 ¥560 + 交通 ¥260 + 门票 ¥580 + 餐饮 ¥1,588 + 其他 ¥500</p>
+<div class="two-col">
+<div>
+<div class="day-badge d1">Day 1 · 6月19日 — 四大园林日(上)</div>
+<div class="route-flow"><span class="route-node">上海</span><span class="route-arrow">→🚇+🚄1h→</span><span class="route-node">苏州站</span><span class="route-arrow">→🚇4→北寺塔</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:30-12:00</div><div class="timeline-title">拙政园（学生票35元×2）</div><div class="timeline-desc"><span class="cost-sm">¥70</span></div></div>
+<div class="route-flow"><span class="route-node">拙政园</span><span class="route-arrow">→🚶2min→</span><span class="route-node">苏博</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">12:00-14:30</div><div class="timeline-title">苏州博物馆 + 午餐</div><div class="timeline-desc">午餐朱鸿兴。<span class="cost-sm">¥60</span></div></div>
+<div class="route-flow"><span class="route-node">苏博</span><span class="route-arrow">→🚶5min→</span><span class="route-node">狮子林</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">15:00-17:00</div><div class="timeline-title">狮子林（学生票20元×2）</div><div class="timeline-desc"><span class="cost-sm">¥40</span></div></div>
+<div class="route-flow"><span class="route-node">狮子林</span><span class="route-arrow">→🚶10min→</span><span class="route-node">平江路</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">17:30-20:00</div><div class="timeline-title">平江路漫步 + 晚餐</div><div class="timeline-desc">晚餐洪登记。<span class="cost-sm">约140元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">20:30</div><div class="timeline-title">入住：不二居客栈(平江路店)</div>
+<div class="timeline-desc"><span class="hl">日式露台风大床房 ~280元/晚</span>，可撸猫，评分高</div></div>
+</div>
+<div>
+<div class="day-badge d2" style="background:rgba(255,183,3,.25);color:#ffb703;">Day 2 · 6月20日 — 四大园林日(下)+夜游</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚖→</span><span class="route-node">虎丘</span><span class="route-time">15min 20元</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">08:30-11:00</div><div class="timeline-title">虎丘（学生票30元×2）</div><div class="timeline-desc"><span class="cost-sm">¥60</span></div></div>
+<div class="route-flow"><span class="route-node">虎丘</span><span class="route-arrow">→🚖13元10min→</span><span class="route-node">留园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">11:30-14:00</div><div class="timeline-title">留园（学生票27.5元×2）+ 午餐</div><div class="timeline-desc"><span class="cost-sm">门票¥55 + 餐¥80</span></div></div>
+<div class="route-flow"><span class="route-node">留园</span><span class="route-arrow">→🚖10min→</span><span class="route-node">寒山寺</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:30-16:00</div><div class="timeline-title">寒山寺（学生票10元×2）</div>
+<div class="timeline-desc">"姑苏城外寒山寺"。<span class="cost-sm">¥20</span></div></div>
+<div class="route-flow"><span class="route-node">寒山寺</span><span class="route-arrow">→🚖17元15min→</span><span class="route-node">山塘街</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">17:00-18:30</div><div class="timeline-title">晚餐：松鹤楼(山塘街附近)</div><div class="timeline-desc">松鼠鳜鱼+响油鳝糊+蟹粉豆腐。<span class="cost-sm">约300元/2人</span></div></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">19:00-20:00</div><div class="timeline-title">🚢 山塘河夜游船</div><div class="timeline-desc"><span class="cost-sm">¥160/2人</span></div></div>
+</div>
+</div>
+<div class="two-col" style="margin-top:15px;">
+<div>
+<div class="day-badge d3">Day 3 · 6月21日 — 金鸡湖+网师园+返程</div>
+<div class="route-flow"><span class="route-node">酒店</span><span class="route-arrow">→🚖→</span><span class="route-node">网师园</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">09:00-10:30</div><div class="timeline-title">网师园（学生票15元×2）</div>
+<div class="timeline-desc">小而精的园林典范，人少安静。<span class="cost-sm">¥30</span></div></div>
+<div class="route-flow"><span class="route-node">网师园</span><span class="route-arrow">→🚇1号线 25min→</span><span class="route-node">东方之门</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">11:00-13:00</div><div class="timeline-title">金鸡湖+东方之门+午餐</div><div class="timeline-desc"><span class="cost-sm">¥150/2人</span></div></div>
+<div class="route-flow"><span class="route-node">东方之门</span><span class="route-arrow">→🚇→</span><span class="route-node">苏州站</span></div>
+<div class="timeline-item small-tl">
+<div class="timeline-time">14:00-17:00</div><div class="timeline-title">返程</div></div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">📊 费用明细</div>
+<table style="font-size:13px;">
+<tr><td>往返交通</td><td></td><td class="hl">188元</td></tr>
+<tr><td>住宿2晚</td><td>不二居 280×2</td><td class="hl">560元</td></tr>
+<tr><td>拙政园+狮子林</td><td></td><td class="hl">110元</td></tr>
+<tr><td>虎丘+留园</td><td></td><td class="hl">115元</td></tr>
+<tr><td>寒山寺+网师园</td><td></td><td class="hl">50元</td></tr>
+<tr><td>山塘夜游船</td><td></td><td class="hl">160元</td></tr>
+<tr><td>Day1餐饮</td><td></td><td class="hl">220元</td></tr>
+<tr><td>Day2餐饮(含松鹤楼)</td><td></td><td class="hl">420元</td></tr>
+<tr><td>Day3餐饮</td><td></td><td class="hl">200元</td></tr>
+<tr><td>市内交通</td><td>含打车</td><td class="hl">130元</td></tr>
+<tr><td>伴手礼</td><td></td><td class="hl">200元</td></tr>
+<tr class="total-row"><td><strong>总计</strong></td><td></td><td class="cost">¥2,353起</td></tr>
+</table>
+<div class="tip-box" style="margin-top:12px;"><strong>最适合：</strong>想一次玩遍苏州的学生情侣。拙政园+狮子林+虎丘+留园+寒山寺+网师园+夜游船+金鸡湖，一个不落。</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S7: Transport Map -->
+<div class="slide slide-blue" data-idx="7">
+<h2 class="slide-title">地点间交通速查</h2>
+<p class="slide-subtitle">所有5套方案的路线都基于以下实际交通时间设计</p>
+<div class="two-col">
+<div>
+<div class="card">
+<div class="card-title">🏘️ 步行可达（老城核心区）</div>
+<div class="card-content" style="font-size:13.5px;">
+<table style="font-size:13px;">
+<tr><th>起 → 终</th><th>方式</th><th>时间</th><th>费用</th></tr>
+<tr><td>拙政园 → 苏州博物馆</td><td>🚶步行</td><td>2分钟</td><td>0</td></tr>
+<tr><td>苏州博物馆 → 狮子林</td><td>🚶步行</td><td>5分钟</td><td>0</td></tr>
+<tr><td>狮子林 → 平江路</td><td>🚶步行</td><td>8-15分钟</td><td>0</td></tr>
+<tr><td>平江路 → 观前街</td><td>🚶走大儒巷</td><td>10分钟</td><td>0</td></tr>
+<tr><td>拙政园 → 平江路</td><td>🚶步行</td><td>10分钟</td><td>0</td></tr>
+<tr><td>留园 → 山塘街</td><td>🚶步行</td><td>25分钟</td><td>0</td></tr>
+</table>
+<div class="tip-box" style="margin-top:8px;">老城核心区(苏博+拙政园+狮子林+平江路+观前街)全部步行可达，是方案A的核心玩法。</div>
+</div>
+</div>
+<div class="card" style="margin-top:15px;">
+<div class="card-title">🚌 短途公交/打车</div>
+<div class="card-content" style="font-size:13.5px;">
+<table style="font-size:13px;">
+<tr><th>起 → 终</th><th>方式</th><th>时间</th><th>费用</th></tr>
+<tr><td>山塘街 → 虎丘</td><td>🚌游1/游2</td><td>30分钟</td><td>2元</td></tr>
+<tr><td>山塘街 → 虎丘</td><td>🚖打车</td><td>10-15分钟</td><td>15-20元</td></tr>
+<tr><td>留园 → 山塘街</td><td>🚖打车</td><td>5分钟</td><td>10-13元</td></tr>
+<tr><td>虎丘 → 留园</td><td>🚖打车</td><td>10分钟</td><td>13-15元</td></tr>
+<tr><td>虎丘 → 寒山寺</td><td>🚖打车</td><td>15分钟</td><td>16-17元</td></tr>
+<tr><td>苏博 → 网师园</td><td>🚖打车</td><td>10分钟</td><td>12元</td></tr>
+</table>
+</div>
+</div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">🚇 地铁出行</div>
+<div class="card-content" style="font-size:13.5px;">
+<table style="font-size:13px;">
+<tr><th>起 → 终</th><th>线路</th><th>时间</th><th>费用</th></tr>
+<tr><td>苏州站 → 拙政园/苏博</td><td>🚇4号线→北寺塔</td><td>15分钟(1站+步行)</td><td>2元</td></tr>
+<tr><td>观前街 → 山塘街</td><td>🚇4→火车站换🚇2</td><td>20-25分钟</td><td>3元</td></tr>
+<tr><td>观前街 → 金鸡湖</td><td>🚇1号线直达</td><td>20-25分钟</td><td>3元</td></tr>
+<tr><td>观前街 → 同里古镇</td><td>🚇4号线直达终点</td><td>50-60分钟</td><td>6元</td></tr>
+<tr><td>山塘街 → 观前街</td><td>🚇2→火车站换🚇4</td><td>20-25分钟</td><td>3元</td></tr>
+<tr><td>金鸡湖 → 苏州站</td><td>🚇1→乐桥换🚇4</td><td>35分钟</td><td>4元</td></tr>
+</table>
+<div class="tip-box" style="margin-top:8px;">下载<strong>"苏e行"App</strong>扫码坐地铁。苏州地铁覆盖主要景点，周末也不堵车。</div>
+</div>
+</div>
+<div class="card" style="margin-top:15px;">
+<div class="card-title">🚄 上海↔苏州</div>
+<div class="card-content" style="font-size:13.5px;">
+<table style="font-size:13px;">
+<tr><th>路段</th><th>方式</th><th>时间</th><th>费用</th></tr>
+<tr><td>杨浦校区→上海站</td><td>🚇12号线→汉中路换1</td><td>30-40分钟</td><td>5元</td></tr>
+<tr><td>上海站→苏州站</td><td>🚄高铁</td><td>30-40分钟</td><td>39.5元</td></tr>
+<tr><td colspan="2"><strong>全程总计（单程）</strong></td><td><strong>约1-1.5h</strong></td><td><strong>44.5元/人</strong></td></tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<!-- S8: Budget Table -->
+<div class="slide slide-purple" data-idx="8">
+<h2 class="slide-title">5套方案费用对比表</h2>
+<p class="slide-subtitle">所有价格均为2人合计 · 学生票已按半价计算</p>
+<div style="overflow-x:auto;max-width:1400px;margin:0 auto;">
+<table style="min-width:900px;">
+<thead>
+<tr><th style="width:160px;">费用项目</th><th>A 穷游 ¥1,588</th><th>B 经典 ¥2,088</th><th style="background:rgba(255,183,3,.15);">C⭐ 水乡 ¥2,588</th><th>D 夜景 ¥2,988</th><th>E 全览 ¥3,488</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>🚄 往返高铁</strong></td><td>158</td><td>158</td><td>158</td><td>158</td><td>158</td></tr>
+<tr><td><strong>🚇 往返地铁(上海)</strong></td><td>20</td><td>20</td><td>20</td><td>20</td><td>20</td></tr>
+<tr><td><strong>🏠 住宿(2晚)</strong></td><td>270</td><td>400</td><td>458</td><td>500</td><td>560</td></tr>
+<tr style="background:rgba(255,255,255,.03);"><td colspan="6"><strong>门票费用</strong></td></tr>
+<tr><td>　拙政园</td><td>-</td><td>70</td><td>70</td><td>70</td><td>70</td></tr>
+<tr><td>　虎丘</td><td>60</td><td>60</td><td>-</td><td>60</td><td>60</td></tr>
+<tr><td>　留园</td><td>-</td><td>55</td><td>-</td><td>55</td><td>55</td></tr>
+<tr><td>　狮子林</td><td>-</td><td>40</td><td>40</td><td>-</td><td>40</td></tr>
+<tr><td>　同里古镇</td><td>-</td><td>-</td><td>100</td><td>-</td><td>-</td></tr>
+<tr><td>　寒山寺</td><td>-</td><td>-</td><td>-</td><td>-</td><td>20</td></tr>
+<tr><td>　网师园</td><td>-</td><td>-</td><td>-</td><td>-</td><td>30</td></tr>
+<tr><td><strong>🎫 门票小计</strong></td><td class="hl">60</td><td class="hl">225</td><td class="hl">210</td><td class="hl">185</td><td class="hl">275</td></tr>
+<tr style="background:rgba(255,255,255,.03);"><td colspan="6"><strong>体验活动</strong></td></tr>
+<tr><td>　山塘夜游船</td><td>-</td><td>-</td><td>-</td><td>160</td><td>160</td></tr>
+<tr><td>　评弹茶馆</td><td>-</td><td>-</td><td>-</td><td>120</td><td>-</td></tr>
+<tr><td>　金鸡湖游船</td><td>-</td><td>-</td><td>-</td><td>-</td><td>120</td></tr>
+<tr style="background:rgba(255,255,255,.03);"><td colspan="6"><strong>餐饮估算</strong></td></tr>
+<tr><td>　Day 1</td><td>165</td><td>210</td><td>260</td><td>320</td><td>220</td></tr>
+<tr><td>　Day 2</td><td>240</td><td>220</td><td>420</td><td>270</td><td>420</td></tr>
+<tr><td>　Day 3</td><td>110</td><td>320</td><td>120</td><td>120</td><td>200</td></tr>
+<tr><td><strong>🍜 餐饮小计</strong></td><td class="hl">515</td><td class="hl">750</td><td class="hl">800</td><td class="hl">710</td><td class="hl">840</td></tr>
+<tr><td><strong>🚕 市内交通</strong></td><td>50</td><td>70</td><td>100</td><td>80</td><td>130</td></tr>
+<tr><td><strong>🎁 伴手礼/零食</strong></td><td>100</td><td>100</td><td>150</td><td>150</td><td>200</td></tr>
+<tr class="total-row"><td><strong>💰 总计</strong></td><td class="cost" style="font-size:20px;">¥1,173</td><td class="cost" style="font-size:20px;">¥1,723</td><td class="cost" style="font-size:20px;background:rgba(255,183,3,.3);">¥1,896</td><td class="cost" style="font-size:20px;">¥2,063</td><td class="cost" style="font-size:20px;">¥2,353</td></tr>
+<tr><td><strong>👤 人均</strong></td><td class="hl">¥587</td><td class="hl">¥862</td><td class="hl" style="color:#ffb703;">¥948</td><td class="hl">¥1,032</td><td class="hl">¥1,177</td></tr>
+</tbody>
+</table>
+</div>
+<div class="tip-box" style="max-width:1000px;margin:15px auto;">
+<strong>注：</strong>上表为基础消费。实际花费因用餐选择和个人消费习惯浮动 ±15%。所有门票均按学生半价计算，记得带<strong>学生证</strong>。
+</div>
+</div>
+
+<!-- S9: Accommodation -->
+<div class="slide slide-blue" data-idx="9">
+<h2 class="slide-title">住宿推荐（学生预算）</h2>
+<p class="slide-subtitle">全部 ¥100-300/晚 · 情侣大床房 · 核心区位</p>
+<div class="three-col">
+<div>
+<div class="accommodation-card l1">
+<div style="font-size:18px;color:#64ff96;font-weight:bold;margin-bottom:8px;">¥100-170/晚 · 极致省钱</div>
+<div style="font-size:14px;line-height:1.8;">
+<strong>7天连锁(观前店)</strong> — 观前街旁<br>
+<span class="cost-sm">135-160元</span> 最便宜连锁选择<br><br>
+<strong>汉庭(饮马桥店)</strong> — 十全街<br>
+<span class="cost-sm">169元起</span> 性价比之王<br><br>
+<strong>时光小筑民宿(火车站)</strong><br>
+<span class="cost-sm">80-150元</span> LOFT设计，近火车站
+</div>
+<div class="tip-box" style="margin-top:8px;font-size:13px;">适用方案 <span class="hl">A</span>。干净够住，省下的钱花在玩上。</div>
+</div>
+<div class="accommodation-card l2">
+<div style="font-size:18px;color:#ffb703;font-weight:bold;margin-bottom:8px;">¥170-250/晚 · 舒适经济</div>
+<div style="font-size:14px;line-height:1.8;">
+<strong>如家neo(观前平江路店)</strong><br>
+<span class="cost-sm">200-250元</span> 步行平江路5min<br><br>
+<strong>乐活青年旅舍(平江路)</strong><br>
+<span class="cost-sm">LOFT大床229元</span> 工业风设计<br><br>
+<strong>无桐·隐民宿(山塘街)</strong><br>
+<span class="cost-sm">100-200元</span> 苏式园林风格
+</div>
+<div class="tip-box" style="margin-top:8px;font-size:13px;">适用方案 <span class="hl">B、C</span>。位置极佳，设计有特色。</div>
+</div>
+</div>
+<div>
+<div class="accommodation-card l3">
+<div style="font-size:18px;color:#8ecae6;font-weight:bold;margin-bottom:8px;">¥220-300/晚 · 情侣体验</div>
+<div style="font-size:14px;line-height:1.8;">
+<strong>窄遇见设计师青旅</strong> — 观前街旁<br>
+<span class="cost-sm">大床180-300元</span> 评分9.3<br>
+智能马桶、独立卫浴<br><br>
+<strong>不二居客栈</strong> — 平江路<br>
+<span class="cost-sm">人均100+元</span> 日式露台风<br>
+可撸猫，拍照出片<br><br>
+<strong>熹坞民宿</strong> — 观前/山塘<br>
+<span class="cost-sm">人均150元</span> Loft+庭院+投影
+</div>
+<div class="tip-box" style="margin-top:8px;font-size:13px;">适用方案 <span class="hl">D、E</span>。有设计感+拍照好看+情侣体验。</div>
+</div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">💡 住宿省钱技巧</div>
+<div class="card-content" style="font-size:13.5px;line-height:1.8;">
+<p><strong>1. 区域选择：</strong>观前街/平江路 > 山塘街 > 火车站。住在核心区每天省30元+交通费。</p>
+<p style="margin-top:8px;"><strong>2. 预订渠道：</strong></p>
+<ul class="list-none">
+<li>美团 — 学生优惠券多</li>
+<li>携程 — 评分和评价最全</li>
+<li>去哪儿 — 有时比携程便宜</li>
+</ul>
+<p style="margin-top:8px;"><strong>3. 提前预订：</strong>提前1-2周预订比当天便宜30-50%。周四入住比周五便宜。</p>
+<p style="margin-top:8px;"><strong>4. 必备确认：</strong>确认有24h热水、WiFi、空调。老城区部分民宿是老房子改造。</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S10: Food -->
+<div class="slide slide-orange" data-idx="10">
+<h2 class="slide-title">美食指南（学生预算版）</h2>
+<p class="slide-subtitle">丰俭由人 · 从街头小吃到老字号大餐</p>
+<div class="three-col">
+<div>
+<div class="card">
+<div class="card-title">🍜 早餐（人均15-40元）</div>
+<div class="card-content" style="font-size:13.5px;line-height:1.8;">
+<strong>同得兴</strong> — 太监弄72号<br>
+枫镇大肉面 28元 · <span class="hl">苏式面代表</span><br><br>
+<strong>裕兴记</strong> — 观前街<br>
+三虾面(春) 48元 · 焖肉面 22元<br><br>
+<strong>哑巴生煎</strong> — 临顿路<br>
+生煎8个 16元 · 底脆汁多<br><br>
+<strong>绿杨馄饨</strong> — 观前街<br>
+汤包+小馄饨 15元 · 老苏州人爱去
+</div>
+</div>
+<div class="card" style="margin-top:12px;">
+<div class="card-title">🍰 下午茶（人均10-40元）</div>
+<div class="card-content" style="font-size:13.5px;line-height:1.8;">
+<strong>潘玉麟糖粥</strong> — 皮市街<br>
+赤豆糊糖粥 8元 · <span class="hl">必吃</span><br><br>
+<strong>黄天源</strong> — 观前街<br>
+桂花糖年糕+定胜糕 20元<br><br>
+<strong>平江路咖啡馆</strong><br>
+文艺下午茶 人均35元
+</div>
+</div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">🥢 午餐（人均30-80元）</div>
+<div class="card-content" style="font-size:13.5px;line-height:1.8;">
+<strong>协和菜馆</strong> — 平江路小巷<br>
+本地人食堂 人均60元<br>
+<span class="hl">推荐：苏式糖醋排骨</span><br><br>
+<strong>珍珠饭店</strong> — 观前街<br>
+家常苏帮菜 人均80元<br><br>
+<strong>五芳斋</strong> — 山塘街<br>
+苏式点心小菜 人均40元<br><br>
+<strong>平江路/山塘街小吃</strong><br>
+鸡脚旮旯15+梅花糕5+蟹壳黄8
+</div>
+</div>
+<div class="card" style="margin-top:12px;">
+<div class="card-title">🌙 夜宵（人均20-50元）</div>
+<div class="card-content" style="font-size:13.5px;line-height:1.8;">
+<strong>陆稿荐</strong> — 观前街<br>
+苏式酱鸭/酱肉 30元<br><br>
+<strong>凤凰街美食街</strong><br>
+烧烤+小龙虾 人均60元<br><br>
+<strong>十全街</strong><br>
+夜宵集中地 人均50元
+</div>
+</div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">🍽️ 大餐之选（人均100-200元）</div>
+<div class="card-content" style="font-size:13.5px;line-height:1.8;">
+<p><strong>松鹤楼</strong> — 太监弄72号<br>
+始于1757年 · 苏州最老字号<br>
+<span class="hl">松鼠鳜鱼128 + 响油鳝糊68</span><br>
+人均150元 · 建议提前1天预订</p>
+<p style="margin-top:10px;"><strong>得月楼</strong> — 太监弄<br>
+<span class="hl">蟹粉豆腐58 + 碧螺虾仁88</span><br>
+人均130元 · 环境典雅</p>
+<p style="margin-top:10px;"><strong>洪登记</strong> — 平江路<br>
+时令苏帮小馆 人均80元<br>
+本地人爱去</p>
+<p style="margin-top:10px;"><strong>吴门人家</strong> — 平江路<br>
+老宅改造 人均100元</p>
+</div>
+</div>
+<div class="tip-box" style="margin-top:12px;font-size:13px;">
+<strong>怎么安排大餐？</strong><br>
+方案A: 不安排老字号，全小吃<br>
+方案B: Day3松鹤楼1顿<br>
+方案C: Day2得月楼1顿<br>
+方案D: Day1吴门人家<br>
+方案E: Day2松鹤楼大餐
+</div>
+</div>
+</div>
+</div>
+
+<!-- S11: Tips -->
+<div class="slide slide-blue" data-idx="11">
+<h2 class="slide-title">出行须知与避坑指南</h2>
+<p class="slide-subtitle">6月苏州 · 梅雨季准备</p>
+<div class="three-col">
+<div>
+<div class="card">
+<div class="card-title">🌧️ 天气 & 穿衣</div>
+<div class="card-content" style="font-size:14px;line-height:1.8;">
+<p><strong>气温：</strong>23°C-30°C，体感闷热</p>
+<p><strong>6月中旬入梅：</strong>降水频繁</p>
+<p style="margin-top:10px;"><strong>必带清单：</strong></p>
+<ul class="list-none">
+<li>☂️ 雨伞（两人一把大的）</li>
+<li>🧴 防晒霜 SPF50+</li>
+<li>🕶️ 遮阳帽+墨镜</li>
+<li>👕 短袖+薄外套（空调冷）</li>
+<li>👟 防水鞋（园林石板路）</li>
+<li>🦟 驱蚊液（水边蚊虫多）</li>
+<li>📱 充电宝</li>
+</ul>
+</div>
+</div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">⚠️ 避坑指南</div>
+<div class="card-content" style="font-size:14px;line-height:1.8;">
+<ul class="list-none">
+<li>❌ <strong>苏博周一闭馆！</strong>6月19日是周四安全，但预约要趁早</li>
+<li>❌ 不要现场买园林票——提前携程/美团便宜</li>
+<li>❌ 观前街主街游客店多——往凤凰街/皮市街走</li>
+<li>❌ 不要在景区门口打车——往外走200米再叫</li>
+<li>❌ 平江路周末人挤人——早8点或晚8点最美</li>
+<li>❌ 山塘街入口商业街可跳过——往里走才是真老街</li>
+<li>✅ <strong>学生证随身带！</strong>园林门票半价</li>
+<li>✅ 下载"苏e行"App坐地铁</li>
+</ul>
+</div>
+</div>
+<div class="card" style="margin-top:12px;">
+<div class="card-title">📱 必备App</div>
+<div class="card-content" style="font-size:14px;line-height:1.8;">
+<ul class="list-none">
+<li><strong>苏e行</strong> — 地铁扫码</li>
+<li><strong>12306</strong> — 高铁购票</li>
+<li><strong>高德地图</strong> — 导航+公交</li>
+<li><strong>大众点评</strong> — 找餐厅看评价</li>
+<li><strong>美团/携程</strong> — 门票+住宿</li>
+<li><strong>小红书</strong> — 实拍参考</li>
+</ul>
+</div>
+</div>
+</div>
+<div>
+<div class="card">
+<div class="card-title">🎫 预约提醒</div>
+<div class="card-content" style="font-size:14px;line-height:1.8;">
+<p><strong>必须提前预约：</strong></p>
+<ul class="list-none">
+<li>🔴 苏州博物馆 — <span class="hl">提前1-3天</span>在官网/公众号预约，免费但抢手</li>
+</ul>
+<p style="margin-top:10px;"><strong>建议提前购票：</strong></p>
+<ul class="list-none">
+<li>🟡 拙政园 — 携程/美团</li>
+<li>🟡 虎丘 — 携程/美团</li>
+<li>🟡 同里古镇 — 美团</li>
+</ul>
+<p style="margin-top:10px;"><strong>建议提前预订：</strong></p>
+<ul class="list-none">
+<li>🟢 松鹤楼/得月楼 — 提前1天电话</li>
+<li>🟢 住宿 — 提前1-2周</li>
+<li>🟢 评弹茶馆 — 当天下午约即可</li>
+</ul>
+</div>
+</div>
+<div class="tip-box" style="margin-top:12px;font-size:14px;">
+<strong>行程前Checklist：</strong><br>
+□ 苏博预约成功（公众号截图）<br>
+□ 高铁票已购（12306）<br>
+□ 酒店已确认（携程/美团）<br>
+□ 学生证在包里<br>
+□ 雨伞在包里<br>
+□ 充电宝已充满
+</div>
+</div>
+</div>
+</div>
+
+<!-- S12: End -->
+<div class="slide slide-cover" data-idx="12">
+<div class="image-placeholder" style="width:750px;height:250px;margin:0 auto 30px;border-radius:16px;">
+<img src="https://images.unsplash.com/photo-1528164344705-47542687000d?fm=jpg&q=60&w=1080&auto=format&fit=crop" alt="苏州浪漫">
+<div class="image-overlay" style="text-align:center;"><span style="font-size:22px;color:#ffb703;">愿你们在苏州留下最美的回忆</span></div>
+</div>
+<h1 style="font-size:42px;color:#8ecae6;margin-bottom:15px;">祝旅途愉快！</h1>
+<p style="font-size:20px;color:rgba(255,255,255,.7);margin-bottom:30px;">苏州 · 一场江南的浪漫邂逅</p>
+<div style="display:flex;justify-content:center;gap:40px;margin-bottom:30px;flex-wrap:wrap;">
+<div style="background:rgba(255,255,255,.05);border-radius:16px;padding:25px 35px;">
+<p style="font-size:16px;color:#ffb703;margin-bottom:12px;">策划信息</p>
+<p style="font-size:15px;color:rgba(255,255,255,.65);line-height:2;">
+策划人：<strong style="color:#fff;">刘星雨</strong><br>
+出发：上海电力大学杨浦校区<br>
+目的地：苏州 · 6月19日-21日<br>
+人数：2人（情侣）<br>
+推荐方案：<span class="cost">方案C 水乡古镇型 ¥2,588</span>
+</p>
+</div>
+</div>
+<p style="font-size:13px;color:rgba(255,255,255,.4);">以上价格和信息仅供参考，请以实际平台/电话确认为准。学生优惠以景区当日政策为准。</p>
+</div>
+
+</div>
+<div class="nav-bar">
+<button class="nav-btn" id="prev">← 上一页</button>
+<span class="slide-counter"><span id="cur">1</span>/<span id="tot">13</span></span>
+<button class="nav-btn" id="next">下一页 →</button>
+</div>
+<script>
+const slides=document.querySelectorAll('.slide'),total=slides.length;
+let cur=0,busy=!1;
+const bar=document.getElementById('bar'),curEl=document.getElementById('cur'),totEl=document.getElementById('tot');
+totEl.textContent=total;
+function go(i){
+if(i<0||i>=total||busy)return;
+busy=!0;
+slides[cur].classList.remove('active');
+cur=i;
+slides[cur].classList.add('active');
+bar.style.width=((cur+1)/total*100)+'%';
+curEl.textContent=cur+1;
+document.getElementById('prev').disabled=cur===0;
+document.getElementById('next').disabled=cur===total-1;
+setTimeout(function(){busy=!1;},350);
+}
+document.getElementById('prev').addEventListener('click',function(e){e.stopPropagation();go(cur-1);});
+document.getElementById('next').addEventListener('click',function(e){e.stopPropagation();go(cur+1);});
+document.addEventListener('keydown',function(e){
+if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(cur+1);}
+if(e.key==='ArrowLeft'){e.preventDefault();go(cur-1);}
+if(e.key==='Home'){e.preventDefault();go(0);}
+if(e.key==='End'){e.preventDefault();go(total-1);}
+});
+var ts=0,te=0;
+document.addEventListener('touchstart',function(e){ts=e.changedTouches[0].screenX;});
+document.addEventListener('touchend',function(e){if(e.target.closest('.nav-bar'))return;te=e.changedTouches[0].screenX;if(Math.abs(ts-te)>50)go(cur+(ts>te?1:-1));});
+go(0);
+</script>
+</body>
+</html>

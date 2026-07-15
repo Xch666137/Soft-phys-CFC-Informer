@@ -1,0 +1,6 @@
+# Phase B1: MCP pretrain with lambda_net=3.0 (net-dominant, component regularization)
+_base_: physformer_igt_b1_pretrain.yaml
+training:
+  pretrain_lambda_net: 3.0
+checkpoint:
+  name: physformer_igt_b1_pretrain_lam30

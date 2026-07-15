@@ -1,0 +1,92 @@
+session:
+  id: "2026-06-11_001"
+  date: "2026-06-11"
+  started: "2026-06-11T16:10"
+  last_turn: "2026-06-11T23:05"
+  turn_count: 3
+  summary: "Created a manual Visio PhysFormer-iGT/MCP architecture figure, stopped the active remote B1 lam10 pretraining job, audited B1 code integrity, then implemented the B1/R1/R2 protocol repair plan."
+
+events_logged:
+  - turn: 1
+    type: artifact
+    id: "docs/figures/physformer_igt_mcp_architecture_computeruse_20260611.vsdx"
+    routing: direct
+    provenance: ai-executed
+    summary: "Manual Visio architecture diagram covering component/weather inputs, batched GRU/MLP tokenization, 8/9-token set, inverted Transformer encoder, independent component decoders, real-unit power balance, outputs, and MCP pretrain-to-finetune branch."
+  - turn: 2
+    type: experiment
+    id: "N130"
+    routing: direct
+    provenance: ai-executed
+    summary: "Remote B1 lam10 pretraining process stopped; post-stop ps/nvidia-smi audit clean; interrupted run has best_val_net checkpoint but no final pretrained export."
+  - turn: 2
+    type: observation
+    id: "O63"
+    routing: staged
+    provenance: ai-executed
+    summary: "B1 code review found checkpoint-path inconsistency, non-fatal missing-pretrained load, pretrain-only calendar token confound, placeholder SOC metric, and global cuDNN disable risk."
+  - turn: 3
+    type: decision
+    id: "N131"
+    routing: direct
+    provenance: ai-executed
+    summary: "Implemented B1 protocol repair: canonical lam10 checkpoint path, fatal missing-pretrained load, 8-token MCP mainline, SOC placeholder semantics, compile disabled in B1 configs, and ROCm/explicit-only fused-backend disabling."
+
+ai_actions:
+  - turn: 1
+    action: "Used Computer Use to open Visio, create a blank drawing, draw editable rectangles/connectors, label the PhysFormer-iGT/MCP model flow, save the VSDX, and verify the saved package contains Visio document/page XML. Did not run the existing Visio generation scripts."
+    provenance: ai-executed
+    files_changed:
+      - "docs/figures/physformer_igt_mcp_architecture_computeruse_20260611.vsdx"
+      - "ara/trace/sessions/2026-06-11_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+  - turn: 2
+    action: "Used the corrected SSH endpoint connect.westc.seetacloud.com:52613 to enumerate and stop the active remote B1 lam10 pretraining job, verified no matching project processes/GPU compute apps remained, audited B1 experiment code/config paths, and ran py_compile plus --print-config checks in the PhysFormer conda environment."
+    provenance: ai-executed
+    files_changed:
+      - "ara/trace/exploration_tree.yaml"
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-11_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+  - turn: 3
+    action: "Implemented the user-approved B1 experiment-code repair plan locally. Validated with conda env PhysFormer: py_compile for core modules/run.py/smoke scripts, --print-config for B1 pretrain/R0/R1/R1-reg/R2, static residual checks for old checkpoint paths/SOC key, and scripts/smoke_test_l1_l5.py covering 8-token masked/unmasked forward, PretrainLoss backward, missing-pretrained hard failure, and scaler-buffer skip load."
+    provenance: ai-executed
+    files_changed:
+      - "physformer/models/physformer/igt_model.py"
+      - "physformer/train/pretrain_exp.py"
+      - "physformer/train/physformer_exp.py"
+      - "physformer/train/base.py"
+      - "physformer/cli.py"
+      - "physformer/config.py"
+      - "configs/physformer_igt_b1_pretrain.yaml"
+      - "configs/physformer_igt_b1_finetune.yaml"
+      - "configs/physformer_igt_b1_r0_pretrained_direct_test.yaml"
+      - "configs/physformer_igt_b1_r1_low_lr_finetune.yaml"
+      - "configs/physformer_igt_b1_r2_fewshot_adapt.yaml"
+      - "scripts/train/launch_b1_r1_reg_3seed.sh"
+      - "scripts/smoke_test_l1_l5.py"
+      - "run_all_b1_tests.py"
+      - "test_b1_component.py"
+      - "ara/trace/exploration_tree.yaml"
+      - "ara/staging/observations.yaml"
+      - "ara/trace/sessions/2026-06-11_001.yaml"
+      - "ara/trace/sessions/session_index.yaml"
+      - "ara/trace/pm_reasoning_log.yaml"
+
+claims_touched: []
+
+key_context:
+  - turn: 1
+    excerpt: "User requested a complete Visio architecture diagram for the research model using Computer Use and Nature Skills drawing style, then clarified that generation scripts were not allowed."
+  - turn: 2
+    excerpt: "User corrected the active AutoDL SSH endpoint to `ssh -p 52613 root@connect.westc.seetacloud.com` and requested stopping remote processes plus re-reviewing current experiment code."
+  - turn: 3
+    excerpt: "User explicitly approved and requested implementation of the B1 experiment-code repair plan before rerunning B1/R1/R2."
+
+open_threads:
+  - "Rerun B1 lam10 pretraining from the repaired local code, then confirm results/physformer_igt_b1_pretrain_lam10 contains both canonical checkpoints."
+  - "After canonical checkpoint exists, rerun R0 direct test, R1 3 seeds, and R2 few-shot 5/10/20% under the repaired protocol."
+
+ai_suggestions_pending: []

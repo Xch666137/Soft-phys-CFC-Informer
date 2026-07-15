@@ -287,10 +287,6 @@ class VPPDataset(Dataset):
         border1s = [0, max(0, num_train - self.seq_len), max(0, n - num_test - self.seq_len)]
         border2s = [num_train, num_train + num_val, n]
 
-        # Pretraining mode: extend train to include validation data
-        if self.pretraining_mode and self.set_type == 0:
-            border2s[0] = num_train + num_val
-
         return border1s[self.set_type], border2s[self.set_type], border1s[0], border2s[0]
 
     def __read_data__(self):
@@ -357,12 +353,7 @@ class VPPDataset(Dataset):
             train_aux_frames.extend(fit_aux_frames)
         elif manifest_mode:
             split_value = ["train", "val", "test"][self.set_type]
-            if self.pretraining_mode and self.set_type == 0:
-                train_frame = df_raw.loc[df_raw[self.split_col] == "train"].copy()
-                val_frame = df_raw.loc[df_raw[self.split_col] == "val"].copy()
-                fit_frame = pd.concat([train_frame, val_frame], axis=0, ignore_index=True)
-            else:
-                fit_frame = df_raw.loc[df_raw[self.split_col] == "train"].copy()
+            fit_frame = df_raw.loc[df_raw[self.split_col] == "train"].copy()
             if fit_frame.empty:
                 raise ValueError(
                     f"split_strategy='portfolio_manifest' requires at least one train row in split column '{self.split_col}'."
@@ -375,10 +366,7 @@ class VPPDataset(Dataset):
             if self.aux_target_cols:
                 train_aux_frames.append(fit_frame[self.aux_target_cols])
 
-            if self.pretraining_mode and self.set_type == 0:
-                active_frame = df_raw.loc[df_raw[self.split_col].isin(["train", "val"])].copy()
-            else:
-                active_frame = df_raw.loc[df_raw[self.split_col] == split_value].copy()
+            active_frame = df_raw.loc[df_raw[self.split_col] == split_value].copy()
             if self.id_col and self.id_col in active_frame.columns:
                 grouped = [(str(group_id), df_group.copy()) for group_id, df_group in active_frame.groupby(self.id_col, sort=False)]
             else:

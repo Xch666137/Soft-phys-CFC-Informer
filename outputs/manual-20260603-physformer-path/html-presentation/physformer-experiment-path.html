@@ -1,0 +1,1209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PhysFormer 实验路径汇报</title>
+  <style>
+    :root {
+      --paper: #f3efe3;
+      --ink: #111713;
+      --night: #0d1210;
+      --night-2: #161d1a;
+      --muted: #8f9b92;
+      --line: rgba(243, 239, 227, 0.18);
+      --teal: #12c7a7;
+      --mint: #87e0bd;
+      --amber: #f4b24f;
+      --red: #ff5b5b;
+      --blue: #7aa7ff;
+      --violet: #b59cff;
+      --steel: #a6b2b8;
+      --panel: rgba(243, 239, 227, 0.075);
+      --panel-2: rgba(243, 239, 227, 0.12);
+      --shadow: 0 18px 52px rgba(0, 0, 0, 0.35);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(243,239,227,0.035) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(243,239,227,0.026) 1px, transparent 1px),
+        radial-gradient(circle at 18% 12%, rgba(18,199,167,0.13), transparent 32%),
+        linear-gradient(135deg, #090d0c 0%, #111814 54%, #0b1110 100%);
+      background-size: 40px 40px, 40px 40px, auto, auto;
+      color: var(--paper);
+      font-family: "Bahnschrift", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.13;
+      background-image:
+        linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,0.055) 25%, transparent 25%);
+      background-size: 5px 5px;
+      mix-blend-mode: soft-light;
+    }
+
+    .deck-shell {
+      display: grid;
+      grid-template-columns: 88px minmax(960px, 1280px) 88px;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      gap: 18px;
+      padding: 22px;
+    }
+
+    .stage {
+      position: relative;
+      width: min(1280px, calc(100vw - 220px));
+      aspect-ratio: 16 / 9;
+      min-width: 920px;
+      max-height: calc(100vh - 44px);
+      border: 1px solid rgba(243,239,227,0.28);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018)),
+        linear-gradient(135deg, rgba(18,199,167,0.08), transparent 42%),
+        #101613;
+      box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,0.025);
+      overflow: hidden;
+    }
+
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, transparent 0 66px, rgba(243,239,227,0.08) 66px 67px, transparent 67px),
+        linear-gradient(0deg, transparent 0 92%, rgba(243,239,227,0.08) 92% calc(92% + 1px), transparent calc(92% + 1px));
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 54px 70px 58px;
+      opacity: 0;
+      transform: translateX(30px) scale(0.992);
+      pointer-events: none;
+      transition: opacity 420ms ease, transform 520ms cubic-bezier(.16, .84, .32, 1);
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    .kicker {
+      margin: 0 0 16px;
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    p { margin: 0; }
+
+    h1 {
+      max-width: 860px;
+      font-size: 58px;
+      line-height: 1.05;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      max-width: 980px;
+      font-size: 34px;
+      line-height: 1.18;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 17px;
+      line-height: 1.28;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .sub {
+      max-width: 800px;
+      margin-top: 18px;
+      color: #c9d2cc;
+      font-size: 18px;
+      line-height: 1.55;
+    }
+
+    .mono {
+      font-family: "Cascadia Mono", "Consolas", "Microsoft YaHei UI", monospace;
+      letter-spacing: 0;
+    }
+
+    .footer {
+      position: absolute;
+      left: 70px;
+      right: 70px;
+      bottom: 26px;
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid rgba(243,239,227,0.14);
+      padding-top: 12px;
+      color: rgba(243,239,227,0.42);
+      font-size: 11px;
+    }
+
+    .mark {
+      color: var(--teal);
+      font-weight: 900;
+    }
+
+    .nav-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border: 1px solid rgba(243,239,227,0.32);
+      background: transparent;
+      transform: rotate(45deg);
+      cursor: pointer;
+      transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+    }
+
+    .dot.active {
+      background: var(--teal);
+      border-color: var(--teal);
+      transform: rotate(45deg) scale(1.35);
+    }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .control {
+      width: 46px;
+      height: 46px;
+      border: 1px solid rgba(243,239,227,0.25);
+      background: rgba(243,239,227,0.06);
+      color: var(--paper);
+      font-size: 24px;
+      cursor: pointer;
+      transition: background 160ms ease, transform 160ms ease, border-color 160ms ease;
+    }
+
+    .control:hover {
+      transform: translateY(-1px);
+      background: rgba(18,199,167,0.16);
+      border-color: rgba(18,199,167,0.55);
+    }
+
+    .progress {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      height: 4px;
+      width: 100%;
+      background: rgba(243,239,227,0.08);
+      z-index: 10;
+    }
+
+    .progress span {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, var(--teal), var(--amber), var(--red));
+      transition: width 260ms ease;
+    }
+
+    .slide-count {
+      position: fixed;
+      right: 24px;
+      bottom: 16px;
+      color: rgba(243,239,227,0.56);
+      font-size: 12px;
+      z-index: 11;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 42px;
+      margin-top: 34px;
+      align-items: start;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 34px;
+    }
+
+    .panel {
+      position: relative;
+      border: 1px solid rgba(243,239,227,0.18);
+      background: var(--panel);
+      padding: 22px;
+      min-height: 108px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.018);
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      left: -1px;
+      top: -1px;
+      bottom: -1px;
+      width: 5px;
+      background: var(--accent, var(--teal));
+    }
+
+    .panel p {
+      color: #cbd5cf;
+      font-size: 15px;
+      line-height: 1.5;
+      margin-top: 9px;
+    }
+
+    .panel.strong {
+      background: rgba(18,199,167,0.1);
+      border-color: rgba(18,199,167,0.42);
+    }
+
+    .metric-line {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 48px;
+    }
+
+    .metric {
+      min-height: 100px;
+      border-top: 2px solid var(--accent, var(--teal));
+      padding-top: 14px;
+    }
+
+    .metric .num {
+      display: block;
+      color: var(--accent, var(--teal));
+      font-family: "Bahnschrift", "Microsoft YaHei UI", sans-serif;
+      font-size: 36px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .metric .label {
+      display: block;
+      margin-top: 10px;
+      color: #b8c2bd;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .formula-box {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 160px;
+      border: 1px solid rgba(18,199,167,0.42);
+      background:
+        repeating-linear-gradient(-45deg, rgba(18,199,167,0.05) 0 8px, transparent 8px 16px),
+        rgba(18,199,167,0.07);
+      color: var(--mint);
+      font-size: 23px;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 18px;
+      margin-top: 62px;
+    }
+
+    .step {
+      min-height: 154px;
+      border: 1px solid rgba(243,239,227,0.18);
+      background: rgba(243,239,227,0.055);
+      padding: 18px;
+      position: relative;
+    }
+
+    .step::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -19px;
+      width: 20px;
+      height: 1px;
+      background: rgba(243,239,227,0.38);
+    }
+
+    .step:last-child::after { display: none; }
+
+    .step .n {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      background: var(--accent, var(--teal));
+      color: #07100d;
+      font-weight: 900;
+      margin-bottom: 16px;
+    }
+
+    .step p {
+      margin-top: 10px;
+      color: #b8c2bd;
+      font-size: 13px;
+      line-height: 1.42;
+    }
+
+    .ledger {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 18px;
+      margin-top: 44px;
+    }
+
+    .ledger .lane {
+      border: 1px solid rgba(243,239,227,0.17);
+      background: rgba(243,239,227,0.055);
+      min-height: 170px;
+      padding: 20px;
+    }
+
+    .lane .tag {
+      display: inline-block;
+      padding: 5px 9px;
+      margin-bottom: 18px;
+      border: 1px solid currentColor;
+      color: var(--accent, var(--teal));
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .lane p {
+      color: #cbd5cf;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .bars {
+      display: grid;
+      gap: 18px;
+      margin-top: 32px;
+      width: 100%;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 82px 1fr 78px;
+      align-items: center;
+      gap: 14px;
+      color: #cbd5cf;
+      font-size: 13px;
+    }
+
+    .bar-track {
+      height: 18px;
+      background: rgba(243,239,227,0.12);
+      border: 1px solid rgba(243,239,227,0.08);
+    }
+
+    .bar-fill {
+      height: 100%;
+      width: var(--w);
+      background: var(--accent, var(--teal));
+    }
+
+    .split-chart {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      margin-top: 26px;
+    }
+
+    .chart-title {
+      color: #aab6b0;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 28px;
+      font-size: 14px;
+    }
+
+    .table th,
+    .table td {
+      border-bottom: 1px solid rgba(243,239,227,0.13);
+      padding: 13px 12px;
+      text-align: left;
+      color: #cbd5cf;
+    }
+
+    .table th {
+      color: #9ca9a2;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .table .win {
+      color: var(--mint);
+      font-weight: 900;
+    }
+
+    .setup-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 18px;
+      margin-top: 40px;
+    }
+
+    .setup-card {
+      min-height: 235px;
+      border: 1px solid rgba(243,239,227,0.18);
+      background: rgba(243,239,227,0.055);
+      padding: 22px;
+      position: relative;
+    }
+
+    .setup-card::before {
+      content: attr(data-id);
+      color: var(--accent, var(--teal));
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .setup-card h3 {
+      margin-top: 20px;
+      color: var(--paper);
+    }
+
+    .setup-card p {
+      margin-top: 14px;
+      color: #cbd5cf;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .evidence-board {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 34px;
+    }
+
+    .evidence-card {
+      border: 1px solid rgba(243,239,227,0.18);
+      background: rgba(243,239,227,0.06);
+      padding: 18px 20px;
+      min-height: 122px;
+    }
+
+    .evidence-card h3 {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .status-pill {
+      flex: 0 0 auto;
+      border: 1px solid currentColor;
+      color: var(--accent, var(--teal));
+      padding: 4px 8px;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .evidence-card p {
+      margin-top: 12px;
+      color: #cbd5cf;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .diagram-flow {
+      display: grid;
+      grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr;
+      gap: 12px;
+      align-items: center;
+      margin-top: 66px;
+    }
+
+    .node {
+      min-height: 96px;
+      border: 1px solid rgba(243,239,227,0.2);
+      background: rgba(243,239,227,0.065);
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      text-align: center;
+      font-weight: 900;
+      color: var(--paper);
+    }
+
+    .arrow {
+      color: rgba(243,239,227,0.55);
+      text-align: center;
+      font-size: 28px;
+      font-weight: 900;
+    }
+
+    .heat-axis {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 18px;
+      align-items: end;
+      height: 330px;
+      margin-top: 34px;
+      padding: 0 10px;
+      border-bottom: 2px solid rgba(243,239,227,0.2);
+    }
+
+    .pillar {
+      display: grid;
+      grid-template-rows: 1fr auto auto;
+      justify-items: center;
+      height: 100%;
+    }
+
+    .pillar .col {
+      width: 74px;
+      align-self: end;
+      height: var(--h);
+      background: var(--accent);
+      box-shadow: 0 0 34px rgba(255,255,255,0.04);
+    }
+
+    .pillar .delta {
+      margin-bottom: 12px;
+      color: var(--accent);
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .pillar .name {
+      margin-top: 14px;
+      color: var(--paper);
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .pillar .desc {
+      margin-top: 7px;
+      color: #9ca9a2;
+      font-size: 10px;
+      text-align: center;
+      min-height: 28px;
+    }
+
+    .warning-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+    }
+
+    .warn {
+      border: 1px solid rgba(255,91,91,0.44);
+      background: rgba(255,91,91,0.08);
+      padding: 20px;
+      min-height: 158px;
+    }
+
+    .warn .id {
+      color: var(--red);
+      font-size: 13px;
+      font-weight: 900;
+      margin-bottom: 14px;
+    }
+
+    .warn p {
+      color: #d4dad7;
+      font-size: 14px;
+      line-height: 1.42;
+    }
+
+    .gate-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 42px;
+    }
+
+    .gate {
+      min-height: 214px;
+      border: 1px solid rgba(243,239,227,0.18);
+      background: rgba(243,239,227,0.055);
+      padding: 18px;
+      position: relative;
+    }
+
+    .gate .phase {
+      color: var(--accent, var(--teal));
+      font-size: 12px;
+      font-weight: 900;
+      margin-bottom: 16px;
+    }
+
+    .gate h3 {
+      min-height: 44px;
+    }
+
+    .gate p {
+      color: #cbd5cf;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 14px;
+    }
+
+    .closing-grid {
+      display: grid;
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 42px;
+      margin-top: 40px;
+    }
+
+    .rule-list {
+      display: grid;
+      gap: 16px;
+    }
+
+    .rule {
+      border-left: 5px solid var(--accent);
+      background: rgba(243,239,227,0.065);
+      padding: 18px 20px;
+      min-height: 84px;
+    }
+
+    .rule strong {
+      display: inline-block;
+      color: var(--accent);
+      width: 58px;
+    }
+
+    .rule span {
+      color: #d2dad5;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .big-quote {
+      min-height: 328px;
+      display: grid;
+      align-content: center;
+      border: 1px solid rgba(18,199,167,0.45);
+      background:
+        linear-gradient(90deg, rgba(18,199,167,0.16), transparent 65%),
+        rgba(18,199,167,0.06);
+      padding: 34px;
+    }
+
+    .big-quote p {
+      font-size: 25px;
+      line-height: 1.42;
+      font-weight: 900;
+      color: var(--paper);
+    }
+
+    .hint {
+      position: fixed;
+      left: 24px;
+      bottom: 16px;
+      color: rgba(243,239,227,0.42);
+      font-size: 12px;
+      z-index: 11;
+    }
+
+    @media (max-width: 1100px) {
+      body { overflow: auto; }
+      .deck-shell {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+      .stage {
+        width: 100%;
+        min-width: 0;
+      }
+      .nav-rail,
+      .controls {
+        display: none;
+      }
+      .slide {
+        padding: 32px 34px 42px;
+      }
+      h1 { font-size: 40px; }
+      h2 { font-size: 26px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck-shell">
+    <nav class="nav-rail" aria-label="Slide navigation"></nav>
+
+    <main class="stage" aria-live="polite">
+      <section class="slide active" data-title="cover">
+        <p class="kicker">PHYSFORMER EXPERIMENT PATH</p>
+        <h1>从物理先验到组件 token 分离</h1>
+        <p class="sub">一次以实验结果重写方法假设的路线：保留数据逻辑，把证据门、dead ends 和当前 Phase B 状态放到同一张研究地图里。</p>
+        <div class="two-col" style="margin-top: 58px;">
+          <div class="formula-box mono">Pnet(t) = Pload(t) - Ppv(t) - Pwind(t) + Pbatt(t)</div>
+          <div class="metric-line" style="margin-top: 10px;">
+            <div class="metric" style="--accent: var(--blue);"><span class="num">A1</span><span class="label">当前最强 aggregate 基线</span></div>
+            <div class="metric" style="--accent: var(--teal);"><span class="num">C08</span><span class="label">component-aggregate 悖论解释</span></div>
+            <div class="metric" style="--accent: var(--amber);"><span class="num">C12</span><span class="label">固定物理先验负结果</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: local ARA / claims / results</span><span>01</span></div>
+      </section>
+
+      <section class="slide" data-title="takeaway">
+        <p class="kicker">EXECUTIVE TAKEAWAY</p>
+        <h2>最终结论：泛化收益来自表示边界，而不是更强固定物理先验</h2>
+        <div class="two-col">
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--teal);"><strong>1</strong><span>早期 PhysFormer 证明物理分支能降低 theory deviation，但 aggregate 与 component consistency 存在真实 trade-off。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>2</strong><span>C08/C10 指向机制：共享编码器会诱导可抵消的组件误差相关性，aggregate 变好不等于物理预测更好。</span></div>
+            <div class="rule" style="--accent: var(--mint);"><strong>3</strong><span>A1 去掉固定 physics prior，只保留组件 token 分离，成为当前最优 aggregate 模型。</span></div>
+          </div>
+          <div>
+            <div class="metric-line">
+              <div class="metric" style="--accent: var(--mint);"><span class="num">-12.5%</span><span class="label">A1 vs c23 MAE，3-seed mean</span></div>
+              <div class="metric" style="--accent: var(--blue);"><span class="num">20x</span><span class="label">A1 cross-seed σ 小于 c23</span></div>
+              <div class="metric" style="--accent: var(--red);"><span class="num">+7.5%</span><span class="label">A5 vs A1 Test MAE</span></div>
+            </div>
+            <div class="panel strong" style="--accent: var(--red); margin-top: 34px;">
+              <h3>汇报策略</h3>
+              <p>把“做了什么”降级，把“哪些假设被实验证伪或收缩”升级为主线。</p>
+            </div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: C08-C12 claims; Phase A/B plans</span><span>02</span></div>
+      </section>
+
+      <section class="slide" data-title="setup">
+        <p class="kicker">EXPERIMENT CONTRACT</p>
+        <h2>先固定任务契约：这不是单变量预测，而是异构 DVPP 的带符号聚合问题</h2>
+        <div class="setup-grid">
+          <div class="setup-card" data-id="TASK" style="--accent: var(--blue);">
+            <h3>预测对象</h3>
+            <p>目标是未来多步 aggregate net power。净功率由 Load、PV、Wind、Battery power 按符号组合得到，SOC 作为电池状态约束/辅助信号。</p>
+          </div>
+          <div class="setup-card" data-id="INPUT" style="--accent: var(--teal);">
+            <h3>输入边界</h3>
+            <p>模型读取组件历史、天气未来量和时间结构。核心风险不是单个组件误差，而是组件误差在 signed aggregation 下如何相互抵消。</p>
+          </div>
+          <div class="setup-card" data-id="READOUT" style="--accent: var(--amber);">
+            <h3>评估读法</h3>
+            <p>aggregate MAE/MSE 判断调度可用性；component/theory MAE 判断物理分支质量；Val-Test divergence 判断先验是否只拟合了当前 portfolio。</p>
+          </div>
+        </div>
+        <div class="formula-box mono" style="min-height: 92px; margin-top: 34px;">Pnet = Load - PV - Wind + Battery</div>
+        <div class="footer"><span>Source: model/data contract; C08 variance-decomposition frame</span><span>03</span></div>
+      </section>
+
+      <section class="slide" data-title="evidence-map">
+        <p class="kicker">EVIDENCE MAP</p>
+        <h2>这份汇报需要区分“方向性证据”和“可作为主张的证据”</h2>
+        <div class="evidence-board">
+          <div class="evidence-card" style="--accent: var(--amber);">
+            <h3>V3-V5 trade-off <span class="status-pill">directional</span></h3>
+            <p>早期版本证明物理一致性收益和 aggregate 代价同时存在；它是路线收缩的起点，不是最终模型 claim。</p>
+          </div>
+          <div class="evidence-card" style="--accent: var(--mint);">
+            <h3>C08-C10 mechanism <span class="status-pill">mechanism</span></h3>
+            <p>方差/协方差分解和 detach×e3 机制搜索解释 aggregate illusion；用于证明为什么不能只看 aggregate。</p>
+          </div>
+          <div class="evidence-card" style="--accent: var(--teal);">
+            <h3>A1 / C11 <span class="status-pill">3-seed core</span></h3>
+            <p>组件 token 分离在 3 seed 上低于 c23，且方差显著更小；这是当前最强正向结果。</p>
+          </div>
+          <div class="evidence-card" style="--accent: var(--red);">
+            <h3>A2-A5 / C12 <span class="status-pill">3-seed negative</span></h3>
+            <p>固定物理先验链条单调恶化 Test MAE；这是和 C11 配套的负结果，不应淡化。</p>
+          </div>
+          <div class="evidence-card" style="--accent: var(--violet);">
+            <h3>Phase B / B1 <span class="status-pill">pending clean rerun</span></h3>
+            <p>旧 static finetune 失败，协议修复已本地验证；干净证据需要重跑 pretrain 后再判断 R0/R1/R2。</p>
+          </div>
+          <div class="evidence-card" style="--accent: var(--blue);">
+            <h3>Paper readiness <span class="status-pill">gap</span></h3>
+            <p>面向 Applied Energy 还缺 operational metrics 和强 baseline closure；当前 HTML 适合作为实验路线汇报。</p>
+          </div>
+        </div>
+        <div class="footer"><span>Source: ARA C08-C12; N113-N121; Applied Energy outline gate</span><span>04</span></div>
+      </section>
+
+      <section class="slide" data-title="trajectory">
+        <p class="kicker">RESEARCH TRAJECTORY</p>
+        <h2>整个项目不是线性优化，而是一组证据门控后的路线收缩</h2>
+        <div class="timeline">
+          <div class="step" style="--accent: var(--blue);"><div class="n">1</div><h3>问题定义</h3><p>异构 VPP；signed aggregate target；组件归因风险。</p></div>
+          <div class="step" style="--accent: var(--teal);"><div class="n">2</div><h3>PhysFormer c23</h3><p>FiLM + theory branch；shared encoder baseline。</p></div>
+          <div class="step" style="--accent: var(--mint);"><div class="n">3</div><h3>机制解释</h3><p>C08-C10：covariance / cancellation channel。</p></div>
+          <div class="step" style="--accent: var(--violet);"><div class="n">4</div><h3>Phase A</h3><p>A1 component-token separation wins；A2-A5 fail。</p></div>
+          <div class="step" style="--accent: var(--amber);"><div class="n">5</div><h3>Phase B</h3><p>MCP pretrain；static finetune failed；adaptation gate open。</p></div>
+        </div>
+        <div class="ledger">
+          <div class="lane" style="--accent: var(--red);"><span class="tag">guardrails</span><p>N06 sigmoid gate；N07 strong component loss；N12 Phase-3 fine-tune；N113 pure net-MSE finetune。</p></div>
+          <div class="lane" style="--accent: var(--mint);"><span class="tag">supported</span><p>C08 covariance；C11 A1 胜出；C12 fixed priors overfit。</p></div>
+          <div class="lane" style="--accent: var(--violet);"><span class="tag">open gate</span><p>Phase B 转向 scaler repair / low-LR finetune / target-portfolio few-shot adaptation。</p></div>
+        </div>
+        <div class="footer"><span>Source: ara/trace/exploration_tree.yaml</span><span>05</span></div>
+      </section>
+
+      <section class="slide" data-title="contract">
+        <p class="kicker">PROBLEM CONTRACT</p>
+        <h2>评估契约：aggregate 指标必须和组件物理一致性分开读</h2>
+        <div class="two-col">
+          <div>
+            <div class="formula-box mono">Pnet = Load - PV - Wind + Battery</div>
+            <p class="sub">核心判断标准：不能只选 aggregate 最低的模型；要说明它是靠物理理解，还是靠 signed cancellation。</p>
+          </div>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--blue);"><strong>A</strong><span>Aggregate MAE / MSE：判断调度层预测是否可用。</span></div>
+            <div class="rule" style="--accent: var(--mint);"><strong>B</strong><span>Theory / component MAE：判断物理分支是否真的在学组件。</span></div>
+            <div class="rule" style="--accent: var(--amber);"><strong>C</strong><span>Val-Test divergence：判断先验或解码器是否在过拟合 portfolio。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: C08; c08_variance_decomposition.md</span><span>06</span></div>
+      </section>
+
+      <section class="slide" data-title="v3-v5">
+        <p class="kicker">EARLY PHYSFORMER ROUTE</p>
+        <h2>V3 到 V5：物理一致性改善是真实的，但 aggregate 代价也是真实的</h2>
+        <div class="two-col">
+          <div class="split-chart">
+            <div>
+              <div class="chart-title">Test MAE (kW)</div>
+              <div class="bars">
+                <div class="bar-row"><span>V3</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--blue); --w: 91%;"></div></div><span>1.932</span></div>
+                <div class="bar-row"><span>V4</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--blue); --w: 93%;"></div></div><span>1.976</span></div>
+                <div class="bar-row"><span>V4.1</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--blue); --w: 94%;"></div></div><span>2.002</span></div>
+                <div class="bar-row"><span>V4.2</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--blue); --w: 97%;"></div></div><span>2.048</span></div>
+                <div class="bar-row"><span>V5</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--blue); --w: 100%;"></div></div><span>2.120</span></div>
+              </div>
+            </div>
+            <div>
+              <div class="chart-title">Theory MAE (kW)</div>
+              <div class="bars">
+                <div class="bar-row"><span>V3</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--teal); --w: 98%;"></div></div><span>4.874</span></div>
+                <div class="bar-row"><span>V4</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--teal); --w: 77%;"></div></div><span>3.811</span></div>
+                <div class="bar-row"><span>V4.1</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--teal); --w: 100%;"></div></div><span>4.966</span></div>
+                <div class="bar-row"><span>V4.2</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--teal); --w: 60%;"></div></div><span>2.981</span></div>
+                <div class="bar-row"><span>V5</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--teal); --w: 62%;"></div></div><span>3.074</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--teal);"><strong>V4</strong><span>Pareto knee：component_loss=0.05 让 Theory MAE -21.8%，Test MAE 只 +2.3%。</span></div>
+            <div class="rule" style="--accent: var(--amber);"><strong>V5</strong><span>继续降低 theory/component error，却把 aggregate 推差。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>转向</strong><span>问题从“加多少物理先验”改写成“如何避免目标互相污染”。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: ara/evidence/tables/version_comparison.md</span><span>07</span></div>
+      </section>
+
+      <section class="slide" data-title="v5-components">
+        <p class="kicker">COMPONENT-CONSISTENT RESIDUAL</p>
+        <h2>V5 组件一致性残差解决归因问题，但不能自动赢回 aggregate</h2>
+        <div class="two-col">
+          <div>
+            <div class="chart-title">V4 scalar residual → V5 per-component residual</div>
+            <div class="bars">
+              <div class="bar-row"><span>Load</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--red); --w: 69%;"></div></div><span>14.707</span></div>
+              <div class="bar-row"><span></span><div class="bar-track"><div class="bar-fill" style="--accent: var(--mint); --w: 10%;"></div></div><span>2.069</span></div>
+              <div class="bar-row"><span>PV</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--red); --w: 19%;"></div></div><span>3.998</span></div>
+              <div class="bar-row"><span></span><div class="bar-track"><div class="bar-fill" style="--accent: var(--mint); --w: 9%;"></div></div><span>1.892</span></div>
+              <div class="bar-row"><span>Battery P</span><div class="bar-track"><div class="bar-fill" style="--accent: var(--red); --w: 100%;"></div></div><span>21.345</span></div>
+              <div class="bar-row"><span></span><div class="bar-track"><div class="bar-fill" style="--accent: var(--mint); --w: 6%;"></div></div><span>1.340</span></div>
+            </div>
+          </div>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--mint);"><strong>证据</strong><span>Battery Power 21.345 → 1.340 kW，说明 V4 scalar residual 确实存在 Load 误差污染。</span></div>
+            <div class="rule" style="--accent: var(--amber);"><strong>代价</strong><span>V5 Test MAE = 2.120 kW，比 V4 更差；可解释性和 aggregate 进入不同目标。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>启发</strong><span>组件边界要在 architecture 层面处理，不能只靠 residual head 后补。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: ara/evidence/tables/v5_component_metrics.md</span><span>08</span></div>
+      </section>
+
+      <section class="slide" data-title="dead-ends">
+        <p class="kicker">NEGATIVE EVIDENCE</p>
+        <h2>Dead ends 是路线资产：它们限定了后续实验不能再走的方向</h2>
+        <div class="warning-strip">
+          <div class="warn"><div class="id">N06 | Sigmoid gate</div><p>门控 residual 造成 theory degradation；identity shortcut 更稳。</p></div>
+          <div class="warn"><div class="id">N07 | Component loss 过强</div><p>Theory MAE 最好，但 Test MAE +3.6%；component supervision 有非单调最优。</p></div>
+          <div class="warn"><div class="id">N12 | Curriculum Phase 3</div><p>纯 net_mse fine-tune 没有 validation benefit；两阶段已经饱和。</p></div>
+          <div class="warn"><div class="id">N113 | High-LR finetune</div><p>预训练权重上纯 net-MSE finetune 系统性恶化。</p></div>
+        </div>
+        <div class="panel strong" style="--accent: var(--teal); margin-top: 46px; max-width: 880px;">
+          <h3>写法建议</h3>
+          <p>不要把这些写成“失败尝试”列表；它们是方法选择的边界条件。</p>
+        </div>
+        <div class="footer"><span>Source: N06, N07, N12, N113</span><span>09</span></div>
+      </section>
+
+      <section class="slide" data-title="load">
+        <p class="kicker">LOAD BOTTLENECK</p>
+        <h2>Load 不是 DER 物理方程问题，而是行为/时间结构问题</h2>
+        <div class="two-col">
+          <div class="panel" style="--accent: var(--red); min-height: 320px; display: grid; place-items: center;">
+            <div class="metric-line" style="width: 100%; margin-top: 0;">
+              <div class="metric" style="--accent: var(--red);"><span class="num">18x</span><span class="label">V4: Load / Wind MAE ratio</span></div>
+              <div class="metric" style="--accent: var(--steel);"><span class="num">→</span><span class="label">behavioral module</span></div>
+              <div class="metric" style="--accent: var(--teal);"><span class="num">6x</span><span class="label">V6/V6.1: gap remains</span></div>
+            </div>
+          </div>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--blue);"><strong>差异</strong><span>PV/Wind 主要由 weather 驱动；Load 由行为、日历、电价、习惯和 portfolio 结构驱动。</span></div>
+            <div class="rule" style="--accent: var(--mint);"><strong>意义</strong><span>V6 证明“物理方程不足”本身是可验证结论。</span></div>
+            <div class="rule" style="--accent: var(--teal);"><strong>连接</strong><span>组件 token 分离让 Load 与天气驱动组件在表示空间中分开。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: C06 in ara/logic/claims.md</span><span>10</span></div>
+      </section>
+
+      <section class="slide" data-title="c08">
+        <p class="kicker">MECHANISM: ERROR CANCELLATION</p>
+        <h2>C08 解释悖论：aggregate 精度由组件误差的协方差结构主导</h2>
+        <div class="two-col">
+          <div>
+            <div class="formula-box mono">Var(e_net) = Σ Var(e_i) ± 2Σ Cov(e_i, e_j)</div>
+            <div class="metric-line">
+              <div class="metric" style="--accent: var(--red);"><span class="num">1.95x</span><span class="label">gru96 component variance</span></div>
+              <div class="metric" style="--accent: var(--mint);"><span class="num">2.34x</span><span class="label">covariance cancellation</span></div>
+              <div class="metric" style="--accent: var(--teal);"><span class="num">79.8%</span><span class="label">cancellation ratio</span></div>
+            </div>
+          </div>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--mint);"><strong>关键</strong><span>PV 与 Battery error 的正相关最关键：两者在 net 方程中符号相反。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>悖论</strong><span>组件预测更差的模型，可能 aggregate 更好；这不是噪声，而是 shared representation 的结构性效应。</span></div>
+            <div class="rule" style="--accent: var(--red);"><strong>禁区</strong><span>避免“aggregate 更好 = 物理更好”的弱推断。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: docs/analysis/c08_variance_decomposition.md</span><span>11</span></div>
+      </section>
+
+      <section class="slide" data-title="c10">
+        <p class="kicker">GRADIENT ISOLATION</p>
+        <h2>C09/C10：selective detach 赢 aggregate，因为它切断 cancellation channel</h2>
+        <div class="two-col">
+          <table class="table" aria-label="detach experiment">
+            <thead><tr><th>arm</th><th>MAE mean</th><th>MAE std</th><th>interpretation</th></tr></thead>
+            <tbody>
+              <tr><td>baseline</td><td>2.069e-3</td><td>1.34e-4</td><td>shared-gradient</td></tr>
+              <tr><td>e3</td><td>2.101e-3</td><td>5.3e-5</td><td>deeper encoder</td></tr>
+              <tr><td class="win">detach</td><td class="win">1.973e-3</td><td class="win">3.7e-5</td><td>best mean + std</td></tr>
+              <tr><td>detach×e3</td><td>2.065e-3</td><td>7.5e-5</td><td>depth useless when cut</td></tr>
+            </tbody>
+          </table>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--red);"><strong>排除</strong><span>不是“detach 让所有协方差都变小”；D1/D2/D3 refuted 早期解释。</span></div>
+            <div class="rule" style="--accent: var(--mint);"><strong>幸存</strong><span>detach 关闭 residual head → encoder 的反向通路。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>A1</strong><span>不要 hack shared encoder，而是取消共享表示污染源。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: C09/C10 in ara/logic/claims.md</span><span>12</span></div>
+      </section>
+
+      <section class="slide" data-title="a1">
+        <p class="kicker">PHASE A: COMPONENT-TOKEN SEPARATION</p>
+        <h2>A1 架构转向：组件 token 分离本身就是最强物理边界</h2>
+        <div class="diagram-flow">
+          <div class="node" style="border-color: rgba(122,167,255,0.5); color: var(--blue);">5 component<br>GRU tokens</div>
+          <div class="arrow">›</div>
+          <div class="node" style="border-color: rgba(18,199,167,0.5); color: var(--teal);">3 weather<br>MLP tokens</div>
+          <div class="arrow">›</div>
+          <div class="node" style="border-color: rgba(135,224,189,0.5); color: var(--mint);">inverted<br>self-attention</div>
+          <div class="arrow">›</div>
+          <div class="node">shared FFN<br>real-unit balance</div>
+        </div>
+        <div class="metric-line">
+          <div class="metric" style="--accent: var(--mint);"><span class="num">1.811e-3</span><span class="label">A1 MAE mean, 3 seeds</span></div>
+          <div class="metric" style="--accent: var(--steel);"><span class="num">2.069e-3</span><span class="label">c23 baseline MAE</span></div>
+          <div class="metric" style="--accent: var(--blue);"><span class="num">20x</span><span class="label">cross-seed σ smaller</span></div>
+        </div>
+        <div class="footer"><span>Source: C11; results/physformer_igt_a1_s2025-s2027</span><span>13</span></div>
+      </section>
+
+      <section class="slide" data-title="a2-a5">
+        <p class="kicker">PHASE A ABLATION</p>
+        <h2>A2-A5 给出清晰负结果：固定物理先验越强，Test 泛化越差</h2>
+        <div class="two-col">
+          <div class="heat-axis">
+            <div class="pillar" style="--h: 40px; --accent: var(--mint);"><div class="delta">best</div><div class="col"></div><div class="name">A1</div><div class="desc">8 tokens</div></div>
+            <div class="pillar" style="--h: 52px; --accent: var(--blue);"><div class="delta">+0.4%</div><div class="col"></div><div class="name">A2</div><div class="desc">physics token</div></div>
+            <div class="pillar" style="--h: 96px; --accent: var(--amber);"><div class="delta">+1.8%</div><div class="col"></div><div class="name">A3</div><div class="desc">twin / constraints</div></div>
+            <div class="pillar" style="--h: 126px; --accent: #e88722;"><div class="delta">+2.9%</div><div class="col"></div><div class="name">A4</div><div class="desc">graph bias</div></div>
+            <div class="pillar" style="--h: 226px; --accent: var(--red);"><div class="delta">+7.5%</div><div class="col"></div><div class="name">A5</div><div class="desc">horizon decoder</div></div>
+          </div>
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--amber);"><strong>现象</strong><span>所有固定 prior 都改善 Val MSE，却系统性恶化 Test MAE。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>解释</strong><span>不是“物理没有价值”，而是固定耦合形式无法跨 portfolio 泛化。</span></div>
+            <div class="rule" style="--accent: var(--mint);"><strong>Phase B</strong><span>用 masked pretraining 学 data-driven coupling，而不是手工加 prior。</span></div>
+          </div>
+        </div>
+        <div class="footer"><span>Source: C12; Phase B design/status</span><span>14</span></div>
+      </section>
+
+      <section class="slide" data-title="phase-b">
+        <p class="kicker">CURRENT STATUS</p>
+        <h2>Phase B：旧 static finetune 失败；干净协议与 adaptation gate 仍需重跑验证</h2>
+        <div class="diagram-flow" style="grid-template-columns: 1fr 42px 1fr 42px 1fr; max-width: 860px;">
+          <div class="node" style="border-color: rgba(135,224,189,0.5); color: var(--mint);">Masked Component<br>Pretraining</div>
+          <div class="arrow">›</div>
+          <div class="node" style="border-color: rgba(244,178,79,0.55); color: var(--amber);">net-MSE<br>Finetune</div>
+          <div class="arrow">›</div>
+          <div class="node" style="border-color: rgba(255,91,91,0.6); color: var(--red);">Old static split<br>FAILED</div>
+        </div>
+        <div class="metric-line" style="max-width: 870px;">
+          <div class="metric" style="--accent: var(--steel);"><span class="num">0.001811</span><span class="label">A1 gate, 3-seed mean</span></div>
+          <div class="metric" style="--accent: var(--amber);"><span class="num">0.001820</span><span class="label">pretrained direct test</span></div>
+          <div class="metric" style="--accent: var(--red);"><span class="num">0.001839–0.001863</span><span class="label">original finetune range</span></div>
+        </div>
+        <div class="panel" style="--accent: var(--violet); margin-top: 32px; max-width: 960px;">
+          <h3>N114/N121 当前保留的是更窄的问题</h3>
+          <p>不是继续替旧 B1 辩护，而是先消除 scaler/checkpoint/masking confounds，再判断低 LR/正则 finetune 与 5/10/20% target-portfolio few-shot adaptation 是否有部署价值。</p>
+        </div>
+        <div class="footer"><span>Source: O53; N110-N114; N121</span><span>15</span></div>
+      </section>
+
+      <section class="slide" data-title="next-gates">
+        <p class="kicker">NEXT GATES</p>
+        <h2>下一步不是继续加模块，而是用最小实验把开放问题关掉</h2>
+        <div class="gate-grid">
+          <div class="gate" style="--accent: var(--mint);">
+            <div class="phase">GATE 1</div>
+            <h3>重跑 repaired B1 pretrain</h3>
+            <p>生成 best_val_net_checkpoint.pth；旧 pretrained_checkpoint-only 结果不能作为干净证据。</p>
+          </div>
+          <div class="gate" style="--accent: var(--amber);">
+            <div class="phase">GATE 2</div>
+            <h3>R0/R1 静态 split 判定</h3>
+            <p>R0 direct test + R1 low-LR / tiny component regularized finetune；只和 A1 gate 0.001811 比。</p>
+          </div>
+          <div class="gate" style="--accent: var(--violet);">
+            <div class="phase">GATE 3</div>
+            <h3>R2 target adaptation</h3>
+            <p>5/10/20% target-portfolio few-shot；若 B1 初始化不能优于 A1 scratch，Phase B 可关闭。</p>
+          </div>
+          <div class="gate" style="--accent: var(--blue);">
+            <div class="phase">PAPER GATE</div>
+            <h3>Applied Energy 补强</h3>
+            <p>补 operational metrics、ramp/peak/deviation/reserve proxy，以及强 baseline mean±std。</p>
+          </div>
+        </div>
+        <div class="panel strong" style="--accent: var(--teal); margin-top: 36px;">
+          <h3>决策规则</h3>
+          <p>如果 clean R0/R1/R2 不能越过 A1，论文主线就收束到 C08/C11/C12；Phase B 只作为 future work 或负结果附录。</p>
+        </div>
+        <div class="footer"><span>Source: N114, N121, Applied Energy outline gate</span><span>16</span></div>
+      </section>
+
+      <section class="slide" data-title="close">
+        <p class="kicker">REPORTING SPINE</p>
+        <h2>最终汇报应落在三条贡献，而不是版本堆叠史</h2>
+        <div class="closing-grid">
+          <div class="rule-list">
+            <div class="rule" style="--accent: var(--mint);"><strong>贡献1</strong><span>组件 token 分离给出当前最强 aggregate 模型，并显著降低跨 seed 方差。</span></div>
+            <div class="rule" style="--accent: var(--blue);"><strong>贡献2</strong><span>C08/C10 提供诊断框架：aggregate 改善可能来自误差相关性，而非物理更正确。</span></div>
+            <div class="rule" style="--accent: var(--red);"><strong>贡献3</strong><span>A2-A5 证明固定物理先验在该设定下是过拟合放大器，负结果本身构成边界条件。</span></div>
+          </div>
+          <div class="big-quote">
+            <p>PhysFormer 的贡献不在“把物理先验越加越多”，而在用实验找到了 VPP 多组件预测中表示边界、误差相关性和泛化之间的真实约束。</p>
+          </div>
+        </div>
+        <div class="footer"><span>Source: ARA claims C08-C12; Phase B plan/status</span><span>17</span></div>
+      </section>
+    </main>
+
+    <div class="controls" aria-label="Controls">
+      <button class="control" id="prev" aria-label="Previous slide">‹</button>
+      <button class="control" id="next" aria-label="Next slide">›</button>
+    </div>
+  </div>
+
+  <div class="hint">← / → 切换，Home / End 跳转</div>
+  <div class="slide-count" aria-live="polite"></div>
+  <div class="progress" aria-hidden="true"><span></span></div>
+
+  <script>
+    const slides = [...document.querySelectorAll(".slide")];
+    const rail = document.querySelector(".nav-rail");
+    const progress = document.querySelector(".progress span");
+    const count = document.querySelector(".slide-count");
+    let index = Number(new URLSearchParams(location.search).get("slide") || 1) - 1;
+    index = Math.min(Math.max(index, 0), slides.length - 1);
+
+    slides.forEach((slide, i) => {
+      const dot = document.createElement("button");
+      dot.className = "dot";
+      dot.type = "button";
+      dot.setAttribute("aria-label", `Go to slide ${i + 1}: ${slide.dataset.title}`);
+      dot.addEventListener("click", () => show(i));
+      rail.appendChild(dot);
+    });
+
+    const dots = [...document.querySelectorAll(".dot")];
+
+    function show(nextIndex) {
+      index = Math.min(Math.max(nextIndex, 0), slides.length - 1);
+      slides.forEach((slide, i) => slide.classList.toggle("active", i === index));
+      dots.forEach((dot, i) => dot.classList.toggle("active", i === index));
+      progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+      count.textContent = `${String(index + 1).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
+      history.replaceState(null, "", `?slide=${index + 1}`);
+    }
+
+    document.getElementById("prev").addEventListener("click", () => show(index - 1));
+    document.getElementById("next").addEventListener("click", () => show(index + 1));
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") show(index + 1);
+      if (event.key === "ArrowLeft" || event.key === "PageUp") show(index - 1);
+      if (event.key === "Home") show(0);
+      if (event.key === "End") show(slides.length - 1);
+    });
+
+    show(index);
+  </script>
+</body>
+</html>

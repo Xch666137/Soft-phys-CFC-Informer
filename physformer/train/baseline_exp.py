@@ -66,6 +66,14 @@ class BaselineExperiment(BaseExperiment):
 
     def _estimate_ramp_limits(self, dataset):
         try:
+            train_frame = getattr(dataset, "_train_feature_frame", None)
+            target_cols = getattr(dataset, "target_cols", None)
+            if train_frame is not None and target_cols:
+                target_data = train_frame[target_cols].to_numpy(dtype=np.float32)
+                diff = np.abs(target_data[1:] - target_data[:-1])
+                if diff.size:
+                    return np.percentile(diff, 99.9, axis=0) * 1.5
+
             raw_groups = []
             for group_tensor in dataset.group_x_tensors:
                 group_np = group_tensor.cpu().numpy()
@@ -230,6 +238,7 @@ class BaselineExperiment(BaseExperiment):
         self.model.eval()
         preds = []
         trues = []
+        last_hists = []
         with torch.no_grad():
             for batch_x, batch_y, batch_x_mark, batch_y_mark in test_loader:
                 batch_x, batch_y, batch_x_mark, batch_y_mark, dec_inp = self._process_one_batch(
@@ -240,16 +249,19 @@ class BaselineExperiment(BaseExperiment):
                 batch_y = batch_y[:, -self.args.pred_len :, : self.args.c_out]
                 preds.append(outputs.detach().cpu().numpy())
                 trues.append(batch_y.detach().cpu().numpy())
+                last_hists.append(batch_x[:, -1:, : self.args.c_out].detach().cpu().numpy())
 
-        preds = np.array(preds).reshape(-1, self.args.pred_len, self.args.c_out)
-        trues = np.array(trues).reshape(-1, self.args.pred_len, self.args.c_out)
+        preds = np.concatenate(preds, axis=0)  # handles variable-length last batch
+        trues = np.concatenate(trues, axis=0)
+        last_hists = np.concatenate(last_hists, axis=0)
 
         if test_data.scale and test_data.feature_scaler is not None:
             preds = test_data.inverse_transform(preds)
             trues = test_data.inverse_transform(trues)
+            last_hists = test_data.inverse_transform(last_hists)
 
         ramp_limits = self._estimate_ramp_limits(test_data)
-        metrics = compute_forecast_metrics(preds, trues, ramp_limits=ramp_limits)
+        metrics = compute_forecast_metrics(preds, trues, ramp_limits=ramp_limits, last_hist=last_hists)
         target_cols = getattr(test_data, "target_cols", [f"target_{idx}" for idx in range(self.args.c_out)])
         metrics["per_channel_mse"] = {
             col: float(np.mean((preds[:, :, idx] - trues[:, :, idx]) ** 2)) for idx, col in enumerate(target_cols)

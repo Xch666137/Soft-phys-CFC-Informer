@@ -9,9 +9,9 @@ from torch.optim.lr_scheduler import OneCycleLR
 
 from ..data import data_provider
 from ..loss import PhysAwareBaseLoss, PhysLoss
-from ..metrics import compute_forecast_metrics, per_channel_mae
+from ..metrics import compute_forecast_metrics
 from ..models import PhysFormer, PhysFormeriGT
-from .base import BaseExperiment, EarlyStopping
+from .base import BaseExperiment, EarlyStopping, _align_state_dict_keys
 
 
 class PhysFormerExperiment(BaseExperiment):
@@ -105,6 +105,7 @@ class PhysFormerExperiment(BaseExperiment):
             load_temp_model=str(getattr(self.args, "load_temp_model", "mlp")),
             detach_scale=float(getattr(self.args, "detach_scale", 0.0)),
             use_horizon_decoder=bool(getattr(self.args, "use_horizon_decoder", False)),
+            comp_gru_hidden=getattr(self.args, "comp_gru_hidden", None),
         ).float()
 
     def _select_optimizer(self):
@@ -156,6 +157,9 @@ class PhysFormerExperiment(BaseExperiment):
         if not isinstance(state, dict):
             raise ValueError(f"{source_label} at {path} did not contain a state dict.")
 
+        # Align checkpoint keys to model's expected keys (handles torch.compile prefix)
+        state = _align_state_dict_keys(state, self.model.state_dict())
+
         skipped = []
         if filter_scaler_buffers:
             skipped = [key for key in state.keys() if self._should_skip_scaler_key(key)]
@@ -180,8 +184,7 @@ class PhysFormerExperiment(BaseExperiment):
             return False
         pretrained_path = self._resolve_checkpoint_path(pretrained_path)
         if not pretrained_path.exists():
-            self.logger.warning("Pretrained checkpoint not found at: %s", pretrained_path)
-            return False
+            raise FileNotFoundError(f"Configured pretrained_path does not exist: {pretrained_path}")
         filter_scalers = not bool(getattr(self.args, "load_pretrained_scaler_buffers", False))
         self._load_model_state(
             pretrained_path,
@@ -376,12 +379,17 @@ class PhysFormerExperiment(BaseExperiment):
         warmup_epochs = max(int(getattr(self.args, "warmup_epochs", 0)), 0)
         steps_per_epoch = len(train_loader)
         total_steps = self.args.train_epochs * steps_per_epoch
-        scheduler = OneCycleLR(
-            optimizer, max_lr=self.args.learning_rate,
-            total_steps=total_steps, pct_start=0.12,
-            div_factor=25.0, final_div_factor=1e4,
-            anneal_strategy='cos',
-        )
+        schedule_type = str(getattr(self.args, "schedule_type", "onecycle")).lower()
+
+        if schedule_type == "constant":
+            scheduler = None
+        else:
+            scheduler = OneCycleLR(
+                optimizer, max_lr=self.args.learning_rate,
+                total_steps=total_steps, pct_start=0.12,
+                div_factor=25.0, final_div_factor=1e4,
+                anneal_strategy='cos',
+            )
 
         early_stop_metric = str(getattr(self.args, "early_stop_metric", "net_mse")).lower()
         early_stop_start_epoch = max(int(getattr(self.args, "early_stop_start_epoch", 5)), 1)
@@ -399,8 +407,8 @@ class PhysFormerExperiment(BaseExperiment):
             % (len(self.train_dataset), len(train_loader), self.args.batch_size)
         )
         self.logger.info(
-            "Optimizer | lr=%.6g | warmup_epochs=%d | early_stop=%s | scheduler=OneCycle"
-            % (self.args.learning_rate, warmup_epochs, early_stop_metric)
+            "Optimizer | lr=%.6g | warmup_epochs=%d | early_stop=%s | scheduler=%s"
+            % (self.args.learning_rate, warmup_epochs, early_stop_metric, schedule_type)
         )
 
         start_epoch = 0
@@ -417,11 +425,11 @@ class PhysFormerExperiment(BaseExperiment):
                 self.logger.warning("l2sp_weight > 0 but no pretrained checkpoint was loaded; disabling L2-SP")
 
         state_path = Path(self.run_dir) / "training_state.pth"
-        if state_path.exists():
+        if bool(getattr(self.args, "resume", False)) and state_path.exists():
             state = torch.load(state_path, map_location=self.device)
             self._load_model_state(self.checkpoint_path(), "resume checkpoint", strict=False)
             optimizer.load_state_dict(state["optimizer"])
-            if state.get("scheduler") is not None:
+            if state.get("scheduler") is not None and scheduler is not None:
                 scheduler.load_state_dict(state["scheduler"])
             scaler_state = state.get("scaler")
             if scaler_state is not None and len(scaler_state) > 0 and use_amp:
@@ -430,6 +438,8 @@ class PhysFormerExperiment(BaseExperiment):
                 self.logger.warning("Old GradScaler state is empty (was disabled), skipping load")
             start_epoch = state.get("epoch", 0)
             self.logger.info("Resumed from checkpoint | start_epoch=%d", start_epoch)
+        elif state_path.exists():
+            self.logger.info("Existing training_state.pth ignored because resume=False")
 
         phase_1_end = int(getattr(self.args, "phase_1_epochs", 15))
         phase_2a_end = int(getattr(self.args, "phase_2a_epochs", phase_1_end))
@@ -493,7 +503,8 @@ class PhysFormerExperiment(BaseExperiment):
                     torch.nn.utils.clip_grad_norm_(self.trainable_parameters,
                                                    getattr(self.args, "grad_clip", 1.0))
                     optimizer.step()
-                scheduler.step()
+                if scheduler is not None:
+                    scheduler.step()
                 if step_idx % log_interval == 0 or step_idx == len(train_loader):
                     avg_loss = float((train_loss_sum / steps).detach().cpu())
                     self.logger.info(
@@ -562,11 +573,15 @@ class PhysFormerExperiment(BaseExperiment):
         _, test_loader = self._get_data("test")
         if load:
             checkpoint_path = self.checkpoint_path()
-            if checkpoint_path.exists():
+            direct_pretrained = bool(getattr(self.args, "test_pretrained_direct", False))
+            if checkpoint_path.exists() and not direct_pretrained:
                 self.logger.info("loading model checkpoint")
                 self._load_model_state(checkpoint_path, "test checkpoint", strict=False)
             else:
-                self.logger.info("checkpoint missing; trying pretrained_path for direct test")
+                if direct_pretrained:
+                    self.logger.info("test_pretrained_direct enabled; loading pretrained_path")
+                else:
+                    self.logger.info("checkpoint missing; trying pretrained_path for direct test")
                 if not self._load_pretrained_weights():
                     raise FileNotFoundError(
                         f"No checkpoint found at {checkpoint_path} and no valid pretrained_path was configured."
@@ -583,6 +598,7 @@ class PhysFormerExperiment(BaseExperiment):
         loss_terms_sum = {}
         loss_batches = 0
 
+        comp_preds_norm_batches = []
         with torch.no_grad():
             for batch_data in test_loader:
                 result = self._process_one_batch(batch_data, collect_debug=False, compute_loss=True)
@@ -594,6 +610,8 @@ class PhysFormerExperiment(BaseExperiment):
                 x_hist = result.get("x_net_hist", torch.zeros(1, 1, 1, device=self.device))
                 last_hists.append(x_hist[:, -1:, :].detach())
                 y_aux_batches.append(result["y_aux"].detach())
+                if "comp_preds_norm" in outputs:
+                    comp_preds_norm_batches.append(outputs["comp_preds_norm"].detach())
                 for name, value in outputs["physics_states"].items():
                     if isinstance(value, torch.Tensor):
                         physics_states_batches.setdefault(name, []).append(value.detach())
@@ -609,6 +627,11 @@ class PhysFormerExperiment(BaseExperiment):
         residuals = torch.cat(residuals, dim=0).cpu().numpy()
         last_hists = torch.cat(last_hists, dim=0).cpu().numpy()
         physics_states = {n: torch.cat(v, dim=0).cpu().numpy() for n, v in physics_states_batches.items()}
+        
+        # Component predictions (normalized space)
+        comp_preds_norm = None
+        if comp_preds_norm_batches:
+            comp_preds_norm = torch.cat(comp_preds_norm_batches, dim=0).cpu().numpy()
 
         preds_real = self._denorm_target_np(preds)
         trues_real = self._denorm_target_np(trues)
@@ -637,20 +660,37 @@ class PhysFormerExperiment(BaseExperiment):
         aux_std_np = np.asarray(self.scaler_params["aux_std"], dtype=np.float32).reshape(1, 1, -1)
         y_aux_real = y_aux_all * aux_std_np + aux_mean_np
 
-        comp_names = ["load", "pv", "wind", "battery_power", "battery_soc"]
-        component_theory = physics_states.get("component_theory_real")
-        if component_theory is not None and component_theory.shape[-1] >= 5:
-            comp_mae_theory = per_channel_mae(
-                component_theory[..., :5], y_aux_real[..., :5], comp_names,
-            )
-            for name, val in comp_mae_theory.items():
-                metrics[f"component_{name}_mae"] = val
+        # Component-level MAE for iGT learned outputs. iGT does not predict SOC.
+        comp_names = ["load", "pv", "wind", "battery_power"]
+        if comp_preds_norm is not None and comp_preds_norm.shape[-1] >= 4:
+            # Denormalize component predictions to real MW
+            # comp_preds_norm has 4 components: load, pv, wind, battery_power
+            # y_aux_real has 5 components: load, pv, wind, battery_power, battery_soc
+            aux_mean_4 = aux_mean_np[..., :4]  # (1, 1, 4)
+            aux_std_4 = aux_std_np[..., :4]    # (1, 1, 4)
+            comp_preds_real = comp_preds_norm * aux_std_4 + aux_mean_4  # (N, 96, 4)
+            
+            # Calculate MAE for first 4 components
+            for i, name in enumerate(comp_names):
+                pred_comp = comp_preds_real[..., i]  # (N, 96)
+                true_comp = y_aux_real[..., i]       # (N, 96)
+                mae = float(np.mean(np.abs(pred_comp - true_comp)))
+                metrics[f"component_{name}_mae"] = mae
+            
+            metrics["component_battery_soc_mae_available"] = False
+            component_theory = physics_states.get("component_theory_real")
+            if component_theory is not None and component_theory.shape[-1] >= 5:
+                battery_soc_theory = component_theory[..., 4]  # (N, 96)
+                battery_soc_true = y_aux_real[..., 4]          # (N, 96)
+                mae_soc = float(np.mean(np.abs(battery_soc_theory - battery_soc_true)))
+                metrics["component_battery_soc_mae_placeholder"] = mae_soc
 
         diagnostic_summary = {
             "theory_mae": metrics["theory_mae"],
             "residual_std_real_mw": metrics["residual_std_real_mw"],
             "residual_mean_real_mw": metrics["residual_mean_real_mw"],
             "soc_bound_violation": metrics.get("soc_bound_violation", None),
+            "component_battery_soc_mae_available": metrics.get("component_battery_soc_mae_available", None),
             "test_loss_terms": {k: v / max(loss_batches, 1) for k, v in loss_terms_sum.items()},
             "scaler_buffer_report": self._last_scaler_buffer_report,
         }
@@ -663,6 +703,8 @@ class PhysFormerExperiment(BaseExperiment):
             "test_loss_terms.json": {k: v / max(loss_batches, 1) for k, v in loss_terms_sum.items()},
             "scaler_buffer_report.json": self._last_scaler_buffer_report,
         }
+        if comp_preds_norm is not None:
+            extras["comp_preds_norm.npy"] = comp_preds_norm
         self.save_test_outputs(preds_real, trues_real, metrics, extras=extras)
 
         metrics["_units"] = {"mse": "MW²", "mae": "MW", "rmse": "MW", "theory_mae": "MW",

@@ -14,6 +14,8 @@ MODEL_KEYS = (
     "e_layers",
     "d_layers",
     "d_ff",
+    "patch_len",
+    "stride",
     "factor",
     "dropout",
     "attn",
@@ -30,6 +32,7 @@ MODEL_KEYS = (
     "time_feat_dim",
     "load_gru_hidden",
     "load_gru_use_temp",
+    "comp_gru_hidden",
 )
 
 DATA_KEYS = (
@@ -95,10 +98,12 @@ TRAINING_KEYS = (
     "pretrain_lambda_net",
     "l2sp_weight",
     "save_best_val_net_checkpoint",
+    "test_pretrained_direct",
     "phase_2a_epochs",
     "phase_2a_cw",
     "phase_reset_mode",
     "use_compile",
+    "schedule_type",
     "val_interval",
     "grad_angle_interval",
 )
@@ -112,6 +117,7 @@ HARDWARE_KEYS = (
     "pin_memory",
     "persistent_workers",
     "prefetch_factor",
+    "disable_fused_rnn_backends",
 )
 
 LIST_KEYS = {
@@ -175,7 +181,7 @@ def config_to_args(cfg):
     flat["use_temporal_decoder"] = model_cfg.get("use_temporal_decoder", True)
     flat["film_scale"] = model_cfg.get("film_scale", 0.5)
     flat["decoder_n_heads"] = model_cfg.get("decoder_n_heads", None)
-    flat["time_feat_dim"] = model_cfg.get("time_feat_dim", 8)
+    flat["time_feat_dim"] = model_cfg.get("time_feat_dim", 10)
     _set_from_cfg(flat, model_cfg, MODEL_KEYS)
 
     data_cfg = cfg.get("data", {})
@@ -215,6 +221,7 @@ def config_to_args(cfg):
     flat["restart_t0"] = training_cfg.get("restart_t0", 15)
     flat["restart_t_mult"] = training_cfg.get("restart_t_mult", 1)
     flat["detach_scale"] = float(training_cfg.get("detach_scale", 0.0))
+    flat["comp_gru_hidden"] = training_cfg.get("comp_gru_hidden", None)
     flat["phase_2a_epochs"] = training_cfg.get("phase_2a_epochs", flat["phase_1_epochs"])
     flat["phase_2a_cw"] = training_cfg.get("phase_2a_cw", flat["phase_2_cw"] * 2)
     flat["phase_reset_mode"] = training_cfg.get("phase_reset_mode", "soft")
@@ -227,6 +234,8 @@ def config_to_args(cfg):
     flat["pretrain_lambda_net"] = training_cfg.get("pretrain_lambda_net", 1.0)
     flat["l2sp_weight"] = training_cfg.get("l2sp_weight", 0.0)
     flat["save_best_val_net_checkpoint"] = training_cfg.get("save_best_val_net_checkpoint", True)
+    flat["test_pretrained_direct"] = training_cfg.get("test_pretrained_direct", False)
+    flat["schedule_type"] = training_cfg.get("schedule_type", "onecycle")
 
     hardware_cfg = cfg.get("hardware", {})
     flat["use_gpu"] = hardware_cfg.get("use_gpu", True)
@@ -237,6 +246,7 @@ def config_to_args(cfg):
     flat["pin_memory"] = hardware_cfg.get("pin_memory", True)
     flat["persistent_workers"] = hardware_cfg.get("persistent_workers", True)
     flat["prefetch_factor"] = hardware_cfg.get("prefetch_factor", 4)
+    flat["disable_fused_rnn_backends"] = hardware_cfg.get("disable_fused_rnn_backends", False)
 
     checkpoint_cfg = cfg.get("checkpoint", {})
     flat["checkpoint_name"] = checkpoint_cfg.get("name")
@@ -265,6 +275,8 @@ def config_to_args(cfg):
         flat["label_len"] = 0 if flat.get("model", "").startswith("PhysFormer") else 96
     if "features" not in flat:
         flat["features"] = "M"
+    if "target" not in flat:
+        flat["target"] = data_cfg.get("target", "OT")
 
     return argparse.Namespace(**flat)
 
@@ -297,6 +309,8 @@ def apply_cli_overrides(args, cli_args):
         args.debug_nan = True
     if getattr(cli_args, "save_gate_details", False):
         args.save_gate_details = True
+    if getattr(cli_args, "disable_fused_rnn_backends", False):
+        args.disable_fused_rnn_backends = True
     return args
 
 

@@ -15,7 +15,8 @@ data:
   adaptation_val_fraction: 0.20
 training:
   batch_size: 64
-  pretrained_path: results/physformer_igt_b1_pretrain/pretrained_checkpoint.pth
+  use_compile: false
+  pretrained_path: results/physformer_igt_b1_pretrain_lam10/best_val_net_checkpoint.pth
   load_pretrained_scaler_buffers: false
 checkpoint:
   name: physformer_igt_b1_r2_fewshot_adapt_f10_s2025

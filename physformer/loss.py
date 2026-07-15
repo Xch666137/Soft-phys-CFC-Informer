@@ -292,14 +292,25 @@ class PretrainLoss(nn.Module):
         super().__init__()
         self.lambda_net = float(lambda_net)
 
+    def _mask_to_tensor(self, mask_indices, reference):
+        if torch.is_tensor(mask_indices):
+            mask = mask_indices.to(device=reference.device, dtype=torch.bool)
+            if mask.dim() == 1:
+                mask = mask.view(1, -1).expand(reference.shape[0], -1)
+            return mask[:, :4]
+
+        mask = torch.zeros(reference.shape[0], 4, device=reference.device, dtype=torch.bool)
+        for idx in mask_indices:
+            mask[:, int(idx)] = True
+        return mask
+
     def forward(self, outputs, y_target, y_aux, mask_indices):
         comp_preds = outputs["comp_preds_norm"]  # (B, 96, 4), aux_scaler space
         comp_true = y_aux[:, :, :4]              # (B, 96, 4), aux_scaler space
 
-        comp_loss = torch.tensor(0.0, device=comp_preds.device)
-        for idx in mask_indices:
-            comp_loss = comp_loss + F.l1_loss(comp_preds[:, :, idx], comp_true[:, :, idx])
-        comp_loss = comp_loss / len(mask_indices)
+        mask = self._mask_to_tensor(mask_indices, comp_preds)
+        per_component_mae = (comp_preds - comp_true).abs().mean(dim=1)
+        comp_loss = (per_component_mae * mask.float()).sum() / mask.float().sum().clamp_min(1.0)
 
         net_loss = F.mse_loss(outputs["pred_net"], y_target)
 

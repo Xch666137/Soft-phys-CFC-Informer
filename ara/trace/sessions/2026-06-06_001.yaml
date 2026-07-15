@@ -1,0 +1,140 @@
+session:
+  id: "2026-06-06_001"
+  date: "2026-06-06"
+  started: "2026-06-03T12:00"
+  last_turn: "2026-06-06T16:30"
+  turn_count: 12
+  summary: "B1 five-layer fix implemented end-to-end: L2-L5 code repairs + L1 λ_net ablation (0.3/1.0/3.0) + torch.compile key prefix bug discovered/fixed. Phase 3 finetune with λ=1.0 and constant LR=1e-5: 3-seed mean MAE=0.001894 (MARGINAL, +4.6% above A1 0.001811)."
+
+events_logged:
+  - turn: 1
+    type: decision
+    id: N122
+    routing: direct
+    provenance: ai-suggested
+    summary: "5-layer root cause analysis of B1 vs A1; design doc committed"
+
+  - turn: 2
+    type: decision
+    id: "N122-rev"
+    routing: direct
+    provenance: user-revised
+    summary: "L1 pivot: user rejected 'remove comp_loss', accepted 'λ_net ablation'"
+
+  - turn: 3
+    type: experiment
+    id: N123
+    routing: direct
+    provenance: ai-executed
+    summary: "L2-L5 code fixes + L1 λ configs implemented and pushed"
+
+  - turn: 4
+    type: dead_end
+    id: N124
+    routing: direct
+    provenance: ai-executed
+    summary: "autodl.sh train vs pretrain command bug discovered"
+
+  - turn: 5
+    type: dead_end
+    id: N125
+    routing: direct
+    provenance: ai-executed
+    summary: "time_feat_dim mismatch in pretrain_exp.py"
+
+  - turn: 6
+    type: experiment
+    id: N126
+    routing: direct
+    provenance: ai-executed
+    summary: "λ_net ablation pretraining completed; lam10 best (Val Net 0.388)"
+
+  - turn: 7
+    type: dead_end
+    id: N127
+    routing: direct
+    provenance: ai-executed
+    summary: "torch.compile _orig_mod. key prefix bug discovered"
+
+  - turn: 8
+    type: experiment
+    id: N128
+    routing: direct
+    provenance: ai-executed
+    summary: "B1 finetune (fixed): 3-seed mean MAE=0.001894, MARGINAL"
+
+  - turn: 9
+    type: observation
+    id: O60
+    routing: staged
+    provenance: ai-executed
+    summary: "B1 MARGINAL result: +4.6% above A1 despite all 5 fixes"
+
+  - turn: 10
+    type: observation
+    id: O61
+    routing: staged
+    provenance: ai-executed
+    summary: "torch.compile state must agree between save and load"
+
+ai_actions:
+  - turn: 1
+    action: "Deep 5-layer root cause analysis of B1 vs A1"
+    provenance: ai-executed
+    files_changed: []
+  - turn: 3
+    action: "Implemented L2-L5 code fixes + L1 λ configs + L4 constant LR"
+    provenance: ai-executed
+    files_changed:
+      - "physformer/data.py"
+      - "physformer/models/physformer/igt_model.py"
+      - "physformer/train/pretrain_exp.py"
+      - "physformer/train/physformer_exp.py"
+      - "physformer/config.py"
+      - "configs/physformer_igt_b1_pretrain.yaml"
+      - "configs/physformer_igt_b1_pretrain_lam{03,10,30}.yaml"
+      - "configs/physformer_igt_b1_finetune.yaml"
+      - "configs/physformer_igt_b1_finetune_s{2025,2026,2027}.yaml"
+      - "configs/physformer_igt_b1_r1_low_lr_finetune.yaml"
+  - turn: 7
+    action: "Disabled torch.compile for both pretrain and finetune/test"
+    provenance: ai-executed
+    files_changed:
+      - "physformer/train/pretrain_exp.py"
+      - "physformer/train/physformer_exp.py"
+  - turn: 8
+    action: "Ran 3-seed finetune with fixed code, tested all seeds"
+    provenance: ai-executed
+    files_changed:
+      - "runs/physformer_igt_b1_finetune_lam10_s{2025,2026,2027}/metrics.json"
+
+claims_touched:
+  - id: C08
+    action: confirmed
+    turn: 1
+  - id: C11
+    action: confirmed
+    turn: 1
+  - id: C12
+    action: confirmed
+    turn: 1
+
+key_context:
+  - turn: 1
+    excerpt: "B1 落后 A1 不是单一原因，而是 5 层独立问题叠加"
+  - turn: 2
+    excerpt: "L1 方案这个 Masked Net Prediction 完全是背离我们MCP设计的初衷的，分量预测的重要性不言而喻"
+  - turn: 8
+    excerpt: "3 seed mean MAE=0.001894, MARGINAL (+4.6% above A1)"
+
+open_threads:
+  - "B1 reframed per N129/C13 (2026-06-10): aggregate-vs-component Pareto tradeoff — need component MAE data from B1 finetune runs"
+  - "torch.compile _unwrap_state_dict fix implemented (not yet tested on GPU)"
+  - "Pretrain validation leakage: L3 removed train+val → data loss 12%; need train-internal holdout or skip-validation approach"
+  - "Old pretrain (λ=0.3, train+val) had MAE 0.001820 — data volume vs validation cleanliness tradeoff"
+  - "LR grid search for finetune {5e-6, 2e-5} still unexplored"
+
+ai_suggestions_pending:
+  - "Pull B1 finetune component metrics (load/pv/wind/batt MAE) from remote runs to populate C13 evidence table"
+  - "Test _unwrap_state_dict fix: push code → run short pretrain → verify checkpoint has clean keys"
+  - "Consider pretrain train+val data WITH train-internal holdout for validation (not external val)"

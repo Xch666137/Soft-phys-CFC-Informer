@@ -2,13 +2,48 @@
 # The Research Manager appends to this file.
 
 sessions:
+  - id: "2026-06-15_001"
+    date: "2026-06-15"
+    summary: "Applied Energy baseline plan, non-TFT baseline repairs, and Deepseek driver/fairness-contract review completed. Baseline configs are aligned, but benchmark CLI execution remains a gap."
+    turn_count: 4
+    events_count: 4
+    claims_touched: [C11, C12, C13]
+    open_threads: 2
+  - id: "2026-06-11_001"
+    date: "2026-06-11"
+    summary: "Created a manual Computer Use Visio architecture figure, stopped active remote B1 lam10 pretraining, staged and then implemented the B1 experiment-code integrity repair."
+    turn_count: 3
+    events_count: 4
+    claims_touched: []
+    open_threads: 2
+  - id: "2026-06-06_001"
+    date: "2026-06-06"
+    summary: "B1 five-layer fix end-to-end: λ ablation pretrain + torch.compile bug fix + 3-seed finetune MAE=0.001894 (MARGINAL +4.6% vs A1)"
+    turn_count: 12
+    events_count: 10
+    claims_touched: [C08, C11, C12]
+    open_threads: 4
+  - id: "2026-06-04_001"
+    date: "2026-06-04"
+    summary: "Redesigned the Nature-style editable Visio research architecture figure, assessed a portfolio electrical-distribution schematic, then generated the separate editable VSDX/PDF/PNG figure."
+    turn_count: 3
+    events_count: 3
+    claims_touched: []
+    open_threads: 0
+  - id: "2026-06-03_001"
+    date: "2026-06-03"
+    summary: "Created editable Visio research figures, replaced prior .vsdx outputs with a Nature-style two-page composite, generated a local PPTX, rebuilt it as static HTML, then strengthened the HTML report with setup/evidence/next-gate logic."
+    turn_count: 6
+    events_count: 6
+    claims_touched: []
+    open_threads: 0
   - id: "2026-06-01_001"
     date: "2026-06-01"
-    summary: "Applied Energy Plan A started: Crossref metadata search produced a 15-paper core download list plus reserve pool and extraction template for journal-profile distillation."
-    turn_count: 2
-    events_count: 3
-    claims_touched: [C11, C12]
-    open_threads: 3
+    summary: "Applied Energy writing adapter/outline created; B1 rescue audit staged O58, then B1 protocol repair was locally implemented/verified. Clean B1 evidence now requires rerunning pretrain to create best_val_net_checkpoint.pth before R0/R1/R2."
+    turn_count: 8
+    events_count: 12
+    claims_touched: [C08, C11, C12]
+    open_threads: 5
   - id: "2026-05-31_001"
     date: "2026-05-31"
     summary: "B1 rescue implemented; B1-R1-reg 3-seed VGPU run launched incrementally in existing /root/autodl-tmp/physformer, confirmed pretrained load + scaler skip, reached common epoch 3, then stopped at user request before Test metrics."
@@ -135,3 +170,17 @@ sessions:
     events_count: 11
     claims_touched: [C08, C11, C12]
     open_threads: 8
+  - id: "2026-06-12_001"
+    date: "2026-06-12"
+    summary: "Repaired B1/R0/R1/R1-reg/R2 rerun chain completed and analyzed. R1-reg is best B1 downstream arm (mean MAE=0.001829685), R1 low-LR mean=0.001834672, R0 direct=0.001882053, and R2 few-shot degrades to ~0.00226-0.00231. Protocol logs verify canonical checkpoint loading, use_compile=false, cuDNN enabled, and SOC placeholder semantics."
+    turn_count: 2
+    events_count: 2
+    claims_touched: [C08, C11, C13]
+    open_threads: 2
+  - id: "2026-06-14_001"
+    date: "2026-06-14"
+    summary: "ARA C13/Level 2 repair completed: C13 scoped to decomposable forecasting for dispatch preparation; E14 is the pending dispatch proxy. iGT docs, concepts, constraints, evidence map, and level2_report updated (Accept, mean=4.17)."
+    turn_count: 6
+    events_count: 8
+    claims_touched: [C08, C11, C12, C13]
+    open_threads: 3
